@@ -1,0 +1,53 @@
+import type { ModelInfo } from "@myagents/shared";
+
+export const QWEN_MODELS: ModelInfo[] = [
+  {
+    id: "qwen-max",
+    name: "Qwen Max",
+    provider: "qwen",
+    contextWindow: 32000,
+    maxOutput: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    tags: ["flagship"],
+  },
+  {
+    id: "qwen-plus",
+    name: "Qwen Plus",
+    provider: "qwen",
+    contextWindow: 131072,
+    maxOutput: 8192,
+    supportsTools: true,
+    supportsVision: false,
+  },
+  {
+    id: "qwen-turbo",
+    name: "Qwen Turbo",
+    provider: "qwen",
+    contextWindow: 131072,
+    maxOutput: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    tags: ["fast"],
+  },
+  {
+    id: "qwen-coder-plus",
+    name: "Qwen Coder Plus",
+    provider: "qwen",
+    contextWindow: 131072,
+    maxOutput: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    tags: ["coding"],
+  },
+  {
+    id: "qwq-32b",
+    name: "QwQ 32B",
+    provider: "qwen",
+    contextWindow: 131072,
+    maxOutput: 16384,
+    supportsTools: true,
+    supportsVision: false,
+    tags: ["reasoning"],
+  },
+];

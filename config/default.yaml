@@ -1,0 +1,53 @@
+# MyAgents 默认配置（Phase 4 — 多 Agent + 管家）
+
+core:
+  logLevel: info
+  dataDir: ./data
+
+agent:
+  name: "管家"
+  role: "MyAgents 管家"
+  systemPrompt: "你是 MyAgents 管家。你可以创建 Agent、创建群组、启动讨论。用户会通过自然语言告诉你需要什么。"
+  provider: deepseek
+  model: deepseek-chat
+  permissions:
+    mode: full-access
+  sandbox:
+    enabled: false
+    filesystem: workspace-only
+    network: true
+  tools:
+    - bash
+    - read-file
+    - write-file
+    - glob
+    - grep
+    - butler-create-agent
+    - butler-destroy-agent
+    - butler-create-group
+    - butler-destroy-group
+    - butler-list
+    - butler-run-group
+
+providers:
+  anthropic:
+    apiKeyEnv: ANTHROPIC_API_KEY
+  openai:
+    apiKeyEnv: OPENAI_API_KEY
+    baseURL: https://api.openai.com/v1
+  deepseek:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    baseURL: https://api.deepseek.com/v1
+
+channels:
+  qq:
+    enabled: false
+    type: onebot
+    wsUrl: ws://localhost:3001
+    botQQ: ""
+    # bindTo:
+    #   type: group
+    #   groupId: debate-01
+    #   role: user        # user=实时发言 | owner=私聊群主
+
+groups: []

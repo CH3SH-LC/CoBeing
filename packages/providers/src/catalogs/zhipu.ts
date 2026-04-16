@@ -1,0 +1,53 @@
+import type { ModelInfo } from "@myagents/shared";
+
+export const ZHIPU_MODELS: ModelInfo[] = [
+  {
+    id: "glm-4-plus",
+    name: "GLM-4 Plus",
+    provider: "zhipu",
+    contextWindow: 128000,
+    maxOutput: 4096,
+    supportsTools: true,
+    supportsVision: true,
+    tags: ["flagship"],
+  },
+  {
+    id: "glm-4-air",
+    name: "GLM-4 Air",
+    provider: "zhipu",
+    contextWindow: 128000,
+    maxOutput: 4096,
+    supportsTools: true,
+    supportsVision: false,
+    tags: ["fast"],
+  },
+  {
+    id: "glm-4-flash",
+    name: "GLM-4 Flash",
+    provider: "zhipu",
+    contextWindow: 128000,
+    maxOutput: 4096,
+    supportsTools: true,
+    supportsVision: false,
+    tags: ["fast"],
+  },
+  {
+    id: "glm-4-alltools",
+    name: "GLM-4 AllTools",
+    provider: "zhipu",
+    contextWindow: 128000,
+    maxOutput: 4096,
+    supportsTools: true,
+    supportsVision: false,
+  },
+  {
+    id: "codegeex-4",
+    name: "CodeGeeX 4",
+    provider: "zhipu",
+    contextWindow: 128000,
+    maxOutput: 4096,
+    supportsTools: false,
+    supportsVision: false,
+    tags: ["coding"],
+  },
+];

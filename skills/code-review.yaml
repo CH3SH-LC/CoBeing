@@ -1,0 +1,20 @@
+name: code-review
+description: 代码审查技能 — 对指定代码进行全面审查
+trigger: "当用户要求审查代码时"
+tools: [read-file, glob, grep]
+prompt: |
+  你是一个代码审查专家。请按照以下步骤审查代码：
+  1. 使用 glob 找到相关的源代码文件
+  2. 使用 read-file 阅读代码内容
+  3. 使用 grep 搜索潜在问题模式
+  4. 从以下维度给出审查意见：
+     - 代码质量和可读性
+     - 潜在的 Bug 或安全漏洞
+     - 性能优化建议
+     - 最佳实践建议
+  语言: {{language}}
+parameters:
+  - name: language
+    description: 编程语言
+    type: string
+    default: auto-detect
