@@ -264,7 +264,7 @@ export class Agent {
         content: response.content,
       });
 
-      // 后台反思（不阻塞返回）
+      // 后台反思（不阻塞返回，Phase 8.4: 传入完整历史 + 条件触发）
       this.reflectInBackground(input, response.content);
 
       return response;
@@ -273,14 +273,21 @@ export class Agent {
     }
   }
 
-  /** 后台反思：任务完成后总结经验 */
+  /** 后台反思：传入完整对话历史，仅在有工具调用时触发 */
   private reflectInBackground(task: string, response: string): void {
     setImmediate(async () => {
       try {
-        await this.experienceWriter.reflect(task, [
-          { role: "user", content: task },
-          { role: "assistant", content: response },
-        ]);
+        // 获取完整对话历史（包含工具调用和结果）
+        const history = this.conversationLoop.getHistory();
+
+        // 条件反思：只在对话包含工具调用时触发
+        const hasToolCalls = history.some(m => m.role === "tool" || (m.toolCalls && m.toolCalls.length > 0));
+        if (!hasToolCalls) {
+          this.logger.debug("Skipping reflection: no tool calls in conversation");
+          return;
+        }
+
+        await this.experienceWriter.reflect(task, history);
       } catch {
         // 反思失败不影响主流程
       }
