@@ -72,4 +72,45 @@ describe("AgentFiles", () => {
     const f = new AgentFiles(new AgentPaths(tmpDir));
     expect(f.readConfig()).toEqual({});
   });
+
+  it("writes and reads USER.md", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    f.writeUser("用户偏好：简洁回答，使用中文。");
+    expect(f.readUser()).toBe("用户偏好：简洁回答，使用中文。");
+  });
+
+  it("returns empty string for missing USER.md", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    expect(f.readUser()).toBe("");
+  });
+
+  it("writes and reads BOOTSTRAP.md", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    f.writeBootstrap("首次启动时请完成以下任务：...");
+    expect(f.readBootstrap()).toBe("首次启动时请完成以下任务：...");
+  });
+
+  it("returns empty string for missing BOOTSTRAP.md", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    expect(f.readBootstrap()).toBe("");
+  });
+
+  it("writes and reads TOOLS.md", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    f.writeTools("## bash\n默认 shell: zsh");
+    expect(f.readTools()).toBe("## bash\n默认 shell: zsh");
+  });
+
+  it("deletes BOOTSTRAP.md after consume", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    f.writeBootstrap("一次性引导内容");
+    const content = f.consumeBootstrap();
+    expect(content).toBe("一次性引导内容");
+    expect(f.readBootstrap()).toBe("");
+  });
+
+  it("returns empty for consumeBootstrap when no file", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    expect(f.consumeBootstrap()).toBe("");
+  });
 });

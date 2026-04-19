@@ -114,6 +114,45 @@ export class AgentFiles {
     fs.writeFileSync(this.paths.experiencePath, content, "utf-8");
   }
 
+  /** 读取 USER.md */
+  readUser(): string {
+    return this.readFile(this.paths.userPath);
+  }
+
+  /** 写入 USER.md */
+  writeUser(content: string): void {
+    fs.writeFileSync(this.paths.userPath, content, "utf-8");
+  }
+
+  /** 读取 BOOTSTRAP.md */
+  readBootstrap(): string {
+    return this.readFile(this.paths.bootstrapPath);
+  }
+
+  /** 写入 BOOTSTRAP.md */
+  writeBootstrap(content: string): void {
+    fs.writeFileSync(this.paths.bootstrapPath, content, "utf-8");
+  }
+
+  /** 读取并删除 BOOTSTRAP.md（一次性引导） */
+  consumeBootstrap(): string {
+    const content = this.readFile(this.paths.bootstrapPath);
+    if (content) {
+      fs.unlinkSync(this.paths.bootstrapPath);
+    }
+    return content;
+  }
+
+  /** 读取 TOOLS.md */
+  readTools(): string {
+    return this.readFile(this.paths.toolsPath);
+  }
+
+  /** 写入 TOOLS.md */
+  writeTools(content: string): void {
+    fs.writeFileSync(this.paths.toolsPath, content, "utf-8");
+  }
+
   /** 追加一条经验到 EXPERIENCE.md */
   appendExperience(entry: { task: string; problem: string; solution: string; date?: string }): void {
     const existing = this.readExperience();
