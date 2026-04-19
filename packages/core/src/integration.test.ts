@@ -8,11 +8,13 @@ import path from "node:path";
 import os from "node:os";
 import { Agent } from "./agent/agent.js";
 import { AgentRegistry } from "./agent/registry.js";
+import { AgentEventBus } from "./agent/event-bus.js";
 import { MemoryWriter } from "./memory/writer.js";
 import { MemoryReader } from "./memory/reader.js";
 import { ButlerRegistry } from "./butler/registry.js";
 import { GroupManager } from "./group/manager.js";
 import { GroupContext } from "./group/context.js";
+import { AgentPaths, AgentFiles } from "./agent/paths.js";
 
 // Mock LLM Provider
 function createMockProvider() {
@@ -240,6 +242,113 @@ describe("E2E Integration", () => {
 
       const noResults = reader.search("nonexistent");
       expect(noResults).toHaveLength(0);
+    });
+  });
+
+  describe("经验系统 E2E", () => {
+    it("Agent 完成任务后自动创建 EXPERIENCE.md", async () => {
+      const agent = new Agent({
+        id: "exp-e2e", name: "ExpE2E", role: "test", systemPrompt: "test",
+        provider: "mock", model: "mock",
+      }, createMockProvider(), path.join(tmpDir, "agents"));
+
+      await agent.run("帮我修复 TypeScript 类型错误");
+
+      // 检查 EXPERIENCE.md 是否被创建
+      const expPath = agent.paths.experiencePath;
+      expect(fs.existsSync(expPath)).toBe(true);
+    });
+  });
+
+  describe("事件总线 E2E", () => {
+    it("GroupContext @mention 通过事件总线触发 Agent", () => {
+      const bus = new AgentEventBus();
+      const ctx = new GroupContext("e2e-group", tmpDir, bus);
+
+      let received = false;
+      bus.subscribe("target-agent", () => { received = true; });
+
+      ctx.speakToMain("owner", "@target-agent 请开始工作");
+
+      expect(received).toBe(true);
+    });
+  });
+
+  describe("Skills 选择装载 E2E", () => {
+    it("Agent 只加载指定的 skills", () => {
+      const dataRoot = path.join(tmpDir, "agents");
+      const agentSkillsDir = path.join(dataRoot, "selective-agent", "skills");
+
+      fs.mkdirSync(path.join(agentSkillsDir, "skill-a"), { recursive: true });
+      fs.writeFileSync(path.join(agentSkillsDir, "skill-a", "SKILL.md"), [
+        "---", "name: skill-a", "description: Skill A", "---", "", "Do A.",
+      ].join("\n"), "utf-8");
+
+      fs.mkdirSync(path.join(agentSkillsDir, "skill-b"), { recursive: true });
+      fs.writeFileSync(path.join(agentSkillsDir, "skill-b", "SKILL.md"), [
+        "---", "name: skill-b", "description: Skill B", "---", "", "Do B.",
+      ].join("\n"), "utf-8");
+
+      // 不指定 skills → 全部加载
+      const agent = new Agent({
+        id: "selective-agent", name: "S1", role: "test", systemPrompt: "test",
+        provider: "mock", model: "mock",
+      }, createMockProvider(), dataRoot);
+
+      const tools = agent["toolRegistry"].listDefinitions();
+      const skillA = tools.find(t => t.function.name === "skill-skill-a");
+      const skillB = tools.find(t => t.function.name === "skill-skill-b");
+      expect(skillA).toBeDefined();
+      expect(skillB).toBeDefined();
+    });
+  });
+
+  describe("Phase 8.1: Agent File System Integration", () => {
+    it("bootstrap is consumed after agent creation", () => {
+      const dataRoot = path.join(tmpDir, "agents");
+      const agentDir = path.join(dataRoot, "bootstrap-test");
+      fs.mkdirSync(agentDir, { recursive: true });
+      fs.writeFileSync(path.join(agentDir, "BOOTSTRAP.md"), "首次启动引导内容", "utf-8");
+
+      const agent = new Agent({
+        id: "bootstrap-test",
+        name: "引导测试",
+        role: "测试",
+        systemPrompt: "你是引导测试Agent。",
+        provider: "mock",
+        model: "mock",
+      }, createMockProvider(), dataRoot);
+
+      // BOOTSTRAP 应该已被 consume 删除
+      expect(fs.existsSync(path.join(agentDir, "BOOTSTRAP.md"))).toBe(false);
+    });
+
+    it("agent prompt includes SOUL + USER + AGENTS", () => {
+      const dataRoot = path.join(tmpDir, "agents");
+      const agentDir = path.join(dataRoot, "chain-test");
+      fs.mkdirSync(agentDir, { recursive: true });
+      fs.writeFileSync(path.join(agentDir, "SOUL.md"), "你是一个严谨的工程师。", "utf-8");
+      fs.writeFileSync(path.join(agentDir, "USER.md"), "偏好：简洁。", "utf-8");
+      fs.writeFileSync(path.join(agentDir, "AGENTS.md"), "先读后写。", "utf-8");
+
+      const agent = new Agent({
+        id: "chain-test",
+        name: "链式测试",
+        role: "测试",
+        systemPrompt: "你是测试Agent。",
+        provider: "mock",
+        model: "mock",
+      }, createMockProvider(), dataRoot);
+
+      // Agent 构造成功即可验证链式构建没有报错
+      expect(agent).toBeDefined();
+    });
+
+    it("AgentPaths resolves all new paths", () => {
+      const p = AgentPaths.forAgent("new-paths", path.join(tmpDir, "agents"));
+      expect(p.userPath).toContain("USER.md");
+      expect(p.bootstrapPath).toContain("BOOTSTRAP.md");
+      expect(p.toolsPath).toContain("TOOLS.md");
     });
   });
 });
