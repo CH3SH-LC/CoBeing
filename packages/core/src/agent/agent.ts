@@ -23,6 +23,9 @@ import { SubAgentSpawner } from "./spawner.js";
 import { AgentPaths, AgentFiles } from "./paths.js";
 import { MemoryWriter } from "../memory/writer.js";
 import { MemoryReader } from "../memory/reader.js";
+import { ExperienceWriter } from "../memory/experience.js";
+import { AgentEventBus } from "./event-bus.js";
+import { buildSystemPromptFromFiles } from "../conversation/prompt-builder.js";
 import { createLogger } from "@myagents/shared";
 
 /** 所有内置工具映射 */
@@ -57,6 +60,7 @@ export class Agent {
   readonly paths: AgentPaths;
   readonly files: AgentFiles;
   private memoryWriter: MemoryWriter;
+  private experienceWriter: ExperienceWriter;
 
   // 每个用户/会话独立的对话循环
   private sessionLoops = new Map<string, ConversationLoop>();
@@ -75,8 +79,6 @@ export class Agent {
 
     // 从文件系统加载增强信息
     const identity = this.files.readIdentity();
-    const soulContent = this.files.readSoul();
-    const memoryIndex = this.files.readMemoryIndex();
     const fileConfig = this.files.readConfig();
 
     // 合并 name（IDENTITY.md 优先）
@@ -88,18 +90,19 @@ export class Agent {
     const mergedConfig = { ...config, ...fileConfig };
     const workingDir = this.paths.workspaceDir;
 
-    // 增强 systemPrompt：SOUL.md + MEMORY.md
-    let enhancedPrompt = config.systemPrompt || "";
-    if (soulContent) {
-      enhancedPrompt = soulContent + "\n\n" + enhancedPrompt;
-    }
-    if (memoryIndex) {
-      enhancedPrompt += "\n\n# 你的历史记忆\n\n" + memoryIndex;
-    }
-
     // 记忆系统
     this.memoryWriter = new MemoryWriter(this.paths.memoryDir);
-    new MemoryReader(this.paths.memoryDir, this.paths.memoryIndexPath); // 初始化供外部使用
+    new MemoryReader(this.paths.memoryDir, this.paths.memoryIndexPath);
+
+    // 经验系统
+    this.experienceWriter = new ExperienceWriter(this.paths.experiencePath, this.provider);
+
+    // 从文件链构建 system prompt（SOUL → BOOTSTRAP → role → AGENTS → USER → EXPERIENCE → MEMORY）
+    const enhancedPrompt = buildSystemPromptFromFiles(this.files, {
+      name: this.name,
+      role: config.role,
+      systemPrompt: config.systemPrompt || "",
+    });
 
     // 初始化工具系统
     this.toolRegistry = new ToolRegistry();
@@ -123,13 +126,21 @@ export class Agent {
     // MCP 管理器
     this.mcpManager = new MCPManager();
 
-    // YAML/JSON 技能加载器
+    // YAML/JSON 技能加载器（支持按名称过滤）
     this.skillLoader = new SkillLoader();
-    this.skillLoader.load(
-      mergedConfig.skillsDir ?? "skills",
-      () => this.provider,
-    );
-    for (const tool of this.skillLoader.getTools()) {
+    const globalSkillsDir = mergedConfig.skillsDir ?? "skills";
+    this.skillLoader.load(globalSkillsDir, () => this.provider);
+
+    const requestedSkills = mergedConfig.skills;
+    const allSkillTools = this.skillLoader.getTools();
+    const toolsToRegister = requestedSkills
+      ? allSkillTools.filter(t => {
+          const skillName = t.name.replace(/^skill-/, "");
+          return requestedSkills.includes(skillName);
+        })
+      : allSkillTools;
+
+    for (const tool of toolsToRegister) {
       this.toolRegistry.register(tool);
     }
 
@@ -260,10 +271,27 @@ export class Agent {
         content: response.content,
       });
 
+      // 后台反思（不阻塞返回）
+      this.reflectInBackground(input, response.content);
+
       return response;
     } finally {
       this._status = "idle";
     }
+  }
+
+  /** 后台反思：任务完成后总结经验 */
+  private reflectInBackground(task: string, response: string): void {
+    setImmediate(async () => {
+      try {
+        await this.experienceWriter.reflect(task, [
+          { role: "user", content: task },
+          { role: "assistant", content: response },
+        ]);
+      } catch {
+        // 反思失败不影响主流程
+      }
+    });
   }
 
   getStatus(): AgentStatus {
@@ -295,8 +323,31 @@ export class Agent {
     return this._spawner;
   }
 
+  private eventBusUnsub?: () => void;
+
+  /** 订阅事件总线，接收自发消息 */
+  subscribeToBus(bus: AgentEventBus): void {
+    this.eventBusUnsub = bus.subscribe(this.id, async (msg) => {
+      if (msg.fromAgentId === this.id) return;
+
+      this.logger.info("Received spontaneous message from %s", msg.fromAgentId);
+
+      const context = msg.groupId
+        ? `[群组 ${msg.groupId} 中 @${this.id}]\n`
+        : `[${msg.fromAgentId} 私信]\n`;
+      const prompt = `${context}${msg.content}`;
+
+      try {
+        await this.run(prompt);
+      } catch (err) {
+        this.logger.error("Failed to handle spontaneous message: %s", err);
+      }
+    });
+  }
+
   /** 关闭资源 */
   async dispose(): Promise<void> {
+    this.eventBusUnsub?.();
     await this.mcpManager.close();
   }
 }
