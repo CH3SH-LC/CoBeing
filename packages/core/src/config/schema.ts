@@ -1,5 +1,5 @@
 /**
- * 配置 Schema 定义
+ * 配置 Schema 定义 — Phase 8.1 自治配置
  */
 
 export interface ChannelBindTo {
@@ -9,10 +9,15 @@ export interface ChannelBindTo {
   role?: "user" | "owner";
 }
 
+/**
+ * 根配置 — 声明全局资源和默认 Agent（butler）
+ */
 export interface AppConfig {
   core: {
     logLevel: string;
     dataDir: string;
+    skillsDir?: string;     // 全局 Skill 仓库路径，默认 "./skills"
+    promptsDir?: string;    // Prompt 模板路径，默认 "./prompts"
   };
   agent: {
     name: string;
@@ -95,4 +100,28 @@ export interface AppConfig {
     maxRounds?: number;
     topic?: string;
   }>;
+}
+
+/**
+ * Agent 自治配置 — 存放在 data/agents/{id}/config.json
+ */
+export interface AgentSelfConfig {
+  name: string;
+  role: string;
+  provider: string;
+  model: string;
+  permissions?: {
+    mode: string;
+    allow?: string[];
+    deny?: string[];
+  };
+  sandbox?: {
+    enabled: boolean;
+    filesystem: string;
+    network: boolean;
+    bindings?: string[];
+  };
+  tools?: string[];
+  skills?: string[];
+  systemPrompt?: string;
 }
