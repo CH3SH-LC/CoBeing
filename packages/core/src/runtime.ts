@@ -23,6 +23,7 @@ import { Agent } from "./agent/agent.js";
 import { AgentPaths, AgentFiles } from "./agent/paths.js";
 import { AgentEventBus } from "./agent/event-bus.js";
 import { ChannelRouter } from "./group/router.js";
+import { SkillRepository } from "./skills/repository.js";
 import type { ChannelBindTo } from "./config/schema.js";
 import { createLogger, setGlobalLogLevel } from "@myagents/shared";
 
@@ -38,10 +39,16 @@ export class MyAgentsRuntime {
   private providers = new Map<string, LLMProvider>();
   private channels: ChannelAdapter[] = [];
   readonly router: ChannelRouter;
+  readonly skillRepo: SkillRepository;
   private dataRoot: string;
 
   constructor(private config: AppConfig) {
     this.dataRoot = path.resolve(config.core.dataDir ?? "./data");
+
+    // 全局 Skill 仓库
+    const skillsDir = config.core.skillsDir ?? "./skills";
+    this.skillRepo = new SkillRepository(path.resolve(skillsDir));
+
     this.registry = new AgentRegistry();
     this.groupManager = new GroupManager(this.registry, this.dataRoot, this.eventBus);
     this.wsServer = new CoreWSServer(config.gui?.wsPort ?? 18765);
@@ -87,6 +94,9 @@ export class MyAgentsRuntime {
         "group-speak", "talk-create", "talk-send", "talk-read",
       ],
     }, defaultProvider, this.registry, this.groupManager, (providerId: string) => this.providers.get(providerId), this.router);
+
+    // 注入 SkillRepository 到管家
+    this.butler.injectSkillRepository(this.skillRepo);
   }
 
   /** 按 config 构建所有 Provider 实例 */
@@ -167,6 +177,7 @@ export class MyAgentsRuntime {
       try {
         const agent = new Agent(config, provider, this.dataRoot);
         agent.subscribeToBus(this.eventBus);
+        agent.injectSkillRepository(this.skillRepo);
         this.registry.register(agent);
         log.info("Restored agent: %s (%s) [from %s]",
           config.name, entry.id,

@@ -17,8 +17,8 @@ import { grepTool } from "../tools/grep.js";
 import { webFetchTool } from "../tools/web-fetch.js";
 import { agentMessageTool } from "../tools/agent-message.js";
 import { MCPManager } from "../mcp/manager.js";
-import { SkillLoader } from "../skills/loader.js";
-import { SkillMdLoader } from "../skills/md-loader.js";
+import type { SkillRepository } from "../skills/repository.js";
+import { makeSkillExecuteTool, makeSkillListTool, makeSkillCreateTool } from "../tools/skill-tools.js";
 import { SubAgentSpawner } from "./spawner.js";
 import { AgentPaths, AgentFiles } from "./paths.js";
 import { MemoryWriter } from "../memory/writer.js";
@@ -50,8 +50,6 @@ export class Agent {
   protected conversationLoop: ConversationLoop;
   protected toolRegistry: ToolRegistry;
   private mcpManager: MCPManager;
-  private skillLoader: SkillLoader;
-  private skillMdLoader: SkillMdLoader;
   private _spawner: SubAgentSpawner | null = null;
   private _status: AgentStatus = "idle";
   private logger: ReturnType<typeof createLogger>;
@@ -126,33 +124,8 @@ export class Agent {
     // MCP 管理器
     this.mcpManager = new MCPManager();
 
-    // YAML/JSON 技能加载器（支持按名称过滤）
-    this.skillLoader = new SkillLoader();
-    const globalSkillsDir = mergedConfig.skillsDir ?? "skills";
-    this.skillLoader.load(globalSkillsDir, () => this.provider);
-
-    const requestedSkills = mergedConfig.skills;
-    const allSkillTools = this.skillLoader.getTools();
-    const toolsToRegister = requestedSkills
-      ? allSkillTools.filter(t => {
-          const skillName = t.name.replace(/^skill-/, "");
-          return requestedSkills.includes(skillName);
-        })
-      : allSkillTools;
-
-    for (const tool of toolsToRegister) {
-      this.toolRegistry.register(tool);
-    }
-
-    // SKILL.md 加载器（Agent 私有 skills 目录）
-    this.skillMdLoader = new SkillMdLoader();
-    this.skillMdLoader.load(
-      this.paths.skillsDir,
-      () => this.provider,
-    );
-    for (const tool of this.skillMdLoader.getTools()) {
-      this.toolRegistry.register(tool);
-    }
+    // Skill 统一工具（Phase 8.2: 注入 SkillRepository + 3 个统一工具）
+    const requestedSkills = mergedConfig.skills as string[] | undefined;
 
     this.conversationLoop = this.createLoop(toolExecutor, undefined, enhancedPrompt, mergedConfig.model);
   }
@@ -177,6 +150,26 @@ export class Agent {
       sessionId: sessionId ?? "default",
       workingDir: this.paths.workspaceDir,
     });
+  }
+
+  /** 注入 SkillRepository，注册 3 个统一工具 */
+  injectSkillRepository(repo: SkillRepository): void {
+    const allowedSkills = this.config.skills;
+    this.toolRegistry.register(makeSkillExecuteTool(repo, () => this.provider, allowedSkills));
+    this.toolRegistry.register(makeSkillListTool(repo, allowedSkills));
+    this.toolRegistry.register(makeSkillCreateTool(repo));
+
+    // 重建 conversation loop 以包含新工具
+    const perm = new PermissionEnforcer(
+      this.config.permissions ?? { mode: "ask" },
+      this.config.toolsConfig,
+      this.paths.workspaceDir,
+    );
+    const executor = new ToolExecutor(this.toolRegistry, perm);
+    this.conversationLoop = this.createLoop(executor);
+
+    this.logger.info("SkillRepository injected: %d skills available (filter: %s)",
+      repo.size, allowedSkills?.join(",") ?? "all");
   }
 
   /** 绑定 channel */

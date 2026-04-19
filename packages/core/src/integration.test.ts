@@ -15,6 +15,7 @@ import { ButlerRegistry } from "./butler/registry.js";
 import { GroupManager } from "./group/manager.js";
 import { GroupContext } from "./group/context.js";
 import { AgentPaths, AgentFiles } from "./agent/paths.js";
+import { SkillRepository } from "./skills/repository.js";
 
 // Mock LLM Provider
 function createMockProvider() {
@@ -200,9 +201,9 @@ describe("E2E Integration", () => {
   });
 
   describe("SKILL.md 加载 + Agent 集成", () => {
-    it("Agent 私有 skills 目录加载 SKILL.md", () => {
-      const dataRoot = path.join(tmpDir, "agents");
-      const skillsDir = path.join(dataRoot, "test-agent", "skills");
+    it("SkillRepository loads SKILL.md and Agent injects skill tools", () => {
+      // 创建全局 skills 目录
+      const skillsDir = path.join(tmpDir, "skills");
       fs.mkdirSync(path.join(skillsDir, "greet"), { recursive: true });
       fs.writeFileSync(path.join(skillsDir, "greet", "SKILL.md"), [
         "---",
@@ -213,15 +214,24 @@ describe("E2E Integration", () => {
         "用友好的方式打招呼。",
       ].join("\n"), "utf-8");
 
+      const repo = new SkillRepository(skillsDir);
+      expect(repo.size).toBe(1);
+      expect(repo.get("greet")).toBeDefined();
+
+      const dataRoot = path.join(tmpDir, "agents");
       const agent = new Agent({
         id: "test-agent", name: "Test", role: "test", systemPrompt: "test",
         provider: "mock", model: "mock",
       }, createMockProvider(), dataRoot);
 
-      // 工具应该被注册
+      // 注入 SkillRepository
+      agent.injectSkillRepository(repo);
+
+      // 应该有 skill-execute, skill-list, skill-create 三个工具
       const toolDefs = agent["toolRegistry"].listDefinitions();
-      const greetTool = toolDefs.find(t => t.function.name === "skill-greet");
-      expect(greetTool).toBeDefined();
+      expect(toolDefs.find(t => t.function.name === "skill-execute")).toBeDefined();
+      expect(toolDefs.find(t => t.function.name === "skill-list")).toBeDefined();
+      expect(toolDefs.find(t => t.function.name === "skill-create")).toBeDefined();
     });
   });
 
@@ -274,32 +284,48 @@ describe("E2E Integration", () => {
     });
   });
 
-  describe("Skills 选择装载 E2E", () => {
-    it("Agent 只加载指定的 skills", () => {
-      const dataRoot = path.join(tmpDir, "agents");
-      const agentSkillsDir = path.join(dataRoot, "selective-agent", "skills");
-
-      fs.mkdirSync(path.join(agentSkillsDir, "skill-a"), { recursive: true });
-      fs.writeFileSync(path.join(agentSkillsDir, "skill-a", "SKILL.md"), [
+  describe("Skills 选择装载 E2E (Phase 8.2)", () => {
+    it("skill-list respects skills whitelist", async () => {
+      const skillsDir = path.join(tmpDir, "skills");
+      fs.mkdirSync(path.join(skillsDir, "skill-a"), { recursive: true });
+      fs.writeFileSync(path.join(skillsDir, "skill-a", "SKILL.md"), [
         "---", "name: skill-a", "description: Skill A", "---", "", "Do A.",
       ].join("\n"), "utf-8");
 
-      fs.mkdirSync(path.join(agentSkillsDir, "skill-b"), { recursive: true });
-      fs.writeFileSync(path.join(agentSkillsDir, "skill-b", "SKILL.md"), [
+      fs.mkdirSync(path.join(skillsDir, "skill-b"), { recursive: true });
+      fs.writeFileSync(path.join(skillsDir, "skill-b", "SKILL.md"), [
         "---", "name: skill-b", "description: Skill B", "---", "", "Do B.",
       ].join("\n"), "utf-8");
 
-      // 不指定 skills → 全部加载
+      const repo = new SkillRepository(skillsDir);
+      expect(repo.size).toBe(2);
+
+      // 带 whitelist 的 Agent
+      const dataRoot = path.join(tmpDir, "agents");
       const agent = new Agent({
-        id: "selective-agent", name: "S1", role: "test", systemPrompt: "test",
+        id: "whitelist-agent", name: "S1", role: "test", systemPrompt: "test",
         provider: "mock", model: "mock",
+        skills: ["skill-a"],
       }, createMockProvider(), dataRoot);
 
-      const tools = agent["toolRegistry"].listDefinitions();
-      const skillA = tools.find(t => t.function.name === "skill-skill-a");
-      const skillB = tools.find(t => t.function.name === "skill-skill-b");
-      expect(skillA).toBeDefined();
-      expect(skillB).toBeDefined();
+      agent.injectSkillRepository(repo);
+
+      // skill-list 应该只返回 skill-a
+      const listTool = agent["toolRegistry"].listDefinitions().find(t => t.function.name === "skill-list");
+      expect(listTool).toBeDefined();
+    });
+
+    it("SkillRepository create and search", () => {
+      const skillsDir = path.join(tmpDir, "skills-new");
+      fs.mkdirSync(skillsDir, { recursive: true });
+      const repo = new SkillRepository(skillsDir);
+
+      repo.create("test-skill", "A test skill", "Do the test thing.");
+      expect(repo.size).toBe(1);
+
+      const results = repo.search("test");
+      expect(results).toHaveLength(1);
+      expect(results[0].name).toBe("test-skill");
     });
   });
 
