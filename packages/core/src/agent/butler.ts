@@ -3,7 +3,10 @@
  */
 import type { AgentConfig, Tool, ToolContext, ToolResult, GroupProtocol } from "@myagents/shared";
 import type { LLMProvider } from "@myagents/providers";
+import path from "node:path";
+import fs from "node:fs";
 import { Agent } from "./agent.js";
+import { AgentPaths, AgentFiles } from "./paths.js";
 import { AgentRegistry } from "./registry.js";
 import { GroupManager } from "../group/manager.js";
 import { ConversationLoop } from "../conversation/conversation-loop.js";
@@ -11,6 +14,7 @@ import { PermissionEnforcer } from "../tools/permission.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { makeGroupSpeakTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool } from "../tools/group-tools.js";
 import { ButlerRegistry } from "../butler/registry.js";
+import { WorkflowEngine } from "../workflow/engine.js";
 import { createLogger } from "@myagents/shared";
 
 const log = createLogger("butler");
@@ -35,6 +39,11 @@ function makeCreateAgentTool(
         capabilities: { type: "string", description: "能力描述（可选）" },
         provider: { type: "string", description: "LLM Provider（默认 deepseek）" },
         model: { type: "string", description: "模型名称（默认 deepseek-chat）" },
+        skills: {
+          type: "array",
+          items: { type: "string" },
+          description: "要装载的技能名称列表（匹配 skills/ 目录下的技能目录名，如 ['code-review', 'project-planning']）",
+        },
       },
       required: ["name", "role"],
     },
@@ -54,10 +63,40 @@ function makeCreateAgentTool(
         permissions: { mode: "workspace-write" },
         sandbox: { enabled: false, filesystem: "workspace-only", network: true },
         tools: ["bash", "read-file", "write-file", "glob", "grep", "web-fetch"],
+        skills: params.skills as string[] | undefined,
       };
 
       // 使用 resolver 或 fallback 到默认 provider
       const provider = providerResolver?.(providerId) ?? providerGetter();
+
+      // 写入自治配置到 agent 目录
+      const agentPaths = AgentPaths.forAgent(id);
+      agentPaths.ensureDirs();
+      const agentFiles = new AgentFiles(agentPaths);
+
+      agentFiles.writeConfig({
+        name,
+        role: params.role as string,
+        provider: providerId,
+        model,
+        permissions: { mode: "workspace-write" },
+        sandbox: { enabled: false, filesystem: "workspace-only", network: true },
+        tools: ["bash", "read-file", "write-file", "glob", "grep", "web-fetch"],
+        skills: params.skills as string[] | undefined,
+      });
+
+      // 从模板复制核心文件（如果目标不存在）
+      const templatesDir = path.resolve("config/templates");
+      for (const tmplFile of ["IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md"]) {
+        const src = path.join(templatesDir, tmplFile);
+        const dst = path.join(agentPaths.baseDir, tmplFile);
+        if (fs.existsSync(src) && !fs.existsSync(dst)) {
+          let content = fs.readFileSync(src, "utf-8");
+          content = content.replace(/\{\{name\}\}/g, name).replace(/\{\{role\}\}/g, params.role as string);
+          fs.writeFileSync(dst, content, "utf-8");
+        }
+      }
+
       const agent = new Agent(config, provider);
       registry.register(agent);
 
@@ -190,8 +229,8 @@ function makeRunGroupTool(groupManager: GroupManager, butlerRegistry: ButlerRegi
     async execute(params, _context: ToolContext): Promise<ToolResult> {
       const group = groupManager.get(params.groupId as string);
       if (!group) return { toolCallId: "", content: `未找到群组: ${params.groupId}`, isError: true };
-      const history = await group.run(params.topic as string);
-      const summary = history.map(m => `[${m.fromAgentId}]: ${m.content.slice(0, 200)}`).join("\n\n");
+      const history = await group.startDiscussion(params.topic as string);
+      const summary = history.map((m: any) => `[${m.fromAgentId}]: ${m.content.slice(0, 200)}`).join("\n\n");
 
       // 保存到 GroupContext
       const ctx = groupManager.getContext(params.groupId as string);
@@ -442,6 +481,43 @@ ${existingInfo || "(无)"}
   };
 }
 
+function makeWorkflowAnalyzeTool(engine: WorkflowEngine): Tool {
+  return {
+    name: "workflow-analyze",
+    description: "使用工作流引擎分析任务，确定需要的 Agent 和群组配置",
+    parameters: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "任务描述" },
+      },
+      required: ["task"],
+    },
+    async execute(params, _context: ToolContext): Promise<ToolResult> {
+      const result = await engine.analyze(params.task as string);
+      return { toolCallId: "", content: result };
+    },
+  };
+}
+
+function makeWorkflowPlanTool(engine: WorkflowEngine): Tool {
+  return {
+    name: "workflow-plan",
+    description: "基于任务分析生成执行计划",
+    parameters: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "任务描述" },
+        analysis: { type: "string", description: "任务分析结果（来自 workflow-analyze）" },
+      },
+      required: ["task", "analysis"],
+    },
+    async execute(params, _context: ToolContext): Promise<ToolResult> {
+      const steps = await engine.plan(params.task as string, params.analysis as string);
+      return { toolCallId: "", content: `执行计划:\n${steps.join("\n")}` };
+    },
+  };
+}
+
 // ---- ButlerAgent ----
 
 export class ButlerAgent extends Agent {
@@ -459,6 +535,14 @@ export class ButlerAgent extends Agent {
 
     // 初始化 ButlerRegistry
     this.butlerRegistry = new ButlerRegistry();
+
+    // 工作流引擎
+    const engine = new WorkflowEngine({
+      provider,
+      butlerRegistry: this.butlerRegistry,
+      agentRegistry: registry,
+      groupManager,
+    });
 
     // Register butler tools
     this.toolRegistry.register(makeCreateAgentTool(registry, () => provider, this.butlerRegistry, providerResolver));
@@ -485,6 +569,10 @@ export class ButlerAgent extends Agent {
     this.toolRegistry.register(makeTalkCreateTool((gid) => groupManager.getContext(gid)));
     this.toolRegistry.register(makeTalkSendTool((gid) => groupManager.getContext(gid)));
     this.toolRegistry.register(makeTalkReadTool((gid) => groupManager.getContext(gid)));
+
+    // 工作流工具
+    this.toolRegistry.register(makeWorkflowAnalyzeTool(engine));
+    this.toolRegistry.register(makeWorkflowPlanTool(engine));
 
     // Re-create conversation loop with updated tools
     const perm = new PermissionEnforcer({ mode: "full-access" }, undefined, this.paths.workspaceDir);
