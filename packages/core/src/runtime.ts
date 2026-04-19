@@ -2,7 +2,9 @@
  * MyAgentsRuntime — 顶层编排器（v2 + Phase 5 多 Provider/Channel）
  */
 import path from "node:path";
+import fs from "node:fs";
 import type { AppConfig } from "./config/schema.js";
+import type { AgentSelfConfig } from "./config/schema.js";
 import { AgentRegistry } from "./agent/registry.js";
 import { GroupManager } from "./group/manager.js";
 import { ButlerAgent } from "./agent/butler.js";
@@ -18,6 +20,8 @@ import { WeComChannel } from "@myagents/channels";
 import { FeishuChannel } from "@myagents/channels";
 import { ButlerRegistry } from "./butler/registry.js";
 import { Agent } from "./agent/agent.js";
+import { AgentPaths, AgentFiles } from "./agent/paths.js";
+import { AgentEventBus } from "./agent/event-bus.js";
 import { ChannelRouter } from "./group/router.js";
 import type { ChannelBindTo } from "./config/schema.js";
 import { createLogger, setGlobalLogLevel } from "@myagents/shared";
@@ -28,6 +32,7 @@ export class MyAgentsRuntime {
   readonly registry: AgentRegistry;
   readonly groupManager: GroupManager;
   readonly wsServer: CoreWSServer;
+  readonly eventBus = new AgentEventBus();
   readonly gateway: LLMGateway;
   private butler: ButlerAgent;
   private providers = new Map<string, LLMProvider>();
@@ -38,7 +43,7 @@ export class MyAgentsRuntime {
   constructor(private config: AppConfig) {
     this.dataRoot = path.resolve(config.core.dataDir ?? "./data");
     this.registry = new AgentRegistry();
-    this.groupManager = new GroupManager(this.registry, this.dataRoot);
+    this.groupManager = new GroupManager(this.registry, this.dataRoot, this.eventBus);
     this.wsServer = new CoreWSServer(config.gui?.wsPort ?? 18765);
 
     setAgentRegistry(this.registry);
@@ -116,7 +121,7 @@ export class MyAgentsRuntime {
     }
   }
 
-  /** 从 ButlerRegistry 恢复已持久化的 Agent */
+  /** 从 ButlerRegistry 恢复已持久化的 Agent（优先从 config.json 读取自治配置） */
   private restoreAgents(): void {
     const butlerReg = new ButlerRegistry(this.dataRoot);
     const entries = butlerReg.parseAgentsRegistry();
@@ -125,8 +130,20 @@ export class MyAgentsRuntime {
       // 跳过已注册的（如 butler 本身）
       if (this.registry.get(entry.id)) continue;
 
-      const providerId = entry.provider || this.config.agent.provider;
-      const model = entry.model || this.config.agent.model;
+      // 尝试从 agent 目录读取自治配置
+      const paths = AgentPaths.forAgent(entry.id, this.dataRoot);
+      let selfConfig: Partial<AgentSelfConfig> = {};
+      if (fs.existsSync(paths.configPath)) {
+        try {
+          const raw = fs.readFileSync(paths.configPath, "utf-8");
+          selfConfig = JSON.parse(raw);
+        } catch {
+          // config.json 损坏，回退到注册表数据
+        }
+      }
+
+      const providerId = selfConfig.provider || entry.provider || this.config.agent.provider;
+      const model = selfConfig.model || entry.model || this.config.agent.model;
       const provider = this.providers.get(providerId) ?? this.providers.get(this.config.agent.provider);
 
       if (!provider) {
@@ -136,20 +153,24 @@ export class MyAgentsRuntime {
 
       const config: import("@myagents/shared").AgentConfig = {
         id: entry.id,
-        name: entry.name || entry.id,
-        role: entry.role,
-        systemPrompt: entry.systemPrompt || `你是${entry.name}，${entry.role}`,
+        name: selfConfig.name || entry.name || entry.id,
+        role: selfConfig.role || entry.role,
+        systemPrompt: selfConfig.systemPrompt || entry.systemPrompt || `你是${entry.name}，${entry.role}`,
         provider: providerId,
         model,
-        permissions: { mode: "workspace-write" },
-        sandbox: { enabled: false, filesystem: "workspace-only", network: true },
-        tools: ["bash", "read-file", "write-file", "glob", "grep", "web-fetch"],
+        permissions: (selfConfig.permissions as any) || { mode: "workspace-write" },
+        sandbox: (selfConfig.sandbox as any) || { enabled: false, filesystem: "workspace-only", network: true },
+        tools: selfConfig.tools || ["bash", "read-file", "write-file", "glob", "grep", "web-fetch"],
+        skills: selfConfig.skills,
       };
 
       try {
         const agent = new Agent(config, provider, this.dataRoot);
+        agent.subscribeToBus(this.eventBus);
         this.registry.register(agent);
-        log.info("Restored agent: %s (%s)", entry.name, entry.id);
+        log.info("Restored agent: %s (%s) [from %s]",
+          config.name, entry.id,
+          Object.keys(selfConfig).length > 0 ? "config.json" : "registry");
       } catch (err: any) {
         log.warn("Failed to restore agent %s: %s", entry.id, err.message);
       }
