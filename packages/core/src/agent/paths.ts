@@ -16,6 +16,9 @@ export class AgentPaths {
   get workspaceDir()   { return path.join(this.baseDir, "workspace"); }
   get configPath()     { return path.join(this.baseDir, "config.json"); }
   get skillsDir()      { return path.join(this.baseDir, "skills"); }
+  get userPath()       { return path.join(this.baseDir, "USER.md"); }
+  get bootstrapPath()  { return path.join(this.baseDir, "BOOTSTRAP.md"); }
+  get toolsPath()      { return path.join(this.baseDir, "TOOLS.md"); }
 
   static forAgent(agentId: string, dataRoot?: string): AgentPaths {
     const root = dataRoot ?? path.resolve("data", "agents");
@@ -99,6 +102,35 @@ export class AgentFiles {
   /** 写入 config.json */
   writeConfig(config: Record<string, unknown>): void {
     fs.writeFileSync(this.paths.configPath, JSON.stringify(config, null, 2), "utf-8");
+  }
+
+  /** 读取 EXPERIENCE.md */
+  readExperience(): string {
+    return this.readFile(this.paths.experiencePath);
+  }
+
+  /** 写入 EXPERIENCE.md */
+  writeExperience(content: string): void {
+    fs.writeFileSync(this.paths.experiencePath, content, "utf-8");
+  }
+
+  /** 追加一条经验到 EXPERIENCE.md */
+  appendExperience(entry: { task: string; problem: string; solution: string; date?: string }): void {
+    const existing = this.readExperience();
+    const date = entry.date ?? new Date().toISOString().split("T")[0];
+    const block = [
+      "",
+      `## [${date}] ${entry.task.slice(0, 80)}`,
+      `- **问题**: ${entry.problem}`,
+      `- **解决**: ${entry.solution}`,
+      "",
+    ].join("\n");
+
+    if (!existing) {
+      this.writeExperience(`# EXPERIENCE.md\n\n> Agent 在工程过程中积累的经验${block}`);
+    } else {
+      fs.appendFileSync(this.paths.experiencePath, block + "\n", "utf-8");
+    }
   }
 
   /** 列出 memory 目录下的文件 */

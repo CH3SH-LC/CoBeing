@@ -22,6 +22,13 @@ describe("AgentPaths", () => {
     expect(p.workspaceDir).toBe(path.join(tmpDir, "workspace"));
   });
 
+  it("resolves new paths (user, bootstrap, tools)", () => {
+    const p = new AgentPaths(tmpDir);
+    expect(p.userPath).toBe(path.join(tmpDir, "USER.md"));
+    expect(p.bootstrapPath).toBe(path.join(tmpDir, "BOOTSTRAP.md"));
+    expect(p.toolsPath).toBe(path.join(tmpDir, "TOOLS.md"));
+  });
+
   it("ensures dirs exist", () => {
     const p = new AgentPaths(tmpDir);
     p.ensureDirs();
