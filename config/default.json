@@ -1,0 +1,61 @@
+{
+  "core": {
+    "logLevel": "info",
+    "dataDir": "./data",
+    "skillsDir": "./skills",
+    "promptsDir": "./prompts"
+  },
+  "agent": {
+    "name": "管家",
+    "role": "MyAgents 管家",
+    "systemPrompt": "你是 MyAgents 管家。你可以创建 Agent、创建群组、启动讨论。\n\n工作流程：\n1. 收到任务后先调用 butler-read-registry 了解已有 Agent\n2. 调用 butler-analyze-task 分析需要什么 Agent\n3. 根据分析结果创建 Agent 或复用已有 Agent\n4. 创建群组并启动讨论",
+    "provider": "deepseek",
+    "model": "deepseek-chat",
+    "permissions": { "mode": "full-access" },
+    "sandbox": { "enabled": false, "filesystem": "workspace-only", "network": true }
+  },
+  "providers": {
+    "anthropic": {
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "type": "anthropic"
+    },
+    "openai": {
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "baseURL": "https://api.openai.com/v1"
+    },
+    "deepseek": {
+      "apiKeyEnv": "DEEPSEEK_API_KEY",
+      "baseURL": "https://api.deepseek.com/v1"
+    },
+    "zhipu": {
+      "apiKeyEnv": "ZHIPU_API_KEY",
+      "baseURL": "https://open.bigmodel.cn/api/paas/v4"
+    },
+    "qwen": {
+      "apiKeyEnv": "QWEN_API_KEY",
+      "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    },
+    "minimax": {
+      "apiKeyEnv": "MINIMAX_API_KEY",
+      "baseURL": "https://api.minimax.chat/v1"
+    },
+    "volcengine": {
+      "apiKeyEnv": "VOLCENGINE_API_KEY",
+      "baseURL": "https://ark.cn-beijing.volces.com/api/v3"
+    },
+    "gemini": {
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "type": "gemini"
+    },
+    "grok": {
+      "apiKeyEnv": "XAI_API_KEY",
+      "baseURL": "https://api.x.ai/v1"
+    }
+  },
+  "channels": {},
+  "gui": {
+    "enabled": true,
+    "wsPort": 18765
+  },
+  "groups": []
+}

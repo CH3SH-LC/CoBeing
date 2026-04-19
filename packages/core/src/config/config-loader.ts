@@ -1,5 +1,5 @@
 /**
- * 配置加载器 — 从 YAML 文件和环境变量加载配置
+ * 配置加载器 — 从 JSON/YAML 文件和环境变量加载配置
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -13,6 +13,8 @@ const DEFAULT_CONFIG: AppConfig = {
   core: {
     logLevel: "info",
     dataDir: "./data",
+    skillsDir: "./skills",
+    promptsDir: "./prompts",
   },
   agent: {
     name: "assistant",
@@ -41,12 +43,27 @@ const DEFAULT_CONFIG: AppConfig = {
 export function loadConfig(configPath?: string): AppConfig {
   let config: AppConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 
-  // 从文件加载
-  const resolvedPath = configPath ?? path.resolve("config/default.yaml");
-  if (fs.existsSync(resolvedPath)) {
+  // 自动检测配置文件（优先 JSON，回退 YAML）
+  let resolvedPath: string | undefined;
+  if (configPath) {
+    resolvedPath = configPath;
+  } else {
+    const jsonPath = path.resolve("config/default.json");
+    const yamlPath = path.resolve("config/default.yaml");
+    if (fs.existsSync(jsonPath)) {
+      resolvedPath = jsonPath;
+    } else if (fs.existsSync(yamlPath)) {
+      resolvedPath = yamlPath;
+    }
+  }
+
+  if (resolvedPath && fs.existsSync(resolvedPath)) {
     try {
       const raw = fs.readFileSync(resolvedPath, "utf-8");
-      const parsed = yaml.load(raw) as Partial<AppConfig>;
+      const ext = path.extname(resolvedPath);
+      const parsed = ext === ".json"
+        ? JSON.parse(raw) as Partial<AppConfig>
+        : yaml.load(raw) as Partial<AppConfig>;
       config = deepMerge(config as unknown as Record<string, unknown>, parsed as Record<string, unknown>) as unknown as AppConfig;
       log.info("Config loaded from %s", resolvedPath);
     } catch (err) {
