@@ -13,7 +13,7 @@ import { MemoryWriter } from "./memory/writer.js";
 import { MemoryReader } from "./memory/reader.js";
 import { ButlerRegistry } from "./butler/registry.js";
 import { GroupManager } from "./group/manager.js";
-import { GroupContext } from "./group/context.js";
+import { GroupContextV2 } from "./group/group-context-v2.js";
 import { AgentPaths, AgentFiles } from "./agent/paths.js";
 import { SkillRepository } from "./skills/repository.js";
 
@@ -97,29 +97,31 @@ describe("E2E Integration", () => {
     });
   });
 
-  describe("群组通信 + GroupContext", () => {
+  describe("群组通信 + GroupContextV2 (Phase 8.3)", () => {
     it("群组 main 频道 @mention 路由正确", () => {
-      const ctx = new GroupContext("debate", tmpDir);
+      const ctx = new GroupContextV2("debate");
 
-      ctx.speakToMain("moderator", "@react-expert 你怎么看 hooks？");
-      ctx.speakToMain("moderator", "@vue-expert 你怎么看 composition API？");
-      ctx.speakToMain("moderator", "@all 总结一下");
+      ctx.append("moderator", "@react-expert 你怎么看 hooks？");
+      ctx.append("moderator", "@vue-expert 你怎么看 composition API？");
+      ctx.append("moderator", "@all 总结一下");
 
-      expect(ctx.getPendingMentions("react-expert")).toHaveLength(2); // @react-expert + @all
-      expect(ctx.getPendingMentions("vue-expert")).toHaveLength(2);   // @vue-expert + @all
+      expect(ctx.getPendingMentions("react-expert")).toHaveLength(2);
+      expect(ctx.getPendingMentions("vue-expert")).toHaveLength(2);
       expect(ctx.getPendingMentions("moderator")).toHaveLength(0);
     });
 
     it("talk 私有讨论隔离", () => {
-      const ctx = new GroupContext("team", tmpDir);
-      const talk = ctx.createTalk(["alice", "bob"], "接口设计");
+      const ctx = new GroupContextV2("team");
+      const talkId = ctx.createTalk(["alice", "bob"], "接口设计");
 
-      talk.speak("alice", "我建议用 REST");
-      talk.speak("bob", "我觉得 gRPC 更好");
+      ctx.append("alice", "我建议用 REST", talkId);
+      ctx.append("bob", "我觉得 gRPC 更好", talkId);
 
-      expect(talk.isMember("alice")).toBe(true);
-      expect(talk.isMember("charlie")).toBe(false);
-      expect(talk.getHistory()).toHaveLength(2);
+      expect(ctx.isTalkMember(talkId, "alice")).toBe(true);
+      expect(ctx.isTalkMember(talkId, "charlie")).toBe(false);
+
+      const msgs = ctx.getMessages().filter(m => m.tag === talkId);
+      expect(msgs).toHaveLength(2);
     });
 
     it("群组 + GroupManager + Registry 协同", () => {
@@ -136,20 +138,15 @@ describe("E2E Integration", () => {
       registry.register(agent1);
       registry.register(agent2);
 
-      groupManager.create({
-        id: "g1", name: "G1", members: ["a1", "a2"], protocol: "round-robin",
+      const group = groupManager.create({
+        id: "g1", name: "G1", members: ["a1", "a2"],
       });
 
-      const ctx = groupManager.getContext("g1");
-      expect(ctx).toBeDefined();
-      expect(ctx!.groupId).toBe("g1");
+      expect(group).toBeDefined();
+      expect(group.ctxV2.groupId).toBe("g1");
 
-      // 持久化
-      ctx!.speakToMain("a1", "开始讨论");
-      ctx!.saveMain();
-
-      const mainFile = path.join(tmpDir, "groups", "g1", "main.md");
-      expect(fs.existsSync(mainFile)).toBe(true);
+      group.postMessage("a1", "开始讨论");
+      expect(group.ctxV2.messageCount).toBe(1);
     });
   });
 
@@ -271,16 +268,14 @@ describe("E2E Integration", () => {
   });
 
   describe("事件总线 E2E", () => {
-    it("GroupContext @mention 通过事件总线触发 Agent", () => {
-      const bus = new AgentEventBus();
-      const ctx = new GroupContext("e2e-group", tmpDir, bus);
+    it("GroupContextV2 @mention 解析正确", () => {
+      const ctx = new GroupContextV2("e2e-group");
 
-      let received = false;
-      bus.subscribe("target-agent", () => { received = true; });
+      ctx.append("owner", "@target-agent 请开始工作");
 
-      ctx.speakToMain("owner", "@target-agent 请开始工作");
-
-      expect(received).toBe(true);
+      const pending = ctx.getPendingMentions("target-agent");
+      expect(pending).toHaveLength(1);
+      expect(pending[0].mentions).toContain("target-agent");
     });
   });
 

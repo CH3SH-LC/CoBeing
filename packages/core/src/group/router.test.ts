@@ -30,7 +30,6 @@ describe("ChannelRouter", () => {
       name: "Debate Group",
       members: ["agent-a"],
       owner: "owner-agent",
-      protocol: "round-robin",
     });
   });
 
@@ -50,24 +49,21 @@ describe("ChannelRouter", () => {
     it("injects message to group main channel", async () => {
       router.bind("ch-qq", "debate", "user");
 
-      const received: string[] = [];
-      const ctx = groupManager.getContext("debate")!;
-      ctx.onMainMessage((msg) => received.push(msg.content));
-
       await router.route("ch-qq", { channelId: "ch-qq", channelType: "qq", senderId: "u1", senderName: "User", content: "discuss React vs Vue" });
 
-      const history = ctx.getMainHistory();
-      expect(history.length).toBeGreaterThanOrEqual(1);
-      expect(history[0].fromAgentId).toBe("user");
-      expect(history[0].content).toBe("discuss React vs Vue");
+      const group = groupManager.get("debate")!;
+      const msgs = group.ctxV2.getMessages().filter(m => m.tag === "main");
+      expect(msgs.length).toBeGreaterThanOrEqual(1);
+      expect(msgs[0].fromAgentId).toBe("user");
+      expect(msgs[0].content).toBe("discuss React vs Vue");
     });
 
     it("returns recent main history as response", async () => {
       router.bind("ch-qq", "debate", "user");
 
       // Pre-populate some messages
-      const ctx = groupManager.getContext("debate")!;
-      ctx.speakToMain("agent-a", "previous message");
+      const group = groupManager.get("debate")!;
+      group.postMessage("agent-a", "previous message");
 
       const result = await router.route("ch-qq", { channelId: "ch-qq", channelType: "qq", senderId: "u1", senderName: "User", content: "new message" });
       expect(result).toContain("previous message");
@@ -80,15 +76,16 @@ describe("ChannelRouter", () => {
 
       await router.route("ch-discord", { channelId: "ch-discord", channelType: "discord", senderId: "u1", senderName: "User", content: "让 agent-a 先发言" });
 
-      const ctx = groupManager.getContext("debate")!;
-      const talks = ctx.listTalks();
+      const group = groupManager.get("debate")!;
+      const talks = group.ctxV2.listTalks();
       expect(talks.length).toBeGreaterThanOrEqual(1);
 
-      // Talk 的 topic 格式: "talk:channel:{channelId}"
       const ownerTalk = talks.find(t => t.topic === "talk:channel:ch-discord");
       expect(ownerTalk).toBeDefined();
-      expect(ownerTalk!.getHistory()).toHaveLength(1);
-      expect(ownerTalk!.getHistory()[0].content).toBe("让 agent-a 先发言");
+
+      const talkMsgs = group.ctxV2.getMessages().filter(m => m.tag === ownerTalk!.id);
+      expect(talkMsgs).toHaveLength(1);
+      expect(talkMsgs[0].content).toBe("让 agent-a 先发言");
     });
 
     it("reuses same talk on subsequent messages", async () => {
@@ -97,9 +94,10 @@ describe("ChannelRouter", () => {
       await router.route("ch-discord", { channelId: "ch-discord", channelType: "discord", senderId: "u1", senderName: "User", content: "message 1" });
       await router.route("ch-discord", { channelId: "ch-discord", channelType: "discord", senderId: "u1", senderName: "User", content: "message 2" });
 
-      const ctx = groupManager.getContext("debate")!;
-      const ownerTalk = ctx.listTalks().find(t => t.topic === "talk:channel:ch-discord");
-      expect(ownerTalk!.getHistory()).toHaveLength(2);
+      const group = groupManager.get("debate")!;
+      const ownerTalk = group.ctxV2.listTalks().find(t => t.topic === "talk:channel:ch-discord");
+      const talkMsgs = group.ctxV2.getMessages().filter(m => m.tag === ownerTalk!.id);
+      expect(talkMsgs).toHaveLength(2);
     });
   });
 
@@ -116,11 +114,10 @@ describe("ChannelRouter", () => {
       router.bind("ch-discord", "debate", "owner");
       await router.route("ch-discord", { channelId: "ch-discord", channelType: "discord", senderId: "u1", senderName: "User", content: "msg" });
 
-      const ctx = groupManager.getContext("debate")!;
-      expect(ctx.listTalks().find(t => t.topic === "talk:channel:ch-discord")).toBeDefined();
+      const group = groupManager.get("debate")!;
+      expect(group.ctxV2.listTalks().find(t => t.topic === "talk:channel:ch-discord")).toBeDefined();
 
       router.unbind("ch-discord");
-      // Talk data remains in GroupContext, but router reference is cleared
     });
   });
 

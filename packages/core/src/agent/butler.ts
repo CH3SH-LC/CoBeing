@@ -1,7 +1,7 @@
 /**
  * ButlerAgent — privileged agent that manages other agents and groups
  */
-import type { AgentConfig, Tool, ToolContext, ToolResult, GroupProtocol } from "@myagents/shared";
+import type { AgentConfig, Tool, ToolContext, ToolResult } from "@myagents/shared";
 import type { LLMProvider } from "@myagents/providers";
 import path from "node:path";
 import fs from "node:fs";
@@ -153,9 +153,9 @@ function makeCreateGroupTool(groupManager: GroupManager, butlerRegistry: ButlerR
       properties: {
         name: { type: "string", description: "群组名称" },
         members: { type: "array", items: { type: "string" }, description: "成员 Agent ID 列表" },
-        protocol: { type: "string", description: "讨论协议: round-robin / free-form / moderated" },
+        protocol: { type: "string", description: "讨论协议（可选，Phase 8.3 后默认 free-form）" },
       },
-      required: ["name", "members", "protocol"],
+      required: ["name", "members"],
     },
     async execute(params, _context: ToolContext): Promise<ToolResult> {
       const id = (params.name as string).toLowerCase().replace(/\s+/g, "-");
@@ -163,7 +163,7 @@ function makeCreateGroupTool(groupManager: GroupManager, butlerRegistry: ButlerR
         id,
         name: params.name as string,
         members: params.members as string[],
-        protocol: params.protocol as GroupProtocol,
+        protocol: (params.protocol as string) || "free-form",
       });
 
       butlerRegistry.registerGroup({
@@ -205,7 +205,7 @@ function makeListTool(registry: AgentRegistry, groupManager: GroupManager): Tool
     parameters: { type: "object", properties: {} },
     async execute(_params, _context: ToolContext): Promise<ToolResult> {
       const agents = registry.list().map(a => `  - ${a.name} (${a.id}) [${a.getStatus()}]`).join("\n");
-      const groups = groupManager.list().map(g => `  - ${g.config.name} (${g.id}) [${g.config.members.length} members, ${g.config.protocol}]`).join("\n");
+      const groups = groupManager.list().map(g => `  - ${g.config.name} (${g.id}) [${g.config.members.length} members]`).join("\n");
       return {
         toolCallId: "",
         content: `Agents:\n${agents || "  (none)"}\n\nGroups:\n${groups || "  (none)"}`,
@@ -232,13 +232,9 @@ function makeRunGroupTool(groupManager: GroupManager, butlerRegistry: ButlerRegi
       const history = await group.startDiscussion(params.topic as string);
       const summary = history.map((m: any) => `[${m.fromAgentId}]: ${m.content.slice(0, 200)}`).join("\n\n");
 
-      // 保存到 GroupContext
-      const ctx = groupManager.getContext(params.groupId as string);
-      if (ctx) {
-        for (const msg of history) {
-          ctx.speakToMain(msg.fromAgentId, msg.content);
-        }
-        ctx.saveMain();
+      // 写入 v2 上下文
+      for (const msg of history) {
+        group.ctxV2.append(msg.fromAgentId, msg.content, "main");
       }
 
       // 记录任务日志
@@ -565,10 +561,10 @@ export class ButlerAgent extends Agent {
     }
 
     // Register group communication tools
-    this.toolRegistry.register(makeGroupSpeakTool((gid) => groupManager.getContext(gid)));
-    this.toolRegistry.register(makeTalkCreateTool((gid) => groupManager.getContext(gid)));
-    this.toolRegistry.register(makeTalkSendTool((gid) => groupManager.getContext(gid)));
-    this.toolRegistry.register(makeTalkReadTool((gid) => groupManager.getContext(gid)));
+    this.toolRegistry.register(makeGroupSpeakTool((gid) => groupManager.get(gid)));
+    this.toolRegistry.register(makeTalkCreateTool((gid) => groupManager.get(gid)));
+    this.toolRegistry.register(makeTalkSendTool((gid) => groupManager.get(gid)));
+    this.toolRegistry.register(makeTalkReadTool((gid) => groupManager.get(gid)));
 
     // 工作流工具
     this.toolRegistry.register(makeWorkflowAnalyzeTool(engine));

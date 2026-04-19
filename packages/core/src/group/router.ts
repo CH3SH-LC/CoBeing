@@ -1,5 +1,6 @@
 /**
  * ChannelRouter — 根据 Channel 绑定配置分发消息到 Group 或 Butler
+ * Phase 8.3: 使用 Group.ctxV2 替代旧 GroupContext
  */
 import type { InboundMessage } from "@myagents/shared";
 import type { GroupManager } from "./manager.js";
@@ -28,14 +29,13 @@ export class ChannelRouter {
     const binding = this.bindings.get(channelId);
 
     if (!binding || binding.type === "agent") {
-      // 无绑定或 agent 绑定 → 走 Butler
       await this.callbacks.onButlerMessage(msg);
       return "";
     }
 
     // Group 绑定
-    const ctx = this.groupManager.getContext(binding.groupId!);
-    if (!ctx) {
+    const group = this.groupManager.get(binding.groupId!);
+    if (!group) {
       log.warn("Group %s not found for channel %s, falling back to butler", binding.groupId, channelId);
       await this.callbacks.onButlerMessage(msg);
       return "";
@@ -45,31 +45,29 @@ export class ChannelRouter {
 
     if (role === "user") {
       // User 模式：消息直接注入 main 频道
-      ctx.speakToMain("user", msg.content);
-      ctx.saveMain();
+      group.postMessage("user", msg.content);
 
       // 返回最近 main 频道历史给 Channel
-      const recent = ctx.getMainHistory().slice(-20);
-      return recent.map(m => `[${m.fromAgentId}]: ${m.content}`).join("\n");
+      const msgs = group.ctxV2.getMessages().filter(m => m.tag === "main").slice(-20);
+      return msgs.map(m => `[${m.fromAgentId}]: ${m.content}`).join("\n");
     }
 
     // Owner 模式：注入持久 Talk
     let talkId = this.ownerTalks.get(channelId);
-    let talk = talkId ? ctx.getTalk(talkId) : undefined;
+    let talk = talkId ? group.ctxV2.getTalk(talkId) : undefined;
 
     if (!talk) {
-      talk = ctx.createTalk(["user", binding.groupId! + ":owner"], `talk:channel:${channelId}`);
-      talkId = talk.id;
+      talkId = group.createTalk(["user", binding.groupId! + ":owner"], `talk:channel:${channelId}`);
+      talk = group.ctxV2.getTalk(talkId)!;
       this.ownerTalks.set(channelId, talkId);
       log.info("Created owner talk %s for channel %s", talkId, channelId);
     }
 
-    talk.speak("user", msg.content);
-    ctx.saveTalk(talkId);
+    group.postToTalk(talkId, "user", msg.content);
 
     // 返回 Talk 历史作为响应
-    const history = talk.getHistory();
-    return history.map(m => `[${m.fromAgentId}]: ${m.content}`).join("\n");
+    const msgs = group.ctxV2.getMessages().filter(m => m.tag === talkId);
+    return msgs.map(m => `[${m.fromAgentId}]: ${m.content}`).join("\n");
   }
 
   /** 动态绑定 Channel 到 Group */
@@ -81,7 +79,6 @@ export class ChannelRouter {
   /** 解除绑定 */
   unbind(channelId: string): void {
     this.bindings.delete(channelId);
-    // 清理 owner Talk 引用（Talk 数据保留在 GroupContext 中）
     this.ownerTalks.delete(channelId);
     log.info("Channel %s unbound", channelId);
   }
@@ -94,12 +91,10 @@ export class ChannelRouter {
     }
   }
 
-  /** 获取当前绑定信息 */
   getBinding(channelId: string): BindingEntry | undefined {
     return this.bindings.get(channelId);
   }
 
-  /** 设置 butler 回调（用于 Runtime start() 阶段延迟绑定） */
   setButlerCallback(cb: (msg: InboundMessage) => Promise<void>): void {
     this.callbacks.onButlerMessage = cb;
   }

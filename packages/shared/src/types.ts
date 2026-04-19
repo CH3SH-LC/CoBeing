@@ -119,6 +119,7 @@ export interface AgentConfig {
   permissions?: PermissionPolicy;
   sandbox?: SandboxConfig;
   skillsDir?: string;
+  skills?: string[];         // 要装载的技能名称列表（按名称匹配 skills/ 目录下的技能）
 }
 
 export interface AgentResponse {
@@ -213,6 +214,7 @@ export interface MCPResource {
 // Group 相关类型
 // ============================================================
 
+/** @deprecated Phase 8.3 移除固定协议，保留类型用于向后兼容 */
 export type GroupProtocol = "round-robin" | "free-form" | "moderated" | "voting";
 
 export interface GroupConfig {
@@ -220,7 +222,8 @@ export interface GroupConfig {
   name: string;
   members: string[];
   owner?: string;          // 群主 Agent ID（可选，未指定时由 Butler 充当）
-  protocol: GroupProtocol;
+  /** @deprecated Phase 8.3: 讨论不再由固定协议控制，保留字段用于兼容 */
+  protocol?: string;
   moderator?: string;
   maxRounds?: number;
   topic?: string;

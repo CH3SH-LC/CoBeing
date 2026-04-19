@@ -50,7 +50,7 @@ export class MyAgentsRuntime {
     this.skillRepo = new SkillRepository(path.resolve(skillsDir));
 
     this.registry = new AgentRegistry();
-    this.groupManager = new GroupManager(this.registry, this.dataRoot, this.eventBus);
+    this.groupManager = new GroupManager(this.registry, this.dataRoot);
     this.wsServer = new CoreWSServer(config.gui?.wsPort ?? 18765);
 
     setAgentRegistry(this.registry);

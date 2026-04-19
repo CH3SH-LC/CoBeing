@@ -35,6 +35,9 @@ export { AgentEventBus, type BusMessage, type TaskCompleteMessage } from "./agen
 export { WorkflowEngine, type WorkflowConfig } from "./workflow/engine.js";
 export { Group } from "./group/group.js";
 export { GroupManager } from "./group/manager.js";
+export { GroupContextV2, type GroupMessageV2, type TalkInfo } from "./group/group-context-v2.js";
+export { WakeSystem, type WakeSystemConfig } from "./group/wake-system.js";
+export { Screener, type ScreenerResult } from "./group/screener.js";
 export { GroupContext, Talk, type ChannelMessage, type TalkConfig } from "./group/context.js";
 export { GroupWorkspace, type GroupWorkspacePaths } from "./group/workspace.js";
 export { makeGroupPlanTool, makeGroupInviteTalkTool, makeGroupSummarizeTool, makeGroupAssignTaskTool } from "./group/owner.js";
