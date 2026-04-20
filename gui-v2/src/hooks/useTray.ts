@@ -70,7 +70,6 @@ export async function exitApp() {
   if (closeBehavior === "close") {
     await emit("app-exit");
   } else {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
     await getCurrentWindow().hide();
   }
 }

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { emit } from "@tauri-apps/api/event";
 
 interface TrayStore {
   /** 运行中的 Agent 数量 */
@@ -29,9 +30,7 @@ export const useTrayStore = create<TrayStore>((set, get) => ({
     set({ runningAgents, activeGroups, statusText });
 
     // 通知 Rust 侧更新菜单
-    import("@tauri-apps/api/event").then(({ emit }) => {
-      emit("tray-update-status", { statusText });
-    });
+    emit("tray-update-status", { statusText });
   },
 
   incrementUnread: () => {
