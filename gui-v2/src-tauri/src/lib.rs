@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    Listener, Manager, RunEvent,
+    Listener, Manager, RunEvent, Emitter,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -51,13 +51,14 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // 拦截窗口关闭 — 隐藏到托盘
+            // 拦截窗口关闭 — 通知前端根据设置决定行为
             if let Some(w) = app.get_webview_window("main") {
                 let window = w.clone();
                 w.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        let _ = window.hide();
+                        // 通知前端：用户点了关闭按钮，由前端决定隐藏还是退出
+                        let _ = window.emit("window-close-requested", ());
                     }
                 });
             }

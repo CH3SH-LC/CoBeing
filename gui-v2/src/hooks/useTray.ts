@@ -33,6 +33,21 @@ export function useTray() {
     };
   }, [clearUnread]);
 
+  // 监听窗口关闭请求 — 根据设置决定隐藏还是退出
+  useEffect(() => {
+    const unlisten = listen<void>("window-close-requested", () => {
+      const closeBehavior = useSettingsStore.getState().closeBehavior;
+      if (closeBehavior === "close") {
+        emit("app-exit");
+      } else {
+        getCurrentWindow().hide();
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   // 监听 Rust 侧托盘动作
   useEffect(() => {
     const unlisten = listen<string>("tray-action", (event) => {
