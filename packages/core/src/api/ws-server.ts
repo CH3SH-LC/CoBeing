@@ -3,6 +3,8 @@
  * 直接从 AgentRegistry / GroupManager 读取实时状态
  */
 import { WebSocketServer, WebSocket } from "ws";
+import fs from "node:fs";
+import path from "node:path";
 import { createLogger } from "@myagents/shared";
 import type { Agent } from "../agent/agent.js";
 import type { AgentRegistry } from "../agent/registry.js";
@@ -22,7 +24,7 @@ export class CoreWSServer {
   private clients = new Set<WebSocket>();
   private messageLog: Array<{ timestamp: number; direction: string; content: string }> = [];
 
-  constructor(private port: number = 18765) {}
+  constructor(private port: number = 18765, private configPath?: string) {}
 
   /** 注入 AgentRegistry — 后续 getState 直接读取 */
   setAgentRegistry(registry: AgentRegistry): void {
@@ -100,6 +102,13 @@ export class CoreWSServer {
     this.messageLog.push(entry);
     if (this.messageLog.length > 500) this.messageLog.shift();
     this.broadcast({ type: "message", payload: entry });
+    // 推送给日志订阅者
+    const logData = JSON.stringify({ type: "log_entry", payload: entry });
+    for (const client of this.clients) {
+      if (client.readyState === WebSocket.OPEN && (client as any).__subscribedLog) {
+        client.send(logData);
+      }
+    }
   }
 
   private handleMessage(ws: WebSocket, msg: WSMessage): void {
@@ -136,6 +145,40 @@ export class CoreWSServer {
       case "get_log":
         this.sendToClient(ws, { type: "log", payload: this.messageLog });
         break;
+
+      case "get_config": {
+        const configFilePath = this.configPath || path.resolve("config/default.json");
+        try {
+          const raw = fs.readFileSync(configFilePath, "utf-8");
+          const config = JSON.parse(raw);
+          this.sendToClient(ws, { type: "config", payload: config });
+        } catch (err) {
+          this.sendToClient(ws, { type: "error", payload: { message: `Failed to read config: ${err}` } });
+        }
+        break;
+      }
+
+      case "update_config": {
+        const { path: cfgPath, value } = msg.payload as { path: string; value: unknown };
+        const configFilePath = this.configPath || path.resolve("config/default.json");
+        try {
+          const raw = fs.readFileSync(configFilePath, "utf-8");
+          const config = JSON.parse(raw);
+          setNestedValue(config, cfgPath, value);
+          fs.writeFileSync(configFilePath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+          this.sendToClient(ws, { type: "config_updated", payload: { path: cfgPath, success: true } });
+          this.broadcast({ type: "config", payload: config });
+        } catch (err) {
+          this.sendToClient(ws, { type: "error", payload: { message: `Failed to update config: ${err}` } });
+        }
+        break;
+      }
+
+      case "subscribe_log": {
+        this.sendToClient(ws, { type: "log", payload: this.messageLog });
+        (ws as any).__subscribedLog = true;
+        break;
+      }
 
       default:
         log.warn("Unknown WS message type: %s", msg.type);
@@ -178,4 +221,17 @@ export class CoreWSServer {
       ws.send(JSON.stringify(msg));
     }
   }
+}
+
+/** 按 "a.b.c" 路径设置嵌套对象值 */
+function setNestedValue(obj: Record<string, unknown>, cfgPath: string, value: unknown): void {
+  const keys = cfgPath.split(".");
+  let current: Record<string, unknown> = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (!(keys[i] in current) || typeof current[keys[i]] !== "object") {
+      current[keys[i]] = {};
+    }
+    current = current[keys[i]] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]] = value;
 }
