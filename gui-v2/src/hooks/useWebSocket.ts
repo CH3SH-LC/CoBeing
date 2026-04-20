@@ -6,6 +6,7 @@ import { useAgentsStore } from "@/stores/agents";
 import { useGroupsStore } from "@/stores/groups";
 import { useChatStore } from "@/stores/chat";
 import { useTrayStore } from "@/stores/tray";
+import { useConfigStore } from "@/stores/config";
 import { sendNotification } from "@/hooks/useTray";
 
 let wsClient: WsClient | null = null;
@@ -21,6 +22,7 @@ export function useWebSocket(url = "ws://localhost:18765") {
   const finalizeStream = useChatStore((s) => s.finalizeStream);
   const startWaiting = useChatStore((s) => s.startWaiting);
   const incrementUnread = useTrayStore((s) => s.incrementUnread);
+  const setConfig = useConfigStore((s) => s.setConfig);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -31,6 +33,7 @@ export function useWebSocket(url = "ws://localhost:18765") {
         case "_connected":
           setConnected(true);
           wsClient?.send({ type: "get_state" });
+          wsClient?.send({ type: "get_config" });
           break;
 
         case "_disconnected":
@@ -41,6 +44,35 @@ export function useWebSocket(url = "ws://localhost:18765") {
           const p = msg.payload as WsStatePayload;
           setAgents(p.agents);
           setGroups(p.groups);
+          break;
+        }
+
+        case "config": {
+          const p = msg.payload as {
+            providers?: Record<string, unknown>;
+            channels?: Record<string, unknown>;
+            mcpServers?: Record<string, unknown>;
+          };
+          setConfig({
+            providers: (p.providers || {}) as any,
+            channels: (p.channels || {}) as any,
+            mcpServers: (p.mcpServers || {}) as any,
+          });
+          break;
+        }
+
+        case "config_updated": {
+          wsClient?.send({ type: "get_config" });
+          break;
+        }
+
+        case "log": {
+          window.dispatchEvent(new CustomEvent("ws-log", { detail: msg }));
+          break;
+        }
+
+        case "log_entry": {
+          window.dispatchEvent(new CustomEvent("ws-log", { detail: msg }));
           break;
         }
 
@@ -98,7 +130,7 @@ export function useWebSocket(url = "ws://localhost:18765") {
       wsClient = null;
       initialized.current = false;
     };
-  }, [url, setConnected, setAgents, setGroups, addMessage, appendStreamToken, finalizeStream, startWaiting, incrementUnread]);
+  }, [url, setConnected, setAgents, setGroups, addMessage, appendStreamToken, finalizeStream, startWaiting, incrementUnread, setConfig]);
 }
 
 export function getWsClient(): WsClient | null {

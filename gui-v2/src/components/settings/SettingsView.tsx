@@ -1,5 +1,9 @@
 import { useSettingsStore, type CloseBehavior } from "@/stores/settings";
 import { ThemeSelector } from "./ThemeSelector";
+import { ProvidersSection } from "./ProvidersSection";
+import { ChannelsSection } from "./ChannelsSection";
+import { McpSection } from "./McpSection";
+import { LogsSection } from "./LogsSection";
 import { cn } from "@/lib/utils";
 
 const MENU_SECTIONS = [
@@ -50,10 +54,10 @@ export function SettingsView() {
       <div className="flex-1 p-6 overflow-y-auto">
         {settingsSection === "general" && <GeneralSection />}
         {settingsSection === "theme" && <ThemeSection />}
-        {settingsSection === "providers" && <PlaceholderSection title="Providers" desc="9 家 LLM 配置" />}
-        {settingsSection === "channels" && <PlaceholderSection title="Channels" desc="4 个 Channel 配置" />}
-        {settingsSection === "mcp" && <PlaceholderSection title="MCP 服务器" desc="添加/删除 MCP 连接" />}
-        {settingsSection === "logs" && <PlaceholderSection title="日志" desc="实时日志流" />}
+        {settingsSection === "providers" && <ProvidersSection />}
+        {settingsSection === "channels" && <ChannelsSection />}
+        {settingsSection === "mcp" && <McpSection />}
+        {settingsSection === "logs" && <LogsSection />}
         {settingsSection === "about" && <AboutSection />}
       </div>
     </div>
@@ -144,18 +148,6 @@ function GeneralSection() {
             </label>
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function PlaceholderSection({ title, desc }: { title: string; desc: string }) {
-  return (
-    <div>
-      <h2 className="text-lg font-semibold text-txt mb-1">{title}</h2>
-      <p className="text-sm text-txt-muted mb-6">{desc}</p>
-      <div className="p-8 rounded-xl border border-dashed border-bdr text-center text-sm text-txt-muted">
-        开发中...
       </div>
     </div>
   );
