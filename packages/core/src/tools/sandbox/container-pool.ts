@@ -1,16 +1,20 @@
 import { spawn, exec } from "node:child_process";
 import path from "node:path";
 import { createLogger } from "@cobeing/shared";
-import type { SandboxRunOptions, SandboxRunResult } from "@cobeing/shared";
+import type { NetworkConfig, SandboxRunOptions, SandboxRunResult, SecurityConfig } from "@cobeing/shared";
+import { buildNetworkArgs } from "./network-whitelist.js";
+import { buildSecurityArgs } from "./security.js";
 
 const log = createLogger("container-pool");
 
 export interface ContainerConfig {
   memory: string;
   cpus: number;
-  network: boolean;
+  network: NetworkConfig;
   bindings: string[];
   timeout: number;
+  disk?: string;
+  security?: SecurityConfig;
 }
 
 export interface PoolContainer {
@@ -144,8 +148,19 @@ export class ContainerPool {
       "-i",
     ];
 
-    if (!this.config.network) {
-      args.push("--network=none");
+    // 网络配置
+    const networkArgs = buildNetworkArgs(this.config.network, this.agentId);
+    args.push(...networkArgs);
+
+    // 磁盘限制
+    if (this.config.disk) {
+      args.push("--storage-opt", `size=${this.config.disk}`);
+    }
+
+    // 安全加固
+    if (this.config.security) {
+      const securityArgs = buildSecurityArgs(this.config.security);
+      args.push(...securityArgs);
     }
 
     const resolvedAgent = path.resolve(agentDir);

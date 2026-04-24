@@ -6,11 +6,35 @@ vi.mock("node:child_process", () => ({
   exec: vi.fn(),
 }));
 
+vi.mock("./network-whitelist.js", () => ({
+  buildNetworkArgs: vi.fn((network, _agentId) => {
+    if (!network.enabled || network.mode === "none") {
+      return ["--network=none"];
+    }
+    return [];
+  }),
+}));
+
+vi.mock("./security.js", () => ({
+  buildSecurityArgs: vi.fn((security) => {
+    if (!security.enabled) return [];
+    const args: string[] = [];
+    if (security.noNewPrivileges) args.push("--security-opt=no-new-privileges:true");
+    if (security.readOnlyRootfs) {
+      args.push("--read-only");
+      args.push("--tmpfs", "/tmp:rw,noexec,nosuid,size=100m");
+      args.push("--tmpfs", "/var/tmp:rw,noexec,nosuid,size=100m");
+    }
+    if (security.dropAllCapabilities) args.push("--cap-drop=ALL");
+    return args;
+  }),
+}));
+
 describe("ContainerPool", () => {
   const defaultConfig = {
     memory: "512m",
     cpus: 1,
-    network: true,
+    network: { enabled: true, mode: "all" as const },
     bindings: [],
     timeout: 30,
   };
@@ -26,7 +50,7 @@ describe("ContainerPool", () => {
       ...defaultConfig,
       memory: "1g",
       cpus: 2,
-      network: false,
+      network: { enabled: false, mode: "none" as const },
       bindings: ["/host/path:/container/path"],
     }, "/data/agents/agent-1");
 
@@ -38,10 +62,10 @@ describe("ContainerPool", () => {
     expect(args).toContain("/host/path:/container/path");
   });
 
-  it("builds args without --network=none when network is true", () => {
+  it("builds args without --network=none when network is enabled", () => {
     const pool = new ContainerPool("agent-1", "cobeing-sandbox:latest", {
       ...defaultConfig,
-      network: true,
+      network: { enabled: true, mode: "all" as const },
     }, "/data/agents/agent-1");
     const args = (pool as any).buildCreateArgs("/data/agents/agent-1");
     expect(args).not.toContain("--network=none");
