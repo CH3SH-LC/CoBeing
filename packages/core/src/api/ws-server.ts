@@ -182,7 +182,7 @@ export class CoreWSServer {
     }
   }
 
-  private handleMessage(ws: WebSocket, msg: WSMessage): void {
+  private async handleMessage(ws: WebSocket, msg: WSMessage): Promise<void> {
     switch (msg.type) {
       case "get_state":
         this.sendToClient(ws, { type: "state", payload: this.getState() });
@@ -1011,6 +1011,62 @@ export class CoreWSServer {
         }
         this.sendToClient(ws, { type: "todo_removed", payload: { todoId: rTodoId } });
         this.broadcast({ type: "todo_updated", payload: { scope: rScope, agentId: rAgentId, groupId: rGroupId } });
+        break;
+      }
+
+      case "get_sandbox_status": {
+        const agents = this.agentRegistry?.list() ?? [];
+        const statuses = agents.map(agent => {
+          const sandboxRunner = (agent as any).sandboxRunner;
+          const status = sandboxRunner?.getStatus() ?? { containerId: null, running: false };
+
+          return {
+            agentId: agent.id,
+            agentName: agent.name,
+            containerId: status.containerId,
+            running: status.running,
+            uptime: 0,
+            memoryUsage: 0,
+            memoryLimit: 0,
+            cpuPercent: 0,
+            diskUsage: 0,
+            diskLimit: 0,
+          };
+        });
+
+        this.sendToClient(ws, { type: "sandbox_status", payload: statuses });
+        break;
+      }
+
+      case "sandbox_action": {
+        const { agentId, action } = msg.payload as { agentId: string; action: "start" | "stop" | "restart" | "delete" };
+        const agent = this.agentRegistry?.get(agentId);
+
+        if (!agent) {
+          this.sendToClient(ws, { type: "error", payload: { message: `Agent not found: ${agentId}` } });
+          break;
+        }
+
+        const sandboxRunner = (agent as any).sandboxRunner;
+        if (!sandboxRunner) {
+          this.sendToClient(ws, { type: "error", payload: { message: `Agent ${agentId} has no sandbox` } });
+          break;
+        }
+
+        try {
+          switch (action) {
+            case "stop":
+            case "delete":
+              await sandboxRunner.destroy();
+              break;
+            case "restart":
+              await sandboxRunner.destroy();
+              break;
+          }
+          this.sendToClient(ws, { type: "sandbox_action_result", payload: { agentId, action, success: true } });
+        } catch (err: any) {
+          this.sendToClient(ws, { type: "sandbox_action_result", payload: { agentId, action, success: false, error: err.message } });
+        }
         break;
       }
 
