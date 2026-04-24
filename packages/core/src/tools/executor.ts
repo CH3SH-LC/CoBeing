@@ -47,7 +47,7 @@ export class ToolExecutor {
       agentId,
       sessionId,
       workingDir,
-      sandbox: this.sandboxConfig ?? { enabled: false, filesystem: "isolated", network: true },
+      sandbox: this.sandboxConfig ?? { enabled: false, filesystem: "isolated", network: { enabled: true, mode: "all" } },
       sandboxRunner: this.sandboxRunner,
       permissions: { mode: "full-access" },
       callDepth,

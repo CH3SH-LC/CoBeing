@@ -5,6 +5,8 @@
  * Agent 的完整配置存放在 data/agents/{id}/config.json（自治配置）。
  */
 
+import type { NetworkConfig, SecurityConfig } from "@cobeing/shared";
+
 export interface ChannelBindTo {
   type: "agent" | "group";
   agentId?: string;
@@ -110,14 +112,16 @@ export interface AgentSelfConfig {
   sandbox?: {
     enabled: boolean;
     filesystem: "isolated" | "host";
-    network: boolean;
+    network: NetworkConfig;
     bindings?: string[];
     resources?: {
       memory?: string;
       cpus?: number;
       timeout?: number;
+      disk?: string;
     };
     image?: string;
+    security?: SecurityConfig;
   };
   tools?: string[];
   skills?: string[];

@@ -151,20 +151,50 @@ export interface PermissionPolicy {
 }
 
 // ============================================================
+// 网络白名单相关类型
+// ============================================================
+
+export interface NetworkConfig {
+  enabled: boolean;                    // 总开关
+  mode: "all" | "whitelist" | "none"; // 全开/白名单/全关
+  allowDomains?: string[];            // 允许的域名列表
+  domainGroups?: DomainGroup[];       // 域名包
+}
+
+export interface DomainGroup {
+  id: string;
+  name: string;        // 如 "开发工具", "包管理器"
+  domains: string[];
+}
+
+// ============================================================
+// 安全加固相关类型
+// ============================================================
+
+export interface SecurityConfig {
+  enabled: boolean;           // 总开关
+  noNewPrivileges: boolean;   // 禁止提升权限
+  readOnlyRootfs: boolean;    // 只读根文件系统
+  dropAllCapabilities: boolean; // 丢弃所有 capabilities
+}
+
+// ============================================================
 // Sandbox 相关类型
 // ============================================================
 
 export interface SandboxConfig {
   enabled: boolean;
   filesystem: "isolated" | "host";
-  network: boolean;
+  network: NetworkConfig;
   bindings?: string[];  // extra mounts "hostPath:containerPath[:ro]"
   resources?: {
     memory?: string;    // 如 "512m", "1g"，默认 "512m"
     cpus?: number;      // 如 1, 2，默认 1
     timeout?: number;   // 单次命令超时秒数，默认 30
+    disk?: string;      // 磁盘限制
   };
   image?: string;       // 自定义镜像，默认 "cobeing-sandbox:latest"
+  security?: SecurityConfig;  // 安全加固配置
 }
 
 // ============================================================

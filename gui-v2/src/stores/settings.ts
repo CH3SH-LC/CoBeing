@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ViewType } from "@/lib/types";
 
-export type SettingsSection = "general" | "theme" | "providers" | "channels" | "mcp" | "logs" | "about";
+export type SettingsSection = "general" | "theme" | "providers" | "channels" | "mcp" | "sandbox" | "logs" | "about";
 export type CloseBehavior = "minimize" | "close";
 
 interface NotificationSettings {
@@ -31,7 +31,7 @@ interface SettingsStore {
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
-  activeView: "chat",
+  activeView: "butler",
   connected: false,
   detailPanelOpen: false,
   createAgentDialogOpen: false,
@@ -40,7 +40,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   closeBehavior: "minimize",
   notifications: { enabled: true, sound: true },
 
-  setActiveView: (view) => set({ activeView: view }),
+  setActiveView: (view) => set({ activeView: view, detailPanelOpen: false }),
   setConnected: (val) => set({ connected: val }),
   toggleDetailPanel: () => set((s) => ({ detailPanelOpen: !s.detailPanelOpen })),
   setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
