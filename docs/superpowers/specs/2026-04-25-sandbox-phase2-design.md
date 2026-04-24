@@ -104,7 +104,9 @@ const PRESET_DOMAIN_GROUPS: DomainGroup[] = [
    iptables -I DOCKER-USER -j DROP
    ```
 
-3. **域名解析**：使用 `--dns` 指定 DNS 服务器
+3. **规则清理**：容器销毁时删除对应的 iptables 规则和自定义网络
+
+4. **域名解析**：使用 `--dns` 指定 DNS 服务器
 
 ### 3.2 安全加固
 
@@ -279,7 +281,7 @@ interface SandboxStatusInfo {
 
 3. **挂载目录配置**
    - 挂载列表表格（主机路径、容器路径、只读开关）
-   - 添加挂载按钮（打开文件选择器）
+   - 添加挂载按钮（使用 Tauri `open` API 打开文件选择器）
    - 删除挂载按钮
 
 4. **磁盘限制**
@@ -331,7 +333,15 @@ interface SandboxStatusInfo {
 - 创建带安全加固的 Agent，验证权限限制
 - 创建带磁盘限制的 Agent，验证配额生效
 
-## 6. 不在本期范围
+## 6. 向后兼容
+
+- `SandboxConfig.network` 从 `boolean` 改为 `NetworkConfig`，需要处理旧配置：
+  - `network: true` → `network: { enabled: true, mode: "all" }`
+  - `network: false` → `network: { enabled: false, mode: "none" }`
+- `SandboxConfig.security` 为可选字段，未设置时默认启用安全加固
+- `SandboxResources.disk` 为可选字段，未设置时不限制磁盘
+
+## 7. 不在本期范围
 
 - seccomp/apparmor profile（高级安全功能）
 - 网络流量监控和日志
