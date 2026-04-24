@@ -29,41 +29,56 @@ function createMockProvider() {
 
 describe("E2E Integration", () => {
   let tmpDir: string;
+  const agents: Agent[] = [];
+
+  function createAgent(config: Parameters<typeof Agent["prototype"]["constructor"]> extends [infer C, ...infer R] ? any : any, provider: any, dataRoot?: string) {
+    const agent = new Agent(config, provider, dataRoot);
+    agents.push(agent);
+    return agent;
+  }
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "myagents-e2e-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cobeing-e2e-"));
+    agents.length = 0;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // 关闭所有 Agent 释放 SQLite 文件句柄
+    for (const agent of agents) {
+      try { await agent.dispose(); } catch { /* ignore */ }
+    }
+    agents.length = 0;
+    // Windows 上短暂等待让文件句柄释放
+    await new Promise(r => setTimeout(r, 50));
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   describe("Agent 文件系统 + 记忆", () => {
     it("Agent 创建时自动建立目录结构", () => {
-      const agent = new Agent({
+      const agent = createAgent({
         id: "test-agent",
         name: "测试",
         role: "测试角色",
         systemPrompt: "test",
         provider: "mock",
         model: "mock",
-      }, createMockProvider(), path.join(tmpDir, "agents"));
+      }, createMockProvider(), tmpDir);
 
       expect(fs.existsSync(agent.paths.workspaceDir)).toBe(true);
       expect(fs.existsSync(agent.paths.memoryDir)).toBe(true);
       expect(fs.existsSync(agent.paths.skillsDir)).toBe(true);
     });
 
-    it("从 IDENTITY.md 和 SOUL.md 加载增强 system prompt", () => {
-      const dataRoot = path.join(tmpDir, "agents");
-      const agentDir = path.join(dataRoot, "expert");
+    it("从 CHARACTER.md 和 SOUL.md 加载增强 system prompt", () => {
+      const dataRoot = tmpDir;
+      const agentDir = path.join(dataRoot, "agents", "expert");
       fs.mkdirSync(agentDir, { recursive: true });
-      fs.writeFileSync(path.join(agentDir, "IDENTITY.md"),
-        "# IDENTITY.md\n- Name: 专家\n- Emoji: 🧠\n- Creature: 资深工程师\n- Vibe: 严谨\n", "utf-8");
+      fs.writeFileSync(path.join(agentDir, "CHARACTER.md"),
+        "# CHARACTER.md\n- Name: 专家\n- 性格: 严谨\n", "utf-8");
       fs.writeFileSync(path.join(agentDir, "SOUL.md"),
         "# SOUL.md\n你是一位精通系统设计的资深工程师。", "utf-8");
 
-      const agent = new Agent({
+      const agent = createAgent({
         id: "expert",
         name: "Expert",
         role: "工程师",
@@ -72,18 +87,18 @@ describe("E2E Integration", () => {
         model: "mock",
       }, createMockProvider(), dataRoot);
 
-      expect(agent.name).toBe("专家"); // IDENTITY.md 覆盖
+      expect(agent.name).toBe("专家"); // CHARACTER.md 覆盖
     });
 
     it("对话自动写入记忆文件", async () => {
-      const agent = new Agent({
+      const agent = createAgent({
         id: "writer-test",
         name: "Writer",
         role: "test",
         systemPrompt: "test",
         provider: "mock",
         model: "mock",
-      }, createMockProvider(), path.join(tmpDir, "agents"));
+      }, createMockProvider(), tmpDir);
 
       await agent.run("Hello");
 
@@ -128,12 +143,12 @@ describe("E2E Integration", () => {
       const registry = new AgentRegistry();
       const groupManager = new GroupManager(registry, tmpDir);
 
-      const agent1 = new Agent({
+      const agent1 = createAgent({
         id: "a1", name: "A1", role: "r1", systemPrompt: "s", provider: "mock", model: "mock",
-      }, createMockProvider(), path.join(tmpDir, "agents"));
-      const agent2 = new Agent({
+      }, createMockProvider(), tmpDir);
+      const agent2 = createAgent({
         id: "a2", name: "A2", role: "r2", systemPrompt: "s", provider: "mock", model: "mock",
-      }, createMockProvider(), path.join(tmpDir, "agents"));
+      }, createMockProvider(), tmpDir);
 
       registry.register(agent1);
       registry.register(agent2);
@@ -186,7 +201,7 @@ describe("E2E Integration", () => {
       br.registerAgent({ id: "fe", name: "FE", role: "前端", groups: ["web-team"] });
       br.registerAgent({ id: "be", name: "BE", role: "后端", groups: ["web-team"] });
       br.registerGroup({
-        id: "web-team", name: "Web Team", members: ["fe", "be"], protocol: "round-robin",
+        id: "web-team", name: "Web Team", members: ["fe", "be"],
       });
 
       const agent = br.getAgent("fe");
@@ -215,8 +230,8 @@ describe("E2E Integration", () => {
       expect(repo.size).toBe(1);
       expect(repo.get("greet")).toBeDefined();
 
-      const dataRoot = path.join(tmpDir, "agents");
-      const agent = new Agent({
+      const dataRoot = tmpDir;
+      const agent = createAgent({
         id: "test-agent", name: "Test", role: "test", systemPrompt: "test",
         provider: "mock", model: "mock",
       }, createMockProvider(), dataRoot);
@@ -234,7 +249,7 @@ describe("E2E Integration", () => {
 
   describe("MemoryReader 搜索", () => {
     it("搜索历史对话关键词", () => {
-      const agentDir = path.join(tmpDir, "agents", "search-test");
+      const agentDir = path.join(tmpDir, "search-test");
       const memoryDir = path.join(agentDir, "memory");
       fs.mkdirSync(memoryDir, { recursive: true });
 
@@ -254,10 +269,10 @@ describe("E2E Integration", () => {
 
   describe("经验系统 E2E", () => {
     it("Agent 完成任务后自动创建 EXPERIENCE.md", async () => {
-      const agent = new Agent({
+      const agent = createAgent({
         id: "exp-e2e", name: "ExpE2E", role: "test", systemPrompt: "test",
         provider: "mock", model: "mock",
-      }, createMockProvider(), path.join(tmpDir, "agents"));
+      }, createMockProvider(), tmpDir);
 
       await agent.run("帮我修复 TypeScript 类型错误");
 
@@ -296,8 +311,8 @@ describe("E2E Integration", () => {
       expect(repo.size).toBe(2);
 
       // 带 whitelist 的 Agent
-      const dataRoot = path.join(tmpDir, "agents");
-      const agent = new Agent({
+      const dataRoot = tmpDir;
+      const agent = createAgent({
         id: "whitelist-agent", name: "S1", role: "test", systemPrompt: "test",
         provider: "mock", model: "mock",
         skills: ["skill-a"],
@@ -325,13 +340,13 @@ describe("E2E Integration", () => {
   });
 
   describe("Phase 8.1: Agent File System Integration", () => {
-    it("bootstrap is consumed after agent creation", () => {
-      const dataRoot = path.join(tmpDir, "agents");
-      const agentDir = path.join(dataRoot, "bootstrap-test");
+    it("bootstrap is preserved after agent creation", () => {
+      const dataRoot = tmpDir;
+      const agentDir = path.join(dataRoot, "agents", "bootstrap-test");
       fs.mkdirSync(agentDir, { recursive: true });
       fs.writeFileSync(path.join(agentDir, "BOOTSTRAP.md"), "首次启动引导内容", "utf-8");
 
-      const agent = new Agent({
+      const agent = createAgent({
         id: "bootstrap-test",
         name: "引导测试",
         role: "测试",
@@ -340,19 +355,19 @@ describe("E2E Integration", () => {
         model: "mock",
       }, createMockProvider(), dataRoot);
 
-      // BOOTSTRAP 应该已被 consume 删除
-      expect(fs.existsSync(path.join(agentDir, "BOOTSTRAP.md"))).toBe(false);
+      // BOOTSTRAP 不再删除 — 每次构建 prompt 时都会读取
+      expect(fs.existsSync(path.join(agentDir, "BOOTSTRAP.md"))).toBe(true);
     });
 
     it("agent prompt includes SOUL + USER + AGENTS", () => {
-      const dataRoot = path.join(tmpDir, "agents");
-      const agentDir = path.join(dataRoot, "chain-test");
+      const dataRoot = tmpDir;
+      const agentDir = path.join(dataRoot, "agents", "chain-test");
       fs.mkdirSync(agentDir, { recursive: true });
       fs.writeFileSync(path.join(agentDir, "SOUL.md"), "你是一个严谨的工程师。", "utf-8");
       fs.writeFileSync(path.join(agentDir, "USER.md"), "偏好：简洁。", "utf-8");
       fs.writeFileSync(path.join(agentDir, "AGENTS.md"), "先读后写。", "utf-8");
 
-      const agent = new Agent({
+      const agent = createAgent({
         id: "chain-test",
         name: "链式测试",
         role: "测试",
@@ -366,7 +381,7 @@ describe("E2E Integration", () => {
     });
 
     it("AgentPaths resolves all new paths", () => {
-      const p = AgentPaths.forAgent("new-paths", path.join(tmpDir, "agents"));
+      const p = AgentPaths.forAgent("new-paths", tmpDir);
       expect(p.userPath).toContain("USER.md");
       expect(p.bootstrapPath).toContain("BOOTSTRAP.md");
       expect(p.toolsPath).toContain("TOOLS.md");
