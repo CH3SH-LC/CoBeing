@@ -1,58 +1,47 @@
 /**
- * 配置 Schema 定义 — Phase 8.1 自治配置
+ * 配置 Schema 定义 — Phase 9 自治配置
+ *
+ * 根配置仅声明 Agent ID 列表 + 全局资源。
+ * Agent 的完整配置存放在 data/agents/{id}/config.json（自治配置）。
  */
 
 export interface ChannelBindTo {
   type: "agent" | "group";
   agentId?: string;
   groupId?: string;
-  role?: "user" | "owner";
 }
 
 /**
- * 根配置 — 声明全局资源和默认 Agent（butler）
+ * 根配置 — 最小化声明：Agent ID 列表 + providers + channels
  */
 export interface AppConfig {
   core: {
     logLevel: string;
     dataDir: string;
-    skillsDir?: string;     // 全局 Skill 仓库路径，默认 "./skills"
-    promptsDir?: string;    // Prompt 模板路径，默认 "./prompts"
-  };
-  agent: {
-    name: string;
-    role: string;
-    systemPrompt: string;
-    provider: string;
-    model: string;
-    permissions: {
-      mode: string;
-      allow?: string[];
-      deny?: string[];
-    };
-    sandbox: {
-      enabled: boolean;
-      filesystem: string;
-      network: boolean;
-      bindings?: string[];
-    };
-    tools?: string[];
-    toolsConfig?: {
-      defaultPermission: string;
-      enabled: string[];
-      permissions: Record<string, Record<string, string | number>>;
-    };
     skillsDir?: string;
+    promptsDir?: string;
+    /** 普通 Agent 单次对话最大工具调用轮数 */
+    maxToolRounds?: number;
+    /** 管家单次对话最大工具调用轮数 */
+    butlerMaxToolRounds?: number;
+    /** 群组记忆系统配置 */
+    groupMemory?: {
+      /** current.md 最大消息条数，默认 100 */
+      maxCurrentMessages?: number;
+    };
   };
+  /** Agent ID 列表 — 完整配置在 data/agents/{id}/config.json */
+  agents: string[];
   providers: Record<string, {
     type?: "openai-compat" | "anthropic" | "gemini";
     apiKeyEnv?: string;
     baseURL?: string;
     apiKey?: string;
+    plan?: "general" | "coding";
   }>;
   channels: Record<string, {
     enabled: boolean;
-    type: "onebot" | "wecom" | "feishu" | "discord";
+    type: "onebot" | "wecom" | "feishu" | "discord" | "qqbot";
     // OneBot / QQ
     wsUrl?: string;
     botQQ?: string;
@@ -76,6 +65,10 @@ export interface AppConfig {
     discordBotToken?: string;
     discordGuildId?: string;
     discordAllowedChannels?: string[];
+    // QQ Bot Official API v2
+    qqbotAppId?: string;
+    qqbotAppSecret?: string;
+    qqbotIntents?: number;
     // Binding
     bindTo?: ChannelBindTo;
   }>;
@@ -95,9 +88,7 @@ export interface AppConfig {
     id: string;
     name: string;
     members: string[];
-    protocol: string;
-    moderator?: string;
-    maxRounds?: number;
+    owner?: string;
     topic?: string;
   }>;
 }
@@ -108,6 +99,7 @@ export interface AppConfig {
 export interface AgentSelfConfig {
   name: string;
   role: string;
+  systemPrompt?: string;
   provider: string;
   model: string;
   permissions?: {
@@ -117,11 +109,16 @@ export interface AgentSelfConfig {
   };
   sandbox?: {
     enabled: boolean;
-    filesystem: string;
+    filesystem: "isolated" | "host";
     network: boolean;
     bindings?: string[];
+    resources?: {
+      memory?: string;
+      cpus?: number;
+      timeout?: number;
+    };
+    image?: string;
   };
   tools?: string[];
   skills?: string[];
-  systemPrompt?: string;
 }

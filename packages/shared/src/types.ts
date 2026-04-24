@@ -1,5 +1,5 @@
 /**
- * MyAgents 全局类型定义
+ * CoBeing 全局类型定义
  */
 
 // ============================================================
@@ -37,7 +37,7 @@ export interface ToolResult {
   isError?: boolean;
 }
 
-export type ModelTag = "coding" | "reasoning" | "fast" | "vision" | "flagship";
+export type ModelTag = "coding" | "reasoning" | "fast" | "vision" | "flagship" | "long-context";
 
 export interface ModelInfo {
   id: string;
@@ -64,10 +64,14 @@ export interface ChatParams {
   tools?: ToolDefinition[];
   temperature?: number;
   maxTokens?: number;
+  /** 启用思考模式（DeepSeek V4 等支持） */
+  thinkingEnabled?: boolean;
+  /** 思考强度："high" 或 "max" */
+  reasoningEffort?: "high" | "max";
 }
 
 export interface ChatChunk {
-  type: "content" | "tool_call" | "done";
+  type: "content" | "tool_call" | "reasoning" | "done";
   content?: string;
   toolCall?: ToolCall;
 }
@@ -120,6 +124,7 @@ export interface AgentConfig {
   sandbox?: SandboxConfig;
   skillsDir?: string;
   skills?: string[];         // 要装载的技能名称列表（按名称匹配 skills/ 目录下的技能）
+  maxToolRounds?: number;    // 单次对话最大工具调用轮数
 }
 
 export interface AgentResponse {
@@ -151,11 +156,42 @@ export interface PermissionPolicy {
 
 export interface SandboxConfig {
   enabled: boolean;
-  filesystem: "off" | "workspace-only" | "allowlist";
+  filesystem: "isolated" | "host";
   network: boolean;
-  allowPaths?: string[];
-  blockPaths?: string[];
   bindings?: string[];  // extra mounts "hostPath:containerPath[:ro]"
+  resources?: {
+    memory?: string;    // 如 "512m", "1g"，默认 "512m"
+    cpus?: number;      // 如 1, 2，默认 1
+    timeout?: number;   // 单次命令超时秒数，默认 30
+  };
+  image?: string;       // 自定义镜像，默认 "cobeing-sandbox:latest"
+}
+
+// ============================================================
+// SandboxRunner 接口 — 沙箱执行器抽象（定义在 shared 包避免循环依赖）
+// ============================================================
+
+export interface SandboxRunOptions {
+  timeout?: number;
+  cwd?: string;
+  env?: Record<string, string>;
+  onStdout?: (chunk: string) => void;
+  onStderr?: (chunk: string) => void;
+}
+
+export interface SandboxRunResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+export interface SandboxRunner {
+  run(command: string, opts?: SandboxRunOptions): Promise<SandboxRunResult>;
+  runFile(filePath: string, opts?: SandboxRunOptions): Promise<SandboxRunResult>;
+  addMount(hostPath: string, containerPath: string): Promise<void>;
+  removeMount(containerPath: string): Promise<void>;
+  destroy(): Promise<void>;
+  getStatus(): { containerId: string | null; running: boolean };
 }
 
 // ============================================================
@@ -174,6 +210,7 @@ export interface ToolContext {
   sessionId: string;
   workingDir: string;
   sandbox: SandboxConfig;
+  sandboxRunner?: SandboxRunner;
   permissions: PermissionPolicy;
   callDepth?: number;
 }
@@ -214,18 +251,11 @@ export interface MCPResource {
 // Group 相关类型
 // ============================================================
 
-/** @deprecated Phase 8.3 移除固定协议，保留类型用于向后兼容 */
-export type GroupProtocol = "round-robin" | "free-form" | "moderated" | "voting";
-
 export interface GroupConfig {
   id: string;
   name: string;
   members: string[];
   owner?: string;          // 群主 Agent ID（可选，未指定时由 Butler 充当）
-  /** @deprecated Phase 8.3: 讨论不再由固定协议控制，保留字段用于兼容 */
-  protocol?: string;
-  moderator?: string;
-  maxRounds?: number;
   topic?: string;
 }
 
@@ -249,6 +279,5 @@ export interface GroupStatusInfo {
   id: string;
   name: string;
   members: string[];
-  protocol: string;
   messageCount: number;
 }
