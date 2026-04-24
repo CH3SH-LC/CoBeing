@@ -66,7 +66,23 @@ export class Agent {
   private _spawner: SubAgentSpawner | null = null;
   private _sandbox: DockerSandbox | null = null;
   private _status: AgentStatus = "idle";
+  private _groupContext?: string;
   private logger: ReturnType<typeof createLogger>;
+
+  /** 设置群组协作上下文（WakeSystem 唤醒前调用） */
+  setGroupContext(ctx: string): void {
+    this._groupContext = ctx;
+  }
+
+  /** 清理群组协作上下文（Agent 回复后调用） */
+  clearGroupContext(): void {
+    this._groupContext = undefined;
+  }
+
+  /** 获取当前群组协作上下文 */
+  get groupContext(): string | undefined {
+    return this._groupContext;
+  }
 
   // Agent 文件系统
   readonly paths: AgentPaths;
@@ -200,11 +216,16 @@ export class Agent {
       maxToolRounds: this.config.maxToolRounds,
       promptBuilder: systemPrompt
         ? undefined  // 固定 prompt 的场景（如 butler），不用回调
-        : () => buildSystemPromptFromFiles(
-            this.files,
-            { name: this.name, role: this.config.role, systemPrompt: this.config.systemPrompt },
-            undefined,  // 不传 memoryStore，走文件读取路径，实现实时更新
-          ),
+        : () => {
+            const base = buildSystemPromptFromFiles(
+              this.files,
+              { name: this.name, role: this.config.role, systemPrompt: this.config.systemPrompt },
+              undefined,  // 不传 memoryStore，走文件读取路径，实现实时更新
+            );
+            return this._groupContext
+              ? `${base}\n\n${this._groupContext}`
+              : base;
+          },
     });
   }
 
