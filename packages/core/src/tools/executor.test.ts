@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ToolExecutor } from "./executor.js";
 import { ToolRegistry } from "./registry.js";
 import { PermissionEnforcer } from "./permission.js";
-import type { Tool, ToolCall } from "@myagents/shared";
+import type { Tool, ToolCall } from "@cobeing/shared";
 
 const echoTool: Tool = {
   name: "echo",
@@ -23,7 +23,7 @@ function makeExecutor(mode: string = "full-access") {
   registry.register(echoTool);
   registry.register(failTool);
   const permission = new PermissionEnforcer({ mode: mode as any }, undefined, "/workspace");
-  return new ToolExecutor(registry, permission);
+  return new ToolExecutor(registry, permission, undefined, { enabled: false, filesystem: "isolated", network: true });
 }
 
 const toolCall = (name: string, args: string): ToolCall => ({

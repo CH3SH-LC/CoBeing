@@ -1,8 +1,8 @@
 /**
  * ToolExecutor — 统一工具执行入口
  */
-import type { ToolCall, ToolResult } from "@myagents/shared";
-import { EventEmitter, createLogger } from "@myagents/shared";
+import type { ToolCall, ToolResult, SandboxConfig, SandboxRunner } from "@cobeing/shared";
+import { EventEmitter, createLogger } from "@cobeing/shared";
 import { ToolRegistry } from "./registry.js";
 import { PermissionEnforcer } from "./permission.js";
 
@@ -13,6 +13,8 @@ export class ToolExecutor {
     private registry: ToolRegistry,
     private permission: PermissionEnforcer,
     private events?: EventEmitter,
+    private sandboxConfig?: SandboxConfig,
+    private sandboxRunner?: SandboxRunner,
   ) {}
 
   async execute(toolCall: ToolCall, agentId: string, sessionId: string, workingDir: string, callDepth = 0): Promise<ToolResult> {
@@ -45,7 +47,8 @@ export class ToolExecutor {
       agentId,
       sessionId,
       workingDir,
-      sandbox: { enabled: false, filesystem: "workspace-only", network: true },
+      sandbox: this.sandboxConfig ?? { enabled: false, filesystem: "isolated", network: true },
+      sandboxRunner: this.sandboxRunner,
       permissions: { mode: "full-access" },
       callDepth,
     });
