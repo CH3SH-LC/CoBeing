@@ -51,11 +51,11 @@ export class Group {
     this.currentMd = new CurrentMd(memoryDir);
     this.maxCurrentMessages = (globalThis as any).__cobeingConfig?.core?.groupMemory?.maxCurrentMessages ?? 100;
 
-    // 创建唤醒系统（注入记忆依赖）
+    // 创建唤醒系统（注入记忆依赖 + 群主 ID）
     this.wakeSystem = new WakeSystem(
       this.ctxV2,
       (id) => this.registry.get(id),
-      undefined,
+      { ownerId: config.owner },
       {
         currentMd: this.currentMd,
         getAgentMemory: (agentId) => this.getAgentMemory(agentId),
@@ -133,6 +133,11 @@ export class Group {
    */
   wakeAgent(agentId: string): void {
     this.wakeSystem.wakeAgent(agentId, "main");
+  }
+
+  /** 注入本地过滤引擎到 WakeSystem */
+  setLocalFilter(filter: import("./local-filter.js").LocalFilterEngine): void {
+    this.wakeSystem.setLocalFilter(filter);
   }
 
   // ---- 兼容旧 API ----
@@ -290,6 +295,35 @@ export class Group {
       this.agentMemories.set(agentId, mem);
     }
     return mem;
+  }
+
+  /** 获取所有成员的画像摘要（姓名 + JOB 摘要） */
+  getMemberProfiles(): import("../conversation/prompt-builder.js").MemberProfile[] {
+    const profiles: import("../conversation/prompt-builder.js").MemberProfile[] = [];
+    for (const memberId of this.config.members) {
+      const agent = this.registry.get(memberId);
+      const agentPaths = AgentPaths.forAgent(memberId, this._dataRoot);
+      const agentFiles = new AgentFiles(agentPaths);
+
+      // 从 CHARACTER.md 提取姓名
+      const character = agentFiles.readCharacter();
+      let name = agent?.name || memberId;
+      if (character) {
+        const nameMatch = character.match(/-\s*Name:\s*(.+)/);
+        if (nameMatch) name = nameMatch[1].trim();
+      }
+
+      // 从 JOB.md 提取专注领域
+      const job = agentFiles.readJob();
+      let role = "成员";
+      if (job) {
+        const roleMatch = job.match(/##\s*专注领域\s*\n+([^\n#]+)/);
+        if (roleMatch) role = roleMatch[1].trim();
+      }
+
+      profiles.push({ id: memberId, name, role });
+    }
+    return profiles;
   }
 
   /** Set GroupManager reference for context persistence */
