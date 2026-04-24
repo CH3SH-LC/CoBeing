@@ -7,13 +7,17 @@
  * - 群主通过 @mention 唤起成员，或通过 Screener 主动介入
  * - Talk 机制支持私有讨论
  */
-import type { GroupConfig, GroupMessage } from "@myagents/shared";
+import type { GroupConfig, GroupMessage } from "@cobeing/shared";
 import type { Agent } from "../agent/agent.js";
 import type { AgentRegistry } from "../agent/registry.js";
+import { AgentPaths, AgentFiles } from "../agent/paths.js";
 import { GroupWorkspace } from "./workspace.js";
 import { GroupContextV2, type GroupMessageV2 } from "./group-context-v2.js";
 import { WakeSystem } from "./wake-system.js";
-import { createLogger } from "@myagents/shared";
+import { CurrentMd } from "./current-md.js";
+import { GroupAgentMemory } from "./agent-memory.js";
+import path from "node:path";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("group");
 
@@ -23,24 +27,41 @@ export class Group {
   readonly workspace: GroupWorkspace;
   readonly ctxV2: GroupContextV2;
   readonly wakeSystem: WakeSystem;
+  readonly currentMd: CurrentMd;
 
   private registry: AgentRegistry;
   private owner?: Agent;
-  private dataRoot: string;
+  private _dataRoot: string;
+  private agentMemories = new Map<string, GroupAgentMemory>();
+  private maxCurrentMessages: number;
+  /** Optional GroupManager reference for context persistence */
+  private _groupManager?: import("./manager.js").GroupManager;
 
   constructor(config: GroupConfig, registry: AgentRegistry, dataRoot: string = "data") {
     this.id = config.id;
     this.config = config;
     this.registry = registry;
-    this.dataRoot = dataRoot;
+    this._dataRoot = dataRoot;
 
     // 创建 v2 上下文
     this.ctxV2 = new GroupContextV2(config.id);
 
-    // 创建唤醒系统
+    // 创建记忆系统
+    const memoryDir = path.join(dataRoot, "groups", config.id, "memory");
+    this.currentMd = new CurrentMd(memoryDir);
+    this.maxCurrentMessages = (globalThis as any).__cobeingConfig?.core?.groupMemory?.maxCurrentMessages ?? 100;
+
+    // 创建唤醒系统（注入记忆依赖）
     this.wakeSystem = new WakeSystem(
       this.ctxV2,
       (id) => this.registry.get(id),
+      undefined,
+      {
+        currentMd: this.currentMd,
+        getAgentMemory: (agentId) => this.getAgentMemory(agentId),
+        getGroupMembers: () => this.config.members,
+        maxCurrentMessages: this.maxCurrentMessages,
+      },
     );
 
     // 创建工作空间
@@ -48,6 +69,11 @@ export class Group {
     const memberNames = config.members.map(id => this.resolveAgentName(id));
     this.workspace = new GroupWorkspace(config.id, config.name, dataRoot);
     this.workspace.initialize(memberNames, ownerName);
+
+    // 为初始成员挂载群组目录
+    for (const memberId of config.members) {
+      this.mountGroupForAgent(memberId);
+    }
 
     // 解析群主
     if (config.owner) {
@@ -68,7 +94,9 @@ export class Group {
    * 用户或群主发消息到 main 频道（触发唤醒起点）
    */
   postMessage(fromAgentId: string, content: string): GroupMessageV2 {
-    return this.ctxV2.append(fromAgentId, content, "main");
+    const msg = this.ctxV2.append(fromAgentId, content, "main");
+    this.persistMessage(msg, "main");
+    return msg;
   }
 
   /**
@@ -82,7 +110,9 @@ export class Group {
    * 向 talk 发消息
    */
   postToTalk(talkId: string, fromAgentId: string, content: string): GroupMessageV2 {
-    return this.ctxV2.append(fromAgentId, content, talkId);
+    const msg = this.ctxV2.append(fromAgentId, content, talkId);
+    this.persistMessage(msg, talkId);
+    return msg;
   }
 
   /**
@@ -93,7 +123,9 @@ export class Group {
     const header = talk
       ? `[Talk ${talkId} 结论 (成员: ${talk.members.join(", ")}, 主题: ${talk.topic})]`
       : `[Talk ${talkId} 结论]`;
-    return this.ctxV2.append(fromAgentId, `${header}\n\n${summary}`, "main");
+    const msg = this.ctxV2.append(fromAgentId, `${header}\n\n${summary}`, "main");
+    this.persistMessage(msg, "main");
+    return msg;
   }
 
   /**
@@ -194,10 +226,85 @@ export class Group {
   addMember(agentId: string): void {
     if (!this.config.members.includes(agentId)) {
       this.config.members.push(agentId);
+
+      // 挂载群组 workspace 到 agent 的沙箱
+      this.mountGroupForAgent(agentId);
+
+      // 硬编码激发 BOOTSTRAP：在群组上下文中注入 BOOTSTRAP 内容
+      const agentPaths = AgentPaths.forAgent(agentId, this._dataRoot);
+      const agentFiles = new AgentFiles(agentPaths);
+      const bootstrap = agentFiles.readBootstrap();
+      if (bootstrap) {
+        const agent = this.registry.get(agentId);
+        const agentName = agent?.name || agentId;
+        this.ctxV2.append(
+          "system",
+          `[BOOTSTRAP 注入 — ${agentName}]\n\n${bootstrap}`,
+          "main",
+        );
+        log.info("[%s] BOOTSTRAP injected for %s in group context", this.id, agentId);
+      }
     }
   }
 
   removeMember(agentId: string): void {
+    this.unmountGroupForAgent(agentId);
     this.config.members = this.config.members.filter(id => id !== agentId);
+  }
+
+  /** 将群组 workspace 挂载到 agent 的沙箱容器 */
+  private async mountGroupForAgent(agentId: string): Promise<void> {
+    try {
+      const agent = this.registry.get(agentId);
+      const sandboxRunner = (agent as any)?.sandboxRunner;
+      if (sandboxRunner) {
+        const groupDir = path.join(this._dataRoot, "groups", this.id);
+        await sandboxRunner.addMount(groupDir, `/workspace/groups/${this.id}`);
+        log.info("[%s] Mounted group dir for agent %s", this.id, agentId);
+      }
+    } catch (err: any) {
+      log.warn("[%s] Failed to mount group for agent %s: %s", this.id, agentId, err.message);
+    }
+  }
+
+  /** 从 agent 的沙箱容器卸载群组 workspace */
+  private async unmountGroupForAgent(agentId: string): Promise<void> {
+    try {
+      const agent = this.registry.get(agentId);
+      const sandboxRunner = (agent as any)?.sandboxRunner;
+      if (sandboxRunner) {
+        await sandboxRunner.removeMount(`/workspace/groups/${this.id}`);
+        log.info("[%s] Unmounted group dir for agent %s", this.id, agentId);
+      }
+    } catch (err: any) {
+      log.warn("[%s] Failed to unmount group for agent %s: %s", this.id, agentId, err.message);
+    }
+  }
+
+  /** 获取或创建 Agent 在本群组的 SQLite 记忆 */
+  getAgentMemory(agentId: string): GroupAgentMemory {
+    let mem = this.agentMemories.get(agentId);
+    if (!mem) {
+      const memoryDir = path.join(this._dataRoot, "groups", this.id, "memory");
+      mem = new GroupAgentMemory(agentId, memoryDir);
+      this.agentMemories.set(agentId, mem);
+    }
+    return mem;
+  }
+
+  /** Set GroupManager reference for context persistence */
+  setGroupManager(mgr: import("./manager.js").GroupManager): void {
+    this._groupManager = mgr;
+  }
+
+  /** Persist a message to context.jsonl */
+  private persistMessage(msg: GroupMessageV2, tag: string): void {
+    if (!this._groupManager) return;
+    this._groupManager.appendContextMessage(this.id, {
+      fromAgentId: msg.fromAgentId,
+      content: msg.content,
+      tag,
+      timestamp: msg.timestamp,
+    });
   }
 }
