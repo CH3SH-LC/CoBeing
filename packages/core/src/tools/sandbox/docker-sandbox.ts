@@ -105,9 +105,11 @@ export class DockerSandbox implements SandboxRunner {
     return {
       memory: this.config.resources?.memory ?? "512m",
       cpus: this.config.resources?.cpus ?? 1,
-      network: this.config.network?.enabled ?? true,
+      network: this.config.network ?? { enabled: true, mode: "all" },
       bindings: this.config.bindings ?? [],
       timeout: this.config.resources?.timeout ?? 30,
+      disk: this.config.resources?.disk,
+      security: this.config.security,
     };
   }
 }
