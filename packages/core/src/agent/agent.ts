@@ -1,9 +1,10 @@
 /**
  * Agent 核心 — 单个 Agent 的完整定义和运行时
  */
-import type { AgentConfig, AgentResponse, AgentStatus } from "@myagents/shared";
-import type { LLMProvider } from "@myagents/providers";
-import type { ChannelAdapter } from "@myagents/channels";
+import path from "node:path";
+import type { AgentConfig, AgentResponse, AgentStatus } from "@cobeing/shared";
+import type { LLMProvider } from "@cobeing/providers";
+import type { ChannelAdapter } from "@cobeing/channels";
 import { ConversationLoop, type ConversationLoopEvents } from "../conversation/conversation-loop.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -21,15 +22,21 @@ import type { SkillRepository } from "../skills/repository.js";
 import { makeSkillExecuteTool, makeSkillListTool, makeSkillCreateTool } from "../tools/skill-tools.js";
 import { SubAgentSpawner } from "./spawner.js";
 import { AgentPaths, AgentFiles } from "./paths.js";
+import { DockerSandbox } from "../tools/sandbox/docker-sandbox.js";
 import { MemoryWriter } from "../memory/writer.js";
 import { MemoryReader } from "../memory/reader.js";
 import { ExperienceWriter } from "../memory/experience.js";
+import { MemoryStore } from "../memory/memory-store.js";
+import { makeMemoryTool } from "../memory/memory-tool.js";
 import { AgentEventBus } from "./event-bus.js";
+import { makeTodoAddTool, makeTodoListTool, makeTodoCompleteTool, makeTodoRemoveTool } from "../todo/tools.js";
+import { currentTimeTool } from "../todo/time-tool.js";
 import { buildSystemPromptFromFiles } from "../conversation/prompt-builder.js";
-import { createLogger } from "@myagents/shared";
+import { makeGroupMemorySearchTool } from "../tools/group-memory-search.js";
+import { createLogger } from "@cobeing/shared";
 
 /** 所有内置工具映射 */
-const BUILTIN_TOOLS: Record<string, import("@myagents/shared").Tool> = {
+const BUILTIN_TOOLS: Record<string, import("@cobeing/shared").Tool> = {
   "bash": bashTool,
   "read-file": readFileTool,
   "write-file": writeFileTool,
@@ -49,14 +56,22 @@ export class Agent {
   private channels: ChannelAdapter[] = [];
   protected conversationLoop: ConversationLoop;
   protected toolRegistry: ToolRegistry;
+  protected _pendingToolNames: string[] = [];
   private mcpManager: MCPManager;
+
+  /** 注册额外工具（供子类或 runtime 扩展） */
+  registerTool(tool: import("@cobeing/shared").Tool): void {
+    this.toolRegistry.register(tool);
+  }
   private _spawner: SubAgentSpawner | null = null;
+  private _sandbox: DockerSandbox | null = null;
   private _status: AgentStatus = "idle";
   private logger: ReturnType<typeof createLogger>;
 
   // Agent 文件系统
   readonly paths: AgentPaths;
   readonly files: AgentFiles;
+  readonly memoryStore: MemoryStore;
   private memoryWriter: MemoryWriter;
   private experienceWriter: ExperienceWriter;
 
@@ -76,50 +91,83 @@ export class Agent {
     this.paths.ensureDirs();
 
     // 从文件系统加载增强信息
-    const identity = this.files.readIdentity();
+    const character = this.files.readCharacter();
     const fileConfig = this.files.readConfig();
 
-    // 合并 name（IDENTITY.md 优先）
-    if (identity.name) {
-      (this as any).name = identity.name;
+    // 合并 name（CHARACTER.md 优先 — 从 "- Name: xxx" 行提取）
+    if (character) {
+      const nameMatch = character.match(/-\s*Name:\s*(.+)/);
+      if (nameMatch) {
+        (this as any).name = nameMatch[1].trim();
+      }
     }
 
     // 合并配置（config.json 补充 AgentConfig）
     const mergedConfig = { ...config, ...fileConfig };
     const workingDir = this.paths.workspaceDir;
 
-    // 记忆系统
-    this.memoryWriter = new MemoryWriter(this.paths.memoryDir);
-    new MemoryReader(this.paths.memoryDir, this.paths.memoryIndexPath);
-
-    // 经验系统
-    this.experienceWriter = new ExperienceWriter(this.paths.experiencePath, this.provider);
-
-    // 从文件链构建 system prompt（SOUL → BOOTSTRAP → role → AGENTS → USER → EXPERIENCE → MEMORY）
-    const enhancedPrompt = buildSystemPromptFromFiles(this.files, {
-      name: this.name,
-      role: config.role,
-      systemPrompt: config.systemPrompt || "",
+    // 记忆系统（统一 MemoryStore，延迟初始化）
+    this.memoryStore = MemoryStore.createLazy(this.paths.directory, {
+      charLimits: (globalThis as any).__cobeingConfig?.memory?.charLimits,
     });
+
+    // 兼容旧接口
+    this.memoryWriter = new MemoryWriter(this.paths.memoryDir);
+    this.experienceWriter = new ExperienceWriter(this.paths.experiencePath, this.provider);
 
     // 初始化工具系统
     this.toolRegistry = new ToolRegistry();
     const enabledTools = mergedConfig.tools ?? mergedConfig.toolsConfig?.enabled ?? [];
+    this._pendingToolNames = enabledTools;
     for (const toolName of enabledTools) {
       const tool = BUILTIN_TOOLS[toolName];
       if (tool) {
         this.toolRegistry.register(tool);
-      } else {
-        this.logger.warn("Unknown tool: %s", toolName);
       }
+      // 非内置工具名不报 warning — 子类（如 ButlerAgent）会在构造时注册额外工具
     }
+
+    // 注册 memory 工具
+    this.toolRegistry.register(makeMemoryTool(this.memoryStore));
+
+    // 注册 TODO 工具
+    const todoDataRoot = path.dirname(path.dirname(this.paths.directory));
+    this.toolRegistry.register(makeTodoAddTool(todoDataRoot, undefined));
+    this.toolRegistry.register(makeTodoListTool(todoDataRoot, undefined));
+    this.toolRegistry.register(makeTodoCompleteTool(todoDataRoot, undefined));
+    this.toolRegistry.register(makeTodoRemoveTool(todoDataRoot, undefined));
+    this.toolRegistry.register(currentTimeTool);
+
+    // 群组记忆搜索工具
+    this.toolRegistry.register(makeGroupMemorySearchTool(
+      (groupId, agentId) => {
+        const groupManager = (globalThis as any).__cobeingGroupManager;
+        return groupManager?.get(groupId)?.getAgentMemory(agentId);
+      }
+    ));
 
     const permission = new PermissionEnforcer(
       mergedConfig.permissions ?? { mode: "ask" },
       mergedConfig.toolsConfig,
       workingDir,
     );
-    const toolExecutor = new ToolExecutor(this.toolRegistry, permission);
+
+    // 创建沙箱（如果启用）
+    if (mergedConfig.sandbox?.enabled) {
+      this._sandbox = new DockerSandbox(
+        config.id,
+        mergedConfig.sandbox,
+        this.paths.directory,
+      );
+    }
+
+    const toolExecutor = new ToolExecutor(
+      this.toolRegistry,
+      permission,
+      undefined,
+      mergedConfig.sandbox,
+      this._sandbox ?? undefined,
+    );
 
     // MCP 管理器
     this.mcpManager = new MCPManager();
@@ -127,7 +175,7 @@ export class Agent {
     // Skill 统一工具（Phase 8.2: 注入 SkillRepository + 3 个统一工具）
     const requestedSkills = mergedConfig.skills as string[] | undefined;
 
-    this.conversationLoop = this.createLoop(toolExecutor, undefined, enhancedPrompt, mergedConfig.model);
+    this.conversationLoop = this.createLoop(toolExecutor, undefined, undefined, mergedConfig.model);
   }
 
   private createLoop(
@@ -149,6 +197,14 @@ export class Agent {
       agentId: this.id,
       sessionId: sessionId ?? "default",
       workingDir: this.paths.workspaceDir,
+      maxToolRounds: this.config.maxToolRounds,
+      promptBuilder: systemPrompt
+        ? undefined  // 固定 prompt 的场景（如 butler），不用回调
+        : () => buildSystemPromptFromFiles(
+            this.files,
+            { name: this.name, role: this.config.role, systemPrompt: this.config.systemPrompt },
+            undefined,  // 不传 memoryStore，走文件读取路径，实现实时更新
+          ),
     });
   }
 
@@ -165,7 +221,13 @@ export class Agent {
       this.config.toolsConfig,
       this.paths.workspaceDir,
     );
-    const executor = new ToolExecutor(this.toolRegistry, perm);
+    const executor = new ToolExecutor(
+      this.toolRegistry,
+      perm,
+      undefined,
+      this.config.sandbox,
+      this._sandbox ?? undefined,
+    );
     this.conversationLoop = this.createLoop(executor);
 
     this.logger.info("SkillRepository injected: %d skills available (filter: %s)",
@@ -181,8 +243,13 @@ export class Agent {
     this.logger.info("Channel bound: %s", channel.name);
   }
 
-  /** 处理收到的消息 */
-  async handleIncomingMessage(msg: { channelId: string; senderId: string; senderName: string; content: string; metadata?: Record<string, unknown> }): Promise<void> {
+  /** 注册 channel 用于发送回复（不注册 onMessage，避免与 runtime 路由重复） */
+  addSendChannel(channel: ChannelAdapter): void {
+    this.channels.push(channel);
+  }
+
+  /** 处理收到的消息，返回回复内容（用于 WS 广播） */
+  async handleIncomingMessage(msg: { channelId: string; senderId: string; senderName: string; content: string; metadata?: Record<string, unknown> }): Promise<string> {
     if (this._status !== "idle") {
       this.logger.debug("Busy, queuing message from %s", msg.senderId);
     }
@@ -195,7 +262,13 @@ export class Agent {
         this.config.toolsConfig,
         this.paths.workspaceDir,
       );
-      const toolExecutor = new ToolExecutor(this.toolRegistry, permission);
+      const toolExecutor = new ToolExecutor(
+        this.toolRegistry,
+        permission,
+        undefined,
+        this.config.sandbox,
+        this._sandbox ?? undefined,
+      );
       loop = this.createLoop(toolExecutor, sessionKey);
       this.sessionLoops.set(sessionKey, loop);
     }
@@ -237,8 +310,10 @@ export class Agent {
       }
 
       this.logger.info("Replied to %s: %d chars", msg.senderId, response.content.length);
+      return response.content;
     } catch (err) {
       this.logger.error("Error handling message: %s", err);
+      return "";
     } finally {
       this._status = "idle";
     }
@@ -249,7 +324,7 @@ export class Agent {
     this._status = "running";
     try {
       // 保存用户消息
-      await this.memoryWriter.append({
+      this.memoryStore.appendHistory({
         session: "main",
         role: "user",
         content: input,
@@ -258,7 +333,7 @@ export class Agent {
       const response = await this.conversationLoop.run(input, events);
 
       // 保存助手回复
-      await this.memoryWriter.append({
+      this.memoryStore.appendHistory({
         session: "main",
         role: "assistant",
         content: response.content,
@@ -287,7 +362,7 @@ export class Agent {
           return;
         }
 
-        await this.experienceWriter.reflect(task, history);
+        await this.memoryStore.reflectFromHistory(task, history, this.provider);
       } catch {
         // 反思失败不影响主流程
       }
@@ -298,8 +373,13 @@ export class Agent {
     return this._status;
   }
 
+  /** 获取沙箱实例（用于群组挂载等） */
+  get sandboxRunner(): DockerSandbox | null {
+    return this._sandbox;
+  }
+
   /** 连接 MCP 服务器 */
-  async connectMCPServer(id: string, config: import("@myagents/shared").MCPServerConfig): Promise<void> {
+  async connectMCPServer(id: string, config: import("@cobeing/shared").MCPServerConfig): Promise<void> {
     await this.mcpManager.connect(id, config);
     // 注册 MCP 工具到 registry
     for (const tool of this.mcpManager.getTools()) {
@@ -310,6 +390,9 @@ export class Agent {
       new ToolExecutor(
         this.toolRegistry,
         new PermissionEnforcer(this.config.permissions ?? { mode: "ask" }, this.config.toolsConfig, this.paths.workspaceDir),
+        undefined,
+        this.config.sandbox,
+        this._sandbox ?? undefined,
       ),
     );
     this.logger.info("MCP server '%s' connected, tools registered", id);
@@ -348,6 +431,11 @@ export class Agent {
   /** 关闭资源 */
   async dispose(): Promise<void> {
     this.eventBusUnsub?.();
+    this.memoryStore.close();
     await this.mcpManager.close();
+    if (this._sandbox) {
+      await this._sandbox.destroy();
+      this._sandbox = null;
+    }
   }
 }
