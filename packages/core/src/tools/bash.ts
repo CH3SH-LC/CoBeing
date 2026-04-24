@@ -2,7 +2,7 @@
  * Bash 工具 — 执行 shell 命令
  */
 import { exec } from "node:child_process";
-import type { Tool, ToolContext, ToolResult } from "@myagents/shared";
+import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 
 export const bashTool: Tool = {
   name: "bash",
@@ -19,9 +19,22 @@ export const bashTool: Tool = {
     const command = params.command as string;
     const timeout = ((params.timeout as number) ?? 30) * 1000;
 
-    if (context.sandbox.enabled) {
-      return executeInSandbox(command, timeout, context);
+    // 沙箱模式：委托给 sandboxRunner
+    if (context.sandbox.enabled && context.sandboxRunner) {
+      const result = await context.sandboxRunner.run(command, {
+        timeout: (params.timeout as number) ?? 30,
+      });
+      if (result.exitCode !== 0) {
+        return {
+          toolCallId: "",
+          content: result.stderr || `Exit code: ${result.exitCode}`,
+          isError: true,
+        };
+      }
+      return { toolCallId: "", content: result.stdout || "(no output)" };
     }
+
+    // 本地模式
     return executeLocal(command, timeout, context.workingDir);
   },
 };
@@ -41,56 +54,6 @@ function executeLocal(command: string, timeout: number, cwd: string): Promise<To
         toolCallId: "",
         content: stdout || "(no output)",
       });
-    });
-  });
-}
-
-async function executeInSandbox(command: string, timeout: number, context: ToolContext): Promise<ToolResult> {
-  const { spawn } = await import("node:child_process");
-  const path = await import("node:path");
-
-  const args = ["run", "--rm", `--memory=512m`, `--cpus=1`];
-
-  if (!context.sandbox.network) {
-    args.push("--network=none");
-  }
-
-  // Mount working dir
-  const resolvedWorking = path.resolve(context.workingDir);
-  args.push("-v", `${resolvedWorking}:/workspace`);
-
-  // Extra bindings
-  if (context.sandbox.bindings) {
-    for (const binding of context.sandbox.bindings) {
-      args.push("-v", binding);
-    }
-  }
-
-  args.push("myagents-sandbox", "bash", "-c", command);
-
-  return new Promise((resolve) => {
-    const proc = spawn("docker", args, { cwd: context.workingDir });
-    let stdout = "";
-    let stderr = "";
-
-    const timer = setTimeout(() => {
-      proc.kill("SIGKILL");
-      resolve({ toolCallId: "", content: "命令超时", isError: true });
-    }, timeout);
-
-    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-    proc.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        resolve({ toolCallId: "", content: stderr || `Exit code: ${code}`, isError: true });
-      } else {
-        resolve({ toolCallId: "", content: stdout || "(no output)" });
-      }
-    });
-    proc.on("error", (err) => {
-      clearTimeout(timer);
-      resolve({ toolCallId: "", content: err.message, isError: true });
     });
   });
 }
