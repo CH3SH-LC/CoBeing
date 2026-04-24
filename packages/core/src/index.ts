@@ -1,10 +1,10 @@
-// @myagents/core
+// @cobeing/core
 
 export { Agent } from "./agent/agent.js";
 export { AgentRegistry } from "./agent/registry.js";
 export { ButlerAgent } from "./agent/butler.js";
-export { SubAgentSpawner, type SpawnConfig } from "./agent/spawner.js";
-export { AgentPaths, AgentFiles, type AgentIdentity } from "./agent/paths.js";
+export { SubAgentSpawner, type SpawnConfig, type SpawnForJSONConfig } from "./agent/spawner.js";
+export { AgentPaths, AgentFiles } from "./agent/paths.js";
 export { ConversationLoop, type ConversationLoopConfig, type ConversationLoopEvents } from "./conversation/conversation-loop.js";
 export { loadConfig } from "./config/config-loader.js";
 export type { AppConfig } from "./config/schema.js";
@@ -14,9 +14,9 @@ export { buildSystemPrompt } from "./conversation/prompt-builder.js";
 export { ToolRegistry } from "./tools/registry.js";
 export { ToolExecutor } from "./tools/executor.js";
 export { PermissionEnforcer, type PermissionResult } from "./tools/permission.js";
-export { DockerSandbox } from "./tools/sandbox.js";
+export { DockerSandbox } from "./tools/sandbox/index.js";
 export { setAgentRegistry } from "./tools/agent-message.js";
-export { makeGroupSpeakTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool } from "./tools/group-tools.js";
+export { makeGroupMembersTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool } from "./tools/group-tools.js";
 export { ButlerRegistry, type AgentRegistryEntry, type GroupRegistryEntry, type TaskLogEntry } from "./butler/registry.js";
 export { LLMGateway, type GatewayConfig } from "./gateway/llm-gateway.js";
 export { MCPClient, type MCPServerCapabilities } from "./mcp/client.js";
@@ -31,6 +31,10 @@ export { MemoryWriter, type MemoryEntry } from "./memory/writer.js";
 export { MemoryReader } from "./memory/reader.js";
 export { MemoryIndexer } from "./memory/indexer.js";
 export { ExperienceWriter, type ExperienceEntry } from "./memory/experience.js";
+export { MemoryStore, type MemoryTarget, type MemoryStoreConfig, type ToolResult as MemoryToolResult } from "./memory/memory-store.js";
+export { makeMemoryTool } from "./memory/memory-tool.js";
+export { scanContent, type ScanResult } from "./memory/security-scan.js";
+export { SqliteAdapter } from "./memory/sqlite-adapter.js";
 export { AgentEventBus, type BusMessage, type TaskCompleteMessage } from "./agent/event-bus.js";
 export { WorkflowEngine, type WorkflowConfig } from "./workflow/engine.js";
 export { Group } from "./group/group.js";
@@ -41,6 +45,11 @@ export { Screener, type ScreenerResult } from "./group/screener.js";
 export { GroupContext, Talk, type ChannelMessage, type TalkConfig } from "./group/context.js";
 export { GroupWorkspace, type GroupWorkspacePaths } from "./group/workspace.js";
 export { makeGroupPlanTool, makeGroupInviteTalkTool, makeGroupSummarizeTool, makeGroupAssignTaskTool } from "./group/owner.js";
-export { RoundRobinProtocol, FreeFormProtocol, ModeratedProtocol, createProtocol } from "./group/protocol.js";
+
 export { AgentCommTest, type CommTestResult } from "./agent/communication-test.js";
-export { MyAgentsRuntime } from "./runtime.js";
+export { CoBeingRuntime } from "./runtime.js";
+
+export { TodoStore } from "./todo/store.js";
+export { AgentTodoScanner } from "./todo/scanner.js";
+export { GroupTodoScanner } from "./todo/group-scanner.js";
+export type { TodoItem, TodoScope } from "./todo/types.js";
