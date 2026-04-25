@@ -18,37 +18,98 @@
 
 ---
 
+## Why CoBeing?
+
+Most AI assistants on the market use a **monolithic architecture** - one AI does everything. This leads to:
+- **Lack of expertise**: One AI can't be excellent at code, design, writing, and data analysis simultaneously
+- **Context confusion**: All tasks mixed in one conversation, easy to lose focus
+- **No collaboration**: Complex tasks require multiple roles working together, which monolithic AI can't do
+
+CoBeing uses a **native multi-agent architecture** to fundamentally solve these problems.
+
+---
+
 ## Core Features
 
 ### Native Multi-Agent Architecture
 
-CoBeing is not a wrapper around a single AI, but a **natively designed multi-agent collaboration system**. Each Agent is an independent entity with its own memory, experience, and personality.
+**Problem:** Single AI has capability ceilings. Complex tasks require multiple specialized roles working together.
+
+**Our approach:** CoBeing is not a wrapper around a single AI, but a **multi-agent collaboration system designed from scratch**. Each Agent is an independent entity with its own memory, experience, and personality.
+
+**Why it's better:**
+- **Specialized分工**: Each Agent focuses on one domain, more professional than "jack-of-all-trades AI"
+- **Parallel processing**: Multiple Agents can work simultaneously, multiplying efficiency
+- **Reusable**: The same Agent can be reused across different projects and groups
+- **Extensible**: Need new capabilities? Just create a new Agent without affecting existing systems
 
 ### Butler Agent & Host Agent
 
-- **Butler**: The user's first point of contact, responsible for understanding needs, creating Agents, and organizing groups
-- **Host**: The group's moderator and coordinator, guiding discussions, assigning tasks, and driving decisions
+**Problem:** Users don't know what kind of Agents to create, or how to organize multiple Agents to collaborate.
+
+**Our approach:**
+- **Butler**: The user's first point of contact, like an experienced project manager
+  - Understands user needs, determines what kind of Agents are needed
+  - Automatically creates and configures Agents
+  - Organizes groups, assigns roles
+- **Host**: The group's moderator and coordinator, like a meeting facilitator
+  - Guides discussion direction, prevents going off-topic
+  - Assigns tasks, ensures every Agent has work to do
+  - Drives decisions, prevents endless discussions
+
+**Why it's better:**
+- **Lower barrier**: Users just tell the Butler "what I want to do", Butler handles everything
+- **Higher efficiency**: Host ensures discussions stay on track, tasks get done, decisions get implemented
+- **Clear roles**: Butler is responsible for "finding the right people", Host is responsible for "doing the right things"
 
 ### Native Inter-Agent Communication
 
-Agents can **communicate directly** with each other without human mediation. Supports:
-- Group discussions: Multiple Agents collaborate in the same group
-- Directed messages: Agents can @mention other Agents
-- Task relay: Agents can hand off tasks to more suitable Agents
+**Problem:** In traditional approaches, Agent communication requires human relay, which is slow and error-prone.
+
+**Our approach:** Agents can **communicate directly** with each other without human mediation.
+
+**Supported communication modes:**
+- **Group discussions**: Multiple Agents collaborate in the same group, like a real team discussing
+- **Directed messages**: Agents can @mention other Agents, direct point-to-point communication
+- **Task relay**: When an Agent finds a task beyond its capability, it can hand off to a more suitable Agent
+
+**Why it's better:**
+- **Efficient**: Agents communicate directly, no need for human translation
+- **Accurate**: Inter-Agent communication is structured, no information loss
+- **Flexible**: Supports one-to-many, many-to-many, relay, and other communication patterns
 
 ### TODOboard
 
-Built-in **task management system**, supporting:
-- Group-level TODOs: Host can create, assign, and track tasks
-- Scheduled triggers: TODOs can set due times with automatic reminders
-- Status management: Complete lifecycle from pending to completed
+**Problem:** When multiple Agents collaborate, tasks easily get forgotten, progress is hard to track, responsibilities are unclear.
+
+**Our approach:** Built-in **task management system** to make group collaboration traceable.
+
+**Core features:**
+- **Group-level TODOs**: Host can create, assign, and track tasks
+- **Scheduled triggers**: TODOs can set due times, automatically remind relevant Agents
+- **Status management**: Complete lifecycle from pending to completed
+- **Clear ownership**: Each TODO has a clear owner
+
+**Why it's better:**
+- **Trackable**: All tasks are recorded, nothing gets forgotten
+- **Quantifiable**: Progress at a glance, know how much is completed
+- **Accountable**: Each task has an owner, avoiding buck-passing
 
 ### Self-Learning
 
-Agents have **self-evolution capabilities**:
-- **EXPERIENCE.md**: Records accumulated work experience
-- **MEMORY.md**: Stores important events and decisions
-- **Experience reflection**: Agents can proactively review and summarize experiences
+**Problem:** AI starts from scratch every conversation, doesn't learn from past work.
+
+**Our approach:** Agents have **self-evolution capabilities**, they learn from work experience.
+
+**Learning mechanisms:**
+- **EXPERIENCE.md**: Records accumulated work experience ("What I've learned")
+- **MEMORY.md**: Stores important events and decisions ("What I've experienced")
+- **Experience reflection**: Agents can proactively review and summarize experience ("What I can improve")
+
+**Why it's better:**
+- **Gets better with use**: Agents learn from past mistakes, won't repeat them
+- **Knowledge accumulation**: Experience doesn't disappear when conversation ends, keeps accumulating
+- **Continuous evolution**: Agents can proactively identify their own shortcomings and improve
 
 ---
 
