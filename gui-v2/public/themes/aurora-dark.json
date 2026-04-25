@@ -1,0 +1,46 @@
+{
+  "name": "极光夜空",
+  "description": "深空底色上的极光，暗蓝黑 + 翡翠绿",
+  "base": {
+    "gradient-from": "#08090F",
+    "gradient-to": "#0E1018",
+    "gradient-angle": 160
+  },
+  "surface": {
+    "bg": "rgba(18,21,30,0.85)",
+    "bg-solid": "#12151E",
+    "elevated": "#1A1E2C",
+    "hover": "#242938",
+    "input": "#0F1118",
+    "border": "rgba(37,43,59,0.7)",
+    "shadow": "0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2)",
+    "shadow-lg": "0 4px 12px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3)"
+  },
+  "content": {
+    "accent": "#6EE7B7",
+    "accent-warm": "#F0A080",
+    "accent-dim": "#2D4A3E",
+    "txt": "#E8ECF4",
+    "txt-sub": "#9BA4B8",
+    "txt-muted": "#5A6278",
+    "success": "#6EE7B7",
+    "warning": "#FBBF24",
+    "danger": "#F87171",
+    "purple": "#C4B5FD"
+  },
+  "chat": {
+    "msg-user": "#1C2A3A",
+    "msg-assistant": "#141E1A",
+    "msg-system": "#1E1A14",
+    "msg-tool": "#1A1828"
+  },
+  "misc": {
+    "scrollbar": "#252B3B",
+    "scrollbar-hover": "#3A4258",
+    "overlay": "rgba(0,0,0,0.6)",
+    "code-bg": "#0A0C12",
+    "selection-bg": "#6EE7B7",
+    "selection-fg": "#0C0E14",
+    "divider": "#2A3040"
+  }
+}

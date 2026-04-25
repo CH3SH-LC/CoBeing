@@ -1,0 +1,11 @@
+export { type ChannelAdapter, registerChannel, getChannel, getAllChannels } from "./base/channel-interface.js";
+export { QQChannel, type QQChannelConfig } from "./qq/qq-channel.js";
+export { OneBotClient, type OneBotConfig } from "./qq/onebot-client.js";
+export { QQBotChannel, type QQBotChannelConfig } from "./qq/qqbot-channel.js";
+export { QQBotGatewayClient, type QQBotGatewayConfig } from "./qq/qqbot-gateway-client.js";
+export { DiscordChannel, type DiscordChannelConfig } from "./discord/discord-channel.js";
+export { DiscordClient } from "./discord/discord-client.js";
+export { WeComChannel, type WeComChannelConfig } from "./wecom/wecom-channel.js";
+export { WeComClient } from "./wecom/wecom-client.js";
+export { FeishuChannel, type FeishuChannelConfig } from "./feishu/feishu-channel.js";
+export { FeishuClient } from "./feishu/feishu-client.js";
