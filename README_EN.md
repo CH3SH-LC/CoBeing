@@ -18,98 +18,45 @@
 
 ---
 
-## Why CoBeing?
-
-Most AI assistants on the market use a **monolithic architecture** - one AI does everything. This leads to:
-- **Lack of expertise**: One AI can't be excellent at code, design, writing, and data analysis simultaneously
-- **Context confusion**: All tasks mixed in one conversation, easy to lose focus
-- **No collaboration**: Complex tasks require multiple roles working together, which monolithic AI can't do
-
-CoBeing uses a **native multi-agent architecture** to fundamentally solve these problems.
-
----
-
 ## Core Features
 
 ### Native Multi-Agent Architecture
 
-**Problem:** Single AI has capability ceilings. Complex tasks require multiple specialized roles working together.
+CoBeing is not a wrapper around a single AI, but a **multi-agent collaboration system designed from scratch**. Each Agent is an independent entity with its own memory, experience, and personality.
 
-**Our approach:** CoBeing is not a wrapper around a single AI, but a **multi-agent collaboration system designed from scratch**. Each Agent is an independent entity with its own memory, experience, and personality.
-
-**Why it's better:**
-- **Specialized分工**: Each Agent focuses on one domain, more professional than "jack-of-all-trades AI"
-- **Parallel processing**: Multiple Agents can work simultaneously, multiplying efficiency
-- **Reusable**: The same Agent can be reused across different projects and groups
-- **Extensible**: Need new capabilities? Just create a new Agent without affecting existing systems
+This architecture enables **specialized division of labor** — each Agent focuses on one domain, more professional than a "jack-of-all-trades AI". Multiple Agents can **work in parallel**, multiplying efficiency. Agents are **reusable** across different projects and groups. When new capabilities are needed, just create a new Agent without affecting existing systems.
 
 ### Butler Agent & Host Agent
 
-**Problem:** Users don't know what kind of Agents to create, or how to organize multiple Agents to collaborate.
+The **Butler** is the user's first point of contact, like an experienced project manager. It understands user needs, determines what kind of Agents are needed, automatically creates and configures them, organizes groups and assigns roles.
 
-**Our approach:**
-- **Butler**: The user's first point of contact, like an experienced project manager
-  - Understands user needs, determines what kind of Agents are needed
-  - Automatically creates and configures Agents
-  - Organizes groups, assigns roles
-- **Host**: The group's moderator and coordinator, like a meeting facilitator
-  - Guides discussion direction, prevents going off-topic
-  - Assigns tasks, ensures every Agent has work to do
-  - Drives decisions, prevents endless discussions
+The **Host** is the group's moderator and coordinator, like a meeting facilitator. It guides discussion direction to prevent going off-topic, assigns tasks to ensure every Agent has work to do, and drives decisions to prevent endless discussions.
 
-**Why it's better:**
-- **Lower barrier**: Users just tell the Butler "what I want to do", Butler handles everything
-- **Higher efficiency**: Host ensures discussions stay on track, tasks get done, decisions get implemented
-- **Clear roles**: Butler is responsible for "finding the right people", Host is responsible for "doing the right things"
+Users just tell the Butler "what I want to do", and the Butler handles everything. The Host ensures discussions stay on track, tasks get done, and decisions get implemented. The Butler is responsible for "finding the right people", the Host is responsible for "doing the right things".
 
 ### Native Inter-Agent Communication
 
-**Problem:** In traditional approaches, Agent communication requires human relay, which is slow and error-prone.
+In traditional approaches, Agent communication requires human relay, which is slow and error-prone. CoBeing's Agents can **communicate directly** with each other without human mediation.
 
-**Our approach:** Agents can **communicate directly** with each other without human mediation.
+Supports **group discussions** — multiple Agents collaborate in the same group, like a real team discussing. Supports **directed messages** — Agents can @mention other Agents for direct point-to-point communication. Supports **task relay** — when an Agent finds a task beyond its capability, it can hand off to a more suitable Agent.
 
-**Supported communication modes:**
-- **Group discussions**: Multiple Agents collaborate in the same group, like a real team discussing
-- **Directed messages**: Agents can @mention other Agents, direct point-to-point communication
-- **Task relay**: When an Agent finds a task beyond its capability, it can hand off to a more suitable Agent
-
-**Why it's better:**
-- **Efficient**: Agents communicate directly, no need for human translation
-- **Accurate**: Inter-Agent communication is structured, no information loss
-- **Flexible**: Supports one-to-many, many-to-many, relay, and other communication patterns
+Agents communicate directly without human translation. Communication is structured, no information loss. Supports one-to-many, many-to-many, relay, and other communication patterns.
 
 ### TODOboard
 
-**Problem:** When multiple Agents collaborate, tasks easily get forgotten, progress is hard to track, responsibilities are unclear.
+When multiple Agents collaborate, tasks easily get forgotten, progress is hard to track, and responsibilities are unclear. CoBeing has a built-in **task management system** to make group collaboration traceable.
 
-**Our approach:** Built-in **task management system** to make group collaboration traceable.
+The Host can create, assign, and track tasks. TODOs can set due times and automatically remind relevant Agents. Complete lifecycle management from pending to completed. Each TODO has a clear owner.
 
-**Core features:**
-- **Group-level TODOs**: Host can create, assign, and track tasks
-- **Scheduled triggers**: TODOs can set due times, automatically remind relevant Agents
-- **Status management**: Complete lifecycle from pending to completed
-- **Clear ownership**: Each TODO has a clear owner
-
-**Why it's better:**
-- **Trackable**: All tasks are recorded, nothing gets forgotten
-- **Quantifiable**: Progress at a glance, know how much is completed
-- **Accountable**: Each task has an owner, avoiding buck-passing
+All tasks are recorded, nothing gets forgotten. Progress at a glance, know how much is completed. Each task has an owner, avoiding buck-passing.
 
 ### Self-Learning
 
-**Problem:** AI starts from scratch every conversation, doesn't learn from past work.
+AI starts from scratch every conversation, not learning from past work. CoBeing's Agents have **self-evolution capabilities**, learning from work experience.
 
-**Our approach:** Agents have **self-evolution capabilities**, they learn from work experience.
+Through **EXPERIENCE.md** to record accumulated work experience, through **MEMORY.md** to store important events and decisions. Agents can proactively review and summarize experience, discover their own shortcomings and improve.
 
-**Learning mechanisms:**
-- **EXPERIENCE.md**: Records accumulated work experience ("What I've learned")
-- **MEMORY.md**: Stores important events and decisions ("What I've experienced")
-- **Experience reflection**: Agents can proactively review and summarize experience ("What I can improve")
-
-**Why it's better:**
-- **Gets better with use**: Agents learn from past mistakes, won't repeat them
-- **Knowledge accumulation**: Experience doesn't disappear when conversation ends, keeps accumulating
-- **Continuous evolution**: Agents can proactively identify their own shortcomings and improve
+Agents learn from past mistakes and won't repeat them. Experience doesn't disappear when conversation ends, it keeps accumulating. Agents can proactively identify their own shortcomings and improve, getting better with use.
 
 ---
 
@@ -213,6 +160,48 @@ Skill is a reusable workflow methodology, stored in the `skills/` directory:
 Channel is the interface for user interaction:
 - Currently supports QQBot (via OneBot v11 protocol)
 - More channels under development (Discord, WeCom, Feishu, etc.)
+
+By connecting QQBot, you can **communicate with Agent groups directly on mobile QQ**, enabling collaboration anytime, anywhere.
+
+---
+
+## Quick Start
+
+### Option 1: Use Release Archive (Recommended)
+
+1. Go to [Releases](https://github.com/CH3SH-LC/CoBeing/releases) and download the latest archive
+2. Extract to any directory
+3. Double-click `start.bat` to launch
+
+> **Note:** Running the terminal in the background may trigger antivirus false positives. If blocked, add the CoBeing directory to your antivirus whitelist.
+
+### Option 2: Build from Source
+
+**Requirements:**
+- Node.js >= 22
+- pnpm >= 10
+- Docker (optional, for sandbox features)
+
+**Installation:**
+
+```bash
+# Clone repository
+git clone https://github.com/CH3SH-LC/CoBeing.git
+cd CoBeing
+
+# Install dependencies
+pnpm install
+
+# Configure environment variables
+cp .env.example .env
+# Edit .env file and add your API keys
+
+# Build project
+pnpm build
+
+# Start development server
+pnpm dev
+```
 
 ---
 
