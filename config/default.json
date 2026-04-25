@@ -1,0 +1,85 @@
+{
+  "core": {
+    "logLevel": "info",
+    "dataDir": "./data",
+    "skillsDir": "./skills",
+    "promptsDir": "./prompts",
+    "maxToolRounds": 20,
+    "butlerMaxToolRounds": 40,
+    "memory": {
+      "charLimits": {
+        "memory": 3000,
+        "experience": 5000,
+        "user": 2000,
+        "tools": 3000
+      }
+    },
+    "todo": {
+      "scanInterval": 60000
+    },
+    "localModel": {
+      "enabled": true,
+      "path": "./data/models/qwen3.5-2b",
+      "contextSize": 8192,
+      "filterDebounceMs": 3000
+    }
+  },
+  "agents": [
+    "butler",
+    "host"
+  ],
+  "providers": {
+    "anthropic": {
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "type": "anthropic"
+    },
+    "openai": {
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "baseURL": "https://api.openai.com/v1"
+    },
+    "deepseek": {
+      "apiKeyEnv": "DEEPSEEK_API_KEY",
+      "baseURL": "https://api.deepseek.com"
+    },
+    "zhipu": {
+      "apiKeyEnv": "ZHIPU_API_KEY",
+      "baseURL": "https://open.bigmodel.cn/api/paas/v4",
+      "plan": "general"
+    },
+    "qwen": {
+      "apiKeyEnv": "QWEN_API_KEY",
+      "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    },
+    "minimax": {
+      "apiKeyEnv": "MINIMAX_API_KEY",
+      "baseURL": "https://api.minimax.chat/v1"
+    },
+    "volcengine": {
+      "apiKeyEnv": "VOLCENGINE_API_KEY",
+      "baseURL": "https://ark.cn-beijing.volces.com/api/v3"
+    },
+    "gemini": {
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "type": "gemini"
+    },
+    "grok": {
+      "apiKeyEnv": "XAI_API_KEY",
+      "baseURL": "https://api.x.ai/v1"
+    },
+    "moonshot": {
+      "apiKeyEnv": "MOONSHOT_API_KEY",
+      "baseURL": "https://api.moonshot.ai/v1"
+    },
+    "siliconflow": {
+      "apiKeyEnv": "SILICONFLOW_API_KEY",
+      "baseURL": "https://api.siliconflow.cn/v1"
+    }
+  },
+  "channels": {},
+  "gui": {
+    "enabled": true,
+    "wsPort": 18765
+  },
+  "groups": [],
+  "mcpServers": {}
+}

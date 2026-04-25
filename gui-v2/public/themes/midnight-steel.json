@@ -1,0 +1,46 @@
+{
+  "name": "午夜钢铁",
+  "description": "深灰底 + 琥珀金强调，专业 IDE 风",
+  "base": {
+    "gradient-from": "#16171A",
+    "gradient-to": "#1A1B1E",
+    "gradient-angle": 150
+  },
+  "surface": {
+    "bg": "rgba(33,34,37,0.88)",
+    "bg-solid": "#212225",
+    "elevated": "#2A2B2F",
+    "hover": "#35363B",
+    "input": "#18191C",
+    "border": "rgba(51,51,54,0.7)",
+    "shadow": "0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2)",
+    "shadow-lg": "0 4px 12px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3)"
+  },
+  "content": {
+    "accent": "#FBBF24",
+    "accent-warm": "#FB923C",
+    "accent-dim": "#423006",
+    "txt": "#E4E4E7",
+    "txt-sub": "#A1A1AA",
+    "txt-muted": "#71717A",
+    "success": "#4ADE80",
+    "warning": "#FBBF24",
+    "danger": "#F87171",
+    "purple": "#A78BFA"
+  },
+  "chat": {
+    "msg-user": "#1E2A3A",
+    "msg-assistant": "#1A2A1E",
+    "msg-system": "#2A2518",
+    "msg-tool": "#251E30"
+  },
+  "misc": {
+    "scrollbar": "#333336",
+    "scrollbar-hover": "#52525B",
+    "overlay": "rgba(0,0,0,0.6)",
+    "code-bg": "#18191C",
+    "selection-bg": "#FBBF24",
+    "selection-fg": "#1A1B1E",
+    "divider": "#333336"
+  }
+}

@@ -1,0 +1,196 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* ── Tailwind v4 @theme — placeholder values for class generation.
+   Actual values are injected at runtime by ThemeStore.applyTheme().
+   These are fallbacks only. ── */
+
+@theme {
+  /* base layer */
+  --color-base-from: #F0F4F8;
+  --color-base-to: #E8F0E8;
+
+  /* surface layer */
+  --color-surface: rgba(255,255,255,0.82);
+  --color-surface-solid: #FFFFFF;
+  --color-elevated: #F1F4F7;
+  --color-hover: #E8ECF1;
+  --color-input: #FFFFFF;
+  --color-bdr: rgba(226,232,240,0.6);
+
+  /* content layer */
+  --color-accent: #10B981;
+  --color-accent-warm: #F59E0B;
+  --color-accent-dim: #D1FAE5;
+
+  --color-msg-user: #EEF4FF;
+  --color-msg-assistant: #ECFDF5;
+  --color-msg-system: #FFF8EB;
+  --color-msg-tool: #F5F3FF;
+
+  --color-txt: #1E293B;
+  --color-txt-sub: #475569;
+  --color-txt-muted: #94A3B8;
+
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+  --color-purple: #8B5CF6;
+
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* ── Runtime CSS variables (set by ThemeStore) ── */
+:root {
+  --app-bg: #F0F4F8;
+  --app-fg: #1E293B;
+  --base-gradient-angle: 135;
+  --scrollbar: #CBD5E1;
+  --scrollbar-hover: #94A3B8;
+  --overlay: rgba(0,0,0,0.2);
+  --code-bg: #F1F5F9;
+  --selection-bg: #10B981;
+  --selection-fg: #FFFFFF;
+  --shadow-surface: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-surface-lg: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --color-divider: #E2E8F0;
+}
+
+/* ── Global Reset ── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: var(--app-bg);
+  color: var(--app-fg);
+  font-family: var(--font-body);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+}
+
+/* ── Selection ── */
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-fg);
+}
+
+/* ── Focus ring ── */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ── Code blocks ── */
+.msg-content pre {
+  background: var(--code-bg);
+  border: 1px solid var(--color-bdr);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.msg-content code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.msg-content :not(pre) > code {
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.msg-content p {
+  margin: 4px 0;
+  line-height: 1.6;
+}
+
+.msg-content ul, .msg-content ol {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+.msg-content table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  width: 100%;
+}
+.msg-content th, .msg-content td {
+  border: 1px solid var(--color-bdr);
+  padding: 6px 10px;
+  text-align: left;
+}
+.msg-content th {
+  background: var(--code-bg);
+}
+
+.hljs {
+  background: transparent !important;
+}
+
+/* ── highlight.js atom-one-dark theme (code blocks) ── */
+.code-block-pre .hljs {
+  background: transparent !important;
+  color: #abb2bf;
+}
+.code-block-pre .hljs-comment,
+.code-block-pre .hljs-quote { color: #5c6370; font-style: italic; }
+.code-block-pre .hljs-doctag,
+.code-block-pre .hljs-keyword,
+.code-block-pre .hljs-formula { color: #c678dd; }
+.code-block-pre .hljs-section,
+.code-block-pre .hljs-name,
+.code-block-pre .hljs-selector-tag,
+.code-block-pre .hljs-deletion,
+.code-block-pre .hljs-subst { color: #e06c75; }
+.code-block-pre .hljs-literal { color: #56b6c2; }
+.code-block-pre .hljs-string,
+.code-block-pre .hljs-regexp,
+.code-block-pre .hljs-addition,
+.code-block-pre .hljs-attribute,
+.code-block-pre .hljs-meta .hljs-string { color: #98c379; }
+.code-block-pre .hljs-attr,
+.code-block-pre .hljs-variable,
+.code-block-pre .hljs-template-variable,
+.code-block-pre .hljs-type,
+.code-block-pre .hljs-selector-class,
+.code-block-pre .hljs-selector-attr,
+.code-block-pre .hljs-selector-pseudo,
+.code-block-pre .hljs-number { color: #d19a66; }
+.code-block-pre .hljs-symbol,
+.code-block-pre .hljs-bullet,
+.code-block-pre .hljs-link,
+.code-block-pre .hljs-meta,
+.code-block-pre .hljs-selector-id,
+.code-block-pre .hljs-title { color: #61aeee; }
+.code-block-pre .hljs-built_in,
+.code-block-pre .hljs-title.class_,
+.code-block-pre .hljs-class .hljs-title { color: #e6c07b; }
+.code-block-pre .hljs-emphasis { font-style: italic; }
+.code-block-pre .hljs-strong { font-weight: bold; }
+.code-block-pre .hljs-link { text-decoration: underline; }

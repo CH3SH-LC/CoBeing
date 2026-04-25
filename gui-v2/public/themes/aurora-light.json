@@ -1,0 +1,46 @@
+{
+  "name": "极光白昼",
+  "description": "明亮天空上的极光，薄荷白底 + 翡翠绿",
+  "base": {
+    "gradient-from": "#F0F4F8",
+    "gradient-to": "#E8F0E8",
+    "gradient-angle": 135
+  },
+  "surface": {
+    "bg": "rgba(255,255,255,0.82)",
+    "bg-solid": "#FFFFFF",
+    "elevated": "#F1F4F7",
+    "hover": "#E8ECF1",
+    "input": "#FFFFFF",
+    "border": "rgba(226,232,240,0.6)",
+    "shadow": "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
+    "shadow-lg": "0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)"
+  },
+  "content": {
+    "accent": "#10B981",
+    "accent-warm": "#F59E0B",
+    "accent-dim": "#D1FAE5",
+    "txt": "#1E293B",
+    "txt-sub": "#475569",
+    "txt-muted": "#94A3B8",
+    "success": "#10B981",
+    "warning": "#F59E0B",
+    "danger": "#EF4444",
+    "purple": "#8B5CF6"
+  },
+  "chat": {
+    "msg-user": "#EEF4FF",
+    "msg-assistant": "#ECFDF5",
+    "msg-system": "#FFF8EB",
+    "msg-tool": "#F5F3FF"
+  },
+  "misc": {
+    "scrollbar": "#CBD5E1",
+    "scrollbar-hover": "#94A3B8",
+    "overlay": "rgba(0,0,0,0.2)",
+    "code-bg": "#F1F5F9",
+    "selection-bg": "#10B981",
+    "selection-fg": "#FFFFFF",
+    "divider": "#E2E8F0"
+  }
+}
