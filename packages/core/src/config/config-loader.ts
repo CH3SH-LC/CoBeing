@@ -15,8 +15,8 @@ const DEFAULT_CONFIG: AppConfig = {
     dataDir: "./data",
     skillsDir: "./skills",
     promptsDir: "./prompts",
-    maxToolRounds: 20,
-    butlerMaxToolRounds: 40,
+    maxToolRounds: Infinity,
+    butlerMaxToolRounds: Infinity,
   },
   agents: ["butler", "host"],
   providers: {

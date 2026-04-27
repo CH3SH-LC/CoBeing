@@ -17,25 +17,26 @@ describe("CurrentMd", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("appends and reads messages", () => {
+  it("appends messages to in-memory state", () => {
     current.append({ id: "msg-1", tag: "main", fromAgentId: "a", content: "hello", timestamp: 1000 });
     current.append({ id: "msg-2", tag: "main", fromAgentId: "b", content: "world", timestamp: 2001 });
 
-    const lines = current.read();
-    expect(lines).toHaveLength(2);
-    expect(lines[0].content).toBe("hello");
+    const text = current.readAsContext();
+    expect(text).toContain("[a]: hello");
+    expect(text).toContain("[b]: world");
   });
 
-  it("rolls to keep last N messages", () => {
+  it("rolls to keep last N messages in memory", () => {
     for (let i = 0; i < 10; i++) {
       current.append({ id: `msg-${i}`, tag: "main", fromAgentId: "a", content: `msg ${i}`, timestamp: i });
     }
     current.roll(3);
 
-    const lines = current.read();
-    expect(lines).toHaveLength(3);
-    expect(lines[0].content).toBe("msg 7");
-    expect(lines[2].content).toBe("msg 9");
+    const text = current.readAsContext();
+    expect(text).toContain("[a]: msg 7");
+    expect(text).toContain("[a]: msg 8");
+    expect(text).toContain("[a]: msg 9");
+    expect(text).not.toContain("msg 6");
   });
 
   it("formats as context text", () => {
@@ -47,18 +48,18 @@ describe("CurrentMd", () => {
     expect(text).toContain("[Talk: talk-001] [dev]: 我来处理");
   });
 
-  it("creates file on first append", () => {
+  it("does not write to file on append", () => {
     const filePath = path.join(tmpDir, "current.md");
-    expect(fs.existsSync(filePath)).toBe(false);
     current.append({ id: "msg-1", tag: "main", fromAgentId: "a", content: "hi", timestamp: 1000 });
-    expect(fs.existsSync(filePath)).toBe(true);
+    // File should not be created — persistence is handled by save_chat_current
+    expect(fs.existsSync(filePath)).toBe(false);
   });
 
   it("returns empty string for readAsContext when no messages", () => {
     expect(current.readAsContext()).toBe("");
   });
 
-  it("roll is no-op when file does not exist", () => {
+  it("roll is no-op when in-memory is empty", () => {
     const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), "fresh-"));
     const fresh = new CurrentMd(freshDir);
     fresh.roll(10); // should not throw

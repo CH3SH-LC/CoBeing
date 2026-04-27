@@ -74,7 +74,7 @@ export class ConversationLoop {
           model: "",
         });
 
-    const maxRounds = this.config.maxToolRounds ?? 10;
+    const maxRounds = this.config.maxToolRounds ?? Infinity;
     let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
     for (let round = 0; round < maxRounds; round++) {
@@ -126,12 +126,20 @@ export class ConversationLoop {
       // 如果有 ToolExecutor，自动执行工具并继续循环
       if (this.config.toolExecutor) {
         for (const tc of toolCalls) {
-          const result = await this.config.toolExecutor.execute(
-            tc,
-            this.config.agentId ?? "unknown",
-            this.config.sessionId ?? "unknown",
-            this.config.workingDir ?? process.cwd(),
-          );
+          let result: import("@cobeing/shared").ToolResult;
+          try {
+            result = await this.config.toolExecutor.execute(
+              tc,
+              this.config.agentId ?? "unknown",
+              this.config.sessionId ?? "unknown",
+              this.config.workingDir ?? process.cwd(),
+            );
+          } catch (err) {
+            // 工具执行异常也必须写入 history，否则 tool_calls 链断裂
+            const errMsg = err instanceof Error ? err.message : String(err);
+            log.error("Tool execution threw: %s", errMsg);
+            result = { toolCallId: tc.id, content: `工具执行异常: ${errMsg}`, isError: true };
+          }
           this.history.push({
             role: "tool",
             content: result.content,

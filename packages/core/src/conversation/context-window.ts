@@ -40,38 +40,43 @@ export class ContextWindow {
       trimmed = trimmed.slice(1);
     }
 
-    // 3. 从后往前扫描，移除 tool_calls 不完整的 assistant 消息
-    //    如果 assistant 有 tool_calls，检查后续 tool 消息是否齐全
+    // 3. 正向扫描，保证 tool_calls 序列完整且有序
+    //    assistant+tool_calls 必须有对应的后续 tool 消息，否则跳过该 assistant
     const result: Message[] = [];
-    const pendingToolCallIds = new Set<string>();
+    const seenToolCallIds = new Set<string>(); // 已遇到的 tool 响应 ID
 
-    // 先收集所有 tool 消息的 toolCallId
-    for (const msg of trimmed) {
-      if (msg.role === "tool" && msg.toolCallId) {
-        pendingToolCallIds.add(msg.toolCallId);
-      }
-    }
-
-    // 正向处理：assistant+tool_calls 如果对应的 tool 消息不全，跳过该 assistant
-    const processedToolCallIds = new Set<string>();
     for (let i = 0; i < trimmed.length; i++) {
       const msg = trimmed[i];
 
       if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
-        // 检查每个 toolCall 是否都有对应的 tool 消息
-        const allPresent = msg.toolCalls.every(tc => pendingToolCallIds.has(tc.id));
+        // 收集此 assistant 之后的所有 tool 响应 ID
+        const requiredIds = new Set(msg.toolCalls.map(tc => tc.id));
+        const foundIds = new Set<string>();
+
+        // 向后扫描 tool 消息
+        for (let j = i + 1; j < trimmed.length; j++) {
+          const later = trimmed[j];
+          if (later.role === "tool" && later.toolCallId && requiredIds.has(later.toolCallId)) {
+            foundIds.add(later.toolCallId);
+          }
+          // 遇到非 tool 消息且还没找全，说明中间插入了其他消息，停止
+          if (later.role !== "tool" && foundIds.size < requiredIds.size) break;
+        }
+
+        // 检查是否所有 tool_calls 都有对应的后续 tool 响应
+        const allPresent = msg.toolCalls.every(tc => foundIds.has(tc.id));
         if (!allPresent) {
-          // tool_calls 不完整，跳过这个 assistant 消息
-          // 同时跳过后续紧跟着的 tool 消息
+          // tool_calls 不完整，跳过这个 assistant
           continue;
         }
-        // 标记这些 toolCallId 已被处理
+
+        // 标记这些 toolCallId 为已处理
         for (const tc of msg.toolCalls) {
-          processedToolCallIds.add(tc.id);
+          seenToolCallIds.add(tc.id);
         }
       }
 
-      if (msg.role === "tool" && msg.toolCallId && !processedToolCallIds.has(msg.toolCallId)) {
+      if (msg.role === "tool" && msg.toolCallId && !seenToolCallIds.has(msg.toolCallId)) {
         // 孤立的 tool 消息（对应的 assistant 被跳过了），跳过
         continue;
       }

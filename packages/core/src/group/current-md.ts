@@ -20,30 +20,23 @@ export interface CurrentMessage {
 
 export class CurrentMd {
   private filePath: string;
+  private inMemory: CurrentMessage[] = [];
 
   constructor(memoryDir: string) {
     fs.mkdirSync(memoryDir, { recursive: true });
     this.filePath = path.join(memoryDir, "current.md");
   }
 
-  /** 追加一条消息 */
+  /** 追加一条消息（仅内存，文件持久化由 save_chat_current 处理） */
   append(msg: CurrentMessage): void {
-    const line = JSON.stringify(msg) + "\n";
-    fs.appendFileSync(this.filePath, line, "utf-8");
+    this.inMemory.push(msg);
   }
 
-  /** 裁剪到最近 maxMessages 条 */
+  /** 裁剪到最近 maxMessages 条（仅内存） */
   roll(maxMessages: number): void {
-    if (!fs.existsSync(this.filePath)) return;
-
-    const raw = fs.readFileSync(this.filePath, "utf-8");
-    const lines = raw.trim().split("\n").filter(Boolean);
-
-    if (lines.length <= maxMessages) return;
-
-    const kept = lines.slice(-maxMessages);
-    fs.writeFileSync(this.filePath, kept.join("\n") + "\n", "utf-8");
-    log.debug("Rolled current.md: %d → %d messages", lines.length, kept.length);
+    if (this.inMemory.length <= maxMessages) return;
+    this.inMemory = this.inMemory.slice(-maxMessages);
+    log.debug("Rolled current.md (memory): → %d messages", this.inMemory.length);
   }
 
   /** 读取所有消息（解析 JSONL） */
@@ -55,12 +48,11 @@ export class CurrentMd {
     }).filter((m): m is CurrentMessage => m !== null);
   }
 
-  /** 格式化为 Agent 可读的上下文文本 */
+  /** 格式化为 Agent 可读的上下文文本（从内存读取） */
   readAsContext(): string {
-    const messages = this.read();
-    if (messages.length === 0) return "";
+    if (this.inMemory.length === 0) return "";
 
-    return messages.map(msg => {
+    return this.inMemory.map(msg => {
       const speaker = msg.fromAgentId;
       if (msg.tag === "main") {
         return `[${speaker}]: ${msg.content}`;

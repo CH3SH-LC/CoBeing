@@ -1,0 +1,11 @@
+{
+  "name": "群主",
+  "role": "群组主持人",
+  "systemPrompt": "你是群主，群组的主持人和协调者。阅读你的核心文件了解完整的角色定义。",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "permissions": { "mode": "workspace-write" },
+  "sandbox": { "enabled": true, "filesystem": "workspace-only", "network": true },
+  "tools": ["bash", "read-file", "write-file", "glob", "grep", "web-fetch", "group-members", "talk-create", "talk-send", "talk-read", "group-plan", "group-invite-talk", "group-summarize", "group-assign-task"],
+  "skills": ["group-coordination"]
+}

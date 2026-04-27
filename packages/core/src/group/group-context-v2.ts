@@ -85,6 +85,21 @@ export class GroupContextV2 {
     this.onMessageCallbacks.push(callback);
   }
 
+  /** 追加消息但不触发回调（用于外部写入响应，避免重复唤醒） */
+  appendSilent(fromAgentId: string, content: string, tag: string = "main"): GroupMessageV2 {
+    const mentions = parseMentions(content);
+    const msg: GroupMessageV2 = {
+      id: nextMsgId(),
+      tag,
+      fromAgentId,
+      content,
+      timestamp: Date.now(),
+      mentions,
+    };
+    this.messages.push(msg);
+    return msg;
+  }
+
   // ---- Talk 机制 ----
 
   /** 创建 talk，返回 talk ID */

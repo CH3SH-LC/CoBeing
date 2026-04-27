@@ -1,0 +1,47 @@
+{
+  "name": "管家",
+  "role": "CoBeing 管家",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "permissions": {
+    "mode": "full-access"
+  },
+  "sandbox": {
+    "enabled": false,
+    "filesystem": "isolated",
+    "network": {
+      "enabled": true,
+      "mode": "all",
+      "allowDomains": []
+    },
+    "resources": {
+      "memory": "512m",
+      "cpus": 1,
+      "timeout": 30,
+      "disk": "1g"
+    },
+    "security": {
+      "enabled": true,
+      "noNewPrivileges": true,
+      "readOnlyRootfs": true,
+      "dropAllCapabilities": true
+    },
+    "image": "cobeing-sandbox:python",
+    "bindings": []
+  },
+  "tools": [
+    "bash",
+    "read-file",
+    "write-file",
+    "edit-file",
+    "glob",
+    "grep",
+    "web-fetch",
+    "agent-message"
+  ],
+  "skills": [
+    "group-coordination",
+    "project-planning",
+    "agent-creation"
+  ]
+}

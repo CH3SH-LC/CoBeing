@@ -159,9 +159,21 @@ export class CoBeingRuntime {
     }
   }
 
-  /** 热重载单个 Provider（配置变更后调用） */
+  /** 热重载单个 Provider（配置变更后调用，从文件重新读取配置） */
   rebuildProvider(providerId: string): void {
-    const cfg = this.config.providers[providerId];
+    // 从文件重新读取，确保拿到最新的 apiKey（前端保存后触发）
+    let cfg = this.config.providers[providerId];
+    try {
+      const configPath = path.resolve("config/default.json");
+      if (fs.existsSync(configPath)) {
+        const fresh = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        if (fresh.providers?.[providerId]) {
+          cfg = fresh.providers[providerId];
+          // 同步更新内存中的 config
+          this.config.providers[providerId] = cfg;
+        }
+      }
+    } catch { /* fallback to in-memory config */ }
     if (!cfg) {
       log.warn("Cannot rebuild provider %s: not in config", providerId);
       return;
