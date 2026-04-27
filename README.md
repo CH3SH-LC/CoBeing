@@ -114,6 +114,24 @@ By connecting QQBot, you can **communicate with Agent groups directly on mobile 
 
 ---
 
+## Changelog
+
+### v1.1.1 (2026-04-27)
+
+**Bug Fixes:**
+- Fix group message persistence — Agent replies now sync to GroupContextV2, current.md, and context.jsonl
+- Fix ContextWindow tool_calls validation — changed from global pre-collection to forward scanning, resolves message corruption in multi-round tool calls
+- Fix tool execution exception breaking conversation chain — catch exceptions and write isError message to prevent tool_calls chain crash
+- Fix current.md parsing compatibility — support both JSON-wrapped and JSONL formats
+- Fix Provider hot-reload not reading file — API Key changes now take effect immediately after frontend save
+
+**Improvements:**
+- Remove tool call round limit — maxToolRounds set to unlimited
+- CurrentMd now uses in-memory operations — reduces disk I/O, avoids concurrent file write conflicts
+- GroupContextV2 adds appendSilent — write messages without triggering callbacks, prevents duplicate wake-ups
+
+---
+
 ## Quick Start
 
 ### Option 1: Use Release Archive (Recommended)

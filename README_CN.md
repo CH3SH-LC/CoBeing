@@ -174,6 +174,24 @@ Channel 是与用户交互的渠道：
 
 ---
 
+## 更新日志
+
+### v1.1.1（2026-04-27）
+
+**Bug 修复：**
+- 修复群组消息持久化闭环 — Agent 回复后同步写入 GroupContextV2、current.md、context.jsonl
+- 修复 ContextWindow tool_calls 完整性检查 — 从全局预收集改为正向逐向扫描，解决多轮工具调用时消息错乱
+- 修复工具执行异常导致对话链断裂 — 捕获异常并写入 isError 消息，防止 tool_calls 链崩溃
+- 修复 current.md 解析兼容性 — 同时支持 JSON 包裹格式和 JSONL 格式
+- 修复 Provider 热重载不读文件 — 前端保存 API Key 后立即生效
+
+**改进：**
+- 工具调用轮次限制解除 — maxToolRounds 改为无限制
+- CurrentMd 改为内存操作 — 减少磁盘 I/O，避免并发写文件冲突
+- GroupContextV2 新增 appendSilent — 写入消息不触发回调，避免重复唤醒
+
+---
+
 ## 快速开始
 
 ### 方式一：使用 Release 压缩包（推荐）
