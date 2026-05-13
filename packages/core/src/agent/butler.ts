@@ -17,10 +17,9 @@ import { ToolExecutor } from "../tools/executor.js";
 import { makeGroupMembersTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool } from "../tools/group-tools.js";
 import { ButlerRegistry } from "../butler/registry.js";
 import { WorkflowEngine } from "../workflow/engine.js";
-import { createLogger } from "@cobeing/shared";
+import { createLogger, rmDirRecursive, addAgentToRegistry, removeAgentFromRegistry, updateGroupMembers } from "@cobeing/shared";
 import { DockerSandbox } from "../tools/sandbox/docker-sandbox.js";
-import { makeTodoAddTool, makeTodoListTool, makeTodoCompleteTool, makeTodoRemoveTool } from "../todo/tools.js";
-import { currentTimeTool } from "../todo/time-tool.js";
+import { makeTodoAddTool, makeTodoListTool, makeTodoCompleteTool, makeTodoRemoveTool, makeTodoReviewTool } from "../todo/tools.js";
 
 const log = createLogger("butler");
 
@@ -153,7 +152,7 @@ function makeCreateAgentTool(
         model,
         permissions: { mode: "workspace-write" },
         sandbox: sandboxConfig,
-        tools: ["bash", "read-file", "write-file", "glob", "grep", "web-fetch"],
+        tools: ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch", "agent-message"],
         skills: params.skills as string[] | undefined,
       };
 
@@ -172,7 +171,7 @@ function makeCreateAgentTool(
         model,
         permissions: { mode: "workspace-write" },
         sandbox: sandboxConfig,
-        tools: ["bash", "read-file", "write-file", "glob", "grep", "web-fetch"],
+        tools: ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch", "agent-message"],
         skills: params.skills as string[] | undefined,
       });
 
@@ -255,6 +254,20 @@ function makeCreateAgentTool(
 
       const agent = new Agent(config, provider);
       registry.register(agent);
+      agent.injectAgentMessageTool(registry);
+      // Set up provider fallback
+      const runtime = (globalThis as any).__cobeingRuntime;
+      if (runtime?.providersMap) {
+        agent.setAllProviders(runtime.providersMap);
+      }
+
+      // 更新 master registry
+      const dataRoot = (globalThis as any).__cobeingDataRoot || "data";
+      addAgentToRegistry(dataRoot, {
+        id, name, role,
+        status: "active",
+        createdAt: new Date().toISOString(),
+      });
 
       // 写入 ButlerRegistry
       butlerRegistry.registerAgent({
@@ -280,10 +293,15 @@ function makeCreateAgentTool(
   };
 }
 
-function makeDestroyAgentTool(registry: AgentRegistry, butlerRegistry: ButlerRegistry): Tool {
+function makeDestroyAgentTool(
+  registry: AgentRegistry,
+  butlerRegistry: ButlerRegistry,
+  groupManager: GroupManager,
+  dataRoot: string,
+): Tool {
   return {
     name: "butler-destroy-agent",
-    description: "销毁一个 Agent",
+    description: "从系统中完全移除一个 Agent：退出所有群组、释放资源、删除本地数据。内置 Agent（butler/host）不可销毁。",
     parameters: {
       type: "object",
       properties: { agentId: { type: "string", description: "Agent ID" } },
@@ -291,16 +309,68 @@ function makeDestroyAgentTool(registry: AgentRegistry, butlerRegistry: ButlerReg
     },
     async execute(params, _context: ToolContext): Promise<ToolResult> {
       const id = params.agentId as string;
+
+      if (id === "butler" || id === "host") {
+        return { toolCallId: "", content: `无法销毁内置 Agent: ${id}`, isError: true };
+      }
+
       const agent = registry.get(id);
       if (!agent) return { toolCallId: "", content: `未找到 Agent: ${id}`, isError: true };
+
+      // 1. 级联：从所有所属群组中移除
+      const affectedGroups = groupManager.getGroupsForAgent(id);
+      for (const g of affectedGroups) {
+        try {
+          g.removeMember(id);
+          // 同步 registry members（registry 优先于 config.json）
+          updateGroupMembers(dataRoot, g.id, g.config.members);
+          groupManager.saveGroup(g.id);
+          g.postMessage("system", `[系统] 成员 ${agent.name} 已被销毁，已从群组移除。`);
+          log.info("Removed %s from group %s", id, g.id);
+        } catch (e: any) {
+          log.error("Failed to remove %s from group %s: %s", id, g.id, e.message);
+        }
+      }
+
+      // 2. 释放资源
+      try {
+        await agent.dispose();
+      } catch (e: any) {
+        log.error("Failed to dispose agent %s: %s", id, e.message);
+      }
+
+      // 3. 从注册表移除
       registry.unregister(id);
+      removeAgentFromRegistry(dataRoot, id);
       butlerRegistry.unregisterAgent(id);
-      return { toolCallId: "", content: `已销毁 Agent ${agent.name} (${id})` };
+
+      // 4. 删除本地数据
+      const agentPaths = AgentPaths.forAgent(id, dataRoot);
+      try {
+        rmDirRecursive(agentPaths.directory);
+        log.info("Deleted agent data: %s", agentPaths.directory);
+      } catch (e: any) {
+        log.error("Failed to delete agent data %s: %s", agentPaths.directory, e.message);
+      }
+
+      // 5. 广播事件
+      const ws = (globalThis as any).__cobeingWSServer;
+      if (ws) {
+        ws.broadcast({ type: "agent_destroyed", payload: { agentId: id } });
+        ws.broadcastState();
+      }
+
+      // 6. 返回影响摘要
+      const groupList = affectedGroups.map(g => g.config.name).join("、") || "无";
+      return {
+        toolCallId: "",
+        content: `已销毁 Agent "${agent.name}" (${id})。\n退出群组: ${groupList}\n数据目录已清理。`,
+      };
     },
   };
 }
 
-function makeCreateGroupTool(groupManager: GroupManager, butlerRegistry: ButlerRegistry): Tool {
+function makeCreateGroupTool(groupManager: GroupManager, butlerRegistry: ButlerRegistry, registry: AgentRegistry): Tool {
   return {
     name: "butler-create-group",
     description: "创建一个 Agent 群组",
@@ -324,11 +394,26 @@ function makeCreateGroupTool(groupManager: GroupManager, butlerRegistry: ButlerR
         owner: "host",
       });
 
+      // 为初始成员注入群组通信工具
+      for (const memberId of members) {
+        const agent = registry.get(memberId);
+        if (agent) {
+          agent.injectGroupTools((gid) => groupManager.get(gid));
+        }
+      }
+
       butlerRegistry.registerGroup({
         id,
         name: params.name as string,
         members,
       });
+
+      // 唤醒群主与用户对接（不唤醒组员）
+      const memberNames = members.map((m: string) => {
+        const a = registry.get(m);
+        return a?.name ?? m;
+      }).join("、");
+      group.postMessage("system", `@host 新群组"${params.name}"已创建，成员包括：${memberNames}。请与用户对接，明确任务目标和分工方案。`);
 
       return { toolCallId: "", content: `已创建群组 ${group.config.name} (ID: ${id})` };
     },
@@ -338,7 +423,7 @@ function makeCreateGroupTool(groupManager: GroupManager, butlerRegistry: ButlerR
 function makeDestroyGroupTool(groupManager: GroupManager, butlerRegistry: ButlerRegistry): Tool {
   return {
     name: "butler-destroy-group",
-    description: "销毁一个群组",
+    description: "解散一个群组：通知所有成员、释放资源、删除群组数据。",
     parameters: {
       type: "object",
       properties: { groupId: { type: "string", description: "群组 ID" } },
@@ -348,9 +433,80 @@ function makeDestroyGroupTool(groupManager: GroupManager, butlerRegistry: Butler
       const id = params.groupId as string;
       const group = groupManager.get(id);
       if (!group) return { toolCallId: "", content: `未找到群组: ${id}`, isError: true };
+
+      const groupName = group.config.name;
+      const memberCount = group.config.members.length;
+      const memberNames = group.config.members.map(m => {
+        const agent = (globalThis as any).__cobeingAgentRegistry?.get?.(m);
+        return agent?.name ?? m;
+      }).join("、");
+
+      // 1. 发送解散通知
+      try {
+        group.postMessage("system", `[系统] 群组 "${groupName}" 已被管家解散。成员: ${memberNames}。相关文件已清理。`);
+      } catch {}
+
+      // 2. 释放资源（关闭 GroupDB 等）
       groupManager.delete(id);
       butlerRegistry.unregisterGroup(id);
-      return { toolCallId: "", content: `已销毁群组 ${group.config.name}` };
+
+      // 3. 广播事件
+      const ws = (globalThis as any).__cobeingWSServer;
+      if (ws) {
+        ws.broadcast({ type: "group_destroyed", payload: { groupId: id } });
+        ws.broadcastState();
+      }
+
+      return {
+        toolCallId: "",
+        content: `已解散群组 "${groupName}" (${id})。\n前成员 (${memberCount} 人): ${memberNames}\n群组数据已清理。`,
+      };
+    },
+  };
+}
+
+function makeBindWorkspaceTool(registry: AgentRegistry): Tool {
+  return {
+    name: "butler-bind-workspace",
+    description: "将 Agent 的工作目录绑定到外部文件夹。Agent 的文件操作（读/写/bash）将在绑定目录执行，但核心文件（SOUL/CHARACTER/JOB/memory）仍保留在原位置。传入空路径可解绑。",
+    parameters: {
+      type: "object",
+      properties: {
+        agentId: { type: "string", description: "目标 Agent ID" },
+        path: { type: "string", description: "要绑定的外部目录路径（绝对路径）。留空或填 'default' 可解绑恢复默认工作区。" },
+      },
+      required: ["agentId"],
+    },
+    async execute(params, _context: ToolContext): Promise<ToolResult> {
+      const agentId = params.agentId as string;
+      const agent = registry.get(agentId);
+      if (!agent) return { toolCallId: "", content: `未找到 Agent: ${agentId}`, isError: true };
+
+      const rawPath = (params.path as string)?.trim();
+      let bindPath: string | null = null;
+
+      if (!rawPath || rawPath === "default" || rawPath === "") {
+        // 解绑
+        agent.setBoundWorkspace(null);
+        return {
+          toolCallId: "",
+          content: `已解绑 ${agent.name} 的外部工作目录，恢复默认工作区: ${agent.effectiveWorkspace}`,
+        };
+      }
+
+      // 验证路径
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const resolved = path.resolve(rawPath);
+      if (!fs.existsSync(resolved)) {
+        return { toolCallId: "", content: `绑定目录不存在: ${resolved}`, isError: true };
+      }
+
+      agent.setBoundWorkspace(resolved);
+      return {
+        toolCallId: "",
+        content: `已将 ${agent.name} 绑定到外部工作目录:\n绑定路径: ${resolved}\n核心文件仍在: ${(agent as any).paths.directory}`,
+      };
     },
   };
 }
@@ -358,14 +514,20 @@ function makeDestroyGroupTool(groupManager: GroupManager, butlerRegistry: Butler
 function makeListTool(registry: AgentRegistry, groupManager: GroupManager): Tool {
   return {
     name: "butler-list",
-    description: "列出所有 Agent 和群组",
+    description: "列出所有 Agent 和群组，含 Agent 运行状态（空闲/忙碌中/异常）",
     parameters: { type: "object", properties: {} },
     async execute(_params, _context: ToolContext): Promise<ToolResult> {
-      const agents = registry.list().map(a => `  - ${a.name} (${a.id}) [${a.getStatus()}]`).join("\n");
-      const groups = groupManager.list().map(g => `  - ${g.config.name} (${g.id}) [${g.config.members.length} members]`).join("\n");
+      const agents = registry.list().map(a => {
+        const st = a.getStatus();
+        const statusLabel = st === "running" ? "忙碌中" : st === "error" ? "异常" : "空闲";
+        return `  - ${a.name} (${a.id}) [${statusLabel}]`;
+      }).join("\n");
+      const groups = groupManager.list().map(g =>
+        `  - ${g.config.name} (${g.id}) [${g.config.members.length} 成员]`
+      ).join("\n");
       return {
         toolCallId: "",
-        content: `Agents:\n${agents || "  (none)"}\n\nGroups:\n${groups || "  (none)"}`,
+        content: `## Agent 列表\n${agents || "  (无)"}\n\n## 群组列表\n${groups || "  (无)"}`,
       };
     },
   };
@@ -407,7 +569,7 @@ function makeRunGroupTool(groupManager: GroupManager, butlerRegistry: ButlerRegi
   };
 }
 
-function makeAddToGroupTool(groupManager: GroupManager, butlerRegistry: ButlerRegistry): Tool {
+function makeAddToGroupTool(groupManager: GroupManager, butlerRegistry: ButlerRegistry, registry: AgentRegistry): Tool {
   return {
     name: "butler-add-to-group",
     description: "将已有 Agent 加入群组",
@@ -423,6 +585,16 @@ function makeAddToGroupTool(groupManager: GroupManager, butlerRegistry: ButlerRe
       const group = groupManager.get(params.groupId as string);
       if (!group) return { toolCallId: "", content: `未找到群组: ${params.groupId}`, isError: true };
       group.addMember(params.agentId as string);
+
+      // 为新成员注入群组通信工具
+      const agent = registry.get(params.agentId as string);
+      if (agent) {
+        agent.injectGroupTools((gid) => groupManager.get(gid));
+      }
+
+      // 更新 master registry + 持久化
+      updateGroupMembers((globalThis as any).__cobeingDataRoot || "data", params.groupId as string, group.config.members);
+      groupManager.saveGroup(params.groupId as string);
 
       // 更新注册表
       const gEntry = butlerRegistry.parseGroupsRegistry().find(g => g.id === params.groupId);
@@ -578,61 +750,6 @@ function makeUpdateRegistryTool(butlerRegistry: ButlerRegistry): Tool {
   };
 }
 
-function makeAnalyzeTaskTool(providerGetter: () => LLMProvider, butlerRegistry: ButlerRegistry): Tool {
-  return {
-    name: "butler-analyze-task",
-    description: "分析任务需要什么类型的 Agent，返回建议的 Agent 角色和能力",
-    parameters: {
-      type: "object",
-      properties: {
-        task: { type: "string", description: "用户任务描述" },
-      },
-      required: ["task"],
-    },
-    async execute(params, _context: ToolContext): Promise<ToolResult> {
-      const task = params.task as string;
-      const provider = providerGetter();
-      if (!provider) {
-        return { toolCallId: "", content: "No LLM provider available", isError: true };
-      }
-
-      // 获取已有 Agent 信息
-      const agents = butlerRegistry.parseAgentsRegistry();
-      const existingInfo = agents.map(a => `- ${a.id}: ${a.role} (${a.capabilities || "无能力描述"})`).join("\n");
-
-      const prompt = `你是任务分析器。根据用户任务，分析需要什么类型的 Agent。
-
-已有 Agent:
-${existingInfo || "(无)"}
-
-用户任务: ${task}
-
-请回答：
-1. 需要哪些类型的 Agent（角色 + 能力）
-2. 已有哪些 Agent 可以复用
-3. 需要新创建哪些 Agent
-4. 建议的群组配置（讨论协议）
-
-用简洁的中文回答。`;
-
-      try {
-        let result = "";
-        for await (const chunk of provider.chat({
-          model: "",
-          messages: [{ role: "user", content: prompt }],
-        })) {
-          if (chunk.type === "content" && chunk.content) {
-            result += chunk.content;
-          }
-        }
-        return { toolCallId: "", content: result || "分析完成" };
-      } catch (err: any) {
-        return { toolCallId: "", content: `分析失败: ${err.message}`, isError: true };
-      }
-    },
-  };
-}
-
 function makeWorkflowAnalyzeTool(engine: WorkflowEngine): Tool {
   return {
     name: "workflow-analyze",
@@ -670,6 +787,124 @@ function makeWorkflowPlanTool(engine: WorkflowEngine): Tool {
   };
 }
 
+// ---- butler-check-group ----
+
+function makeCheckGroupTool(groupManager: GroupManager): Tool {
+  return {
+    name: "butler-check-group",
+    description: "检查群组进展：读取 PROGRESS.md 和 TODO 状态，返回结构化报告。当用户询问群组进展时调用。",
+    parameters: {
+      type: "object",
+      properties: {
+        groupId: { type: "string", description: "群组 ID" },
+      },
+      required: ["groupId"],
+    },
+    async execute(params, _context: ToolContext): Promise<ToolResult> {
+      const groupId = params.groupId as string;
+      const group = groupManager.get(groupId);
+      if (!group) return { toolCallId: "", content: `未找到群组: ${groupId}`, isError: true };
+
+      const parts: string[] = [];
+      parts.push(`## 群组进展报告: ${group.config.name}`);
+
+      // 1. PROGRESS.md
+      const progressContent = group.workspace.readProgress() ?? "";
+      if (progressContent) {
+        const preview = progressContent.slice(0, 1500);
+        parts.push(`### PROGRESS.md\n${preview}${progressContent.length > 1500 ? "\n...(已截断)" : ""}`);
+      } else {
+        parts.push("### PROGRESS.md\n暂无进展记录");
+      }
+
+      // 2. TODO 状态
+      const scanner = groupManager.getScanner?.(groupId);
+      if (scanner) {
+        const store = scanner.getStore();
+        const pending = store.list("pending");
+        const inProgress = store.list("in-progress");
+        const completed = store.list("completed");
+        parts.push("### TODO 状态");
+        parts.push(`- 待处理: ${pending.length} 项`);
+        if (inProgress.length > 0) parts.push(`- 进行中: ${inProgress.length} 项`);
+        parts.push(`- 已完成: ${completed.length} 项`);
+        const total = pending.length + inProgress.length + completed.length;
+        if (total > 0) parts.push(`- 完成率: ${Math.round((completed.length / total) * 100)}%`);
+        if (pending.length > 0) {
+          parts.push("待处理任务:");
+          for (const t of pending.slice(0, 10)) {
+            parts.push(`  - [${t.id}] ${t.title}`);
+          }
+          if (pending.length > 10) parts.push(`  ... 还有 ${pending.length - 10} 项`);
+        }
+      } else {
+        parts.push("### TODO 状态\n无法获取");
+      }
+
+      // 3. 成员
+      const profiles = group.getMemberProfiles();
+      if (profiles.length > 0) {
+        parts.push(`### 成员 (${profiles.length})`);
+        for (const m of profiles) parts.push(`  - ${m.name || m.id}`);
+      }
+
+      return { toolCallId: "", content: parts.join("\n\n") };
+    },
+  };
+}
+
+// ---- butler-modify-agent ----
+
+function makeModifyAgentTool(registry: AgentRegistry): Tool {
+  return {
+    name: "butler-modify-agent",
+    description:
+      "修改已有 Agent 的核心文件（SOUL/CHARACTER/JOB/BOOTSTRAP/TOOLS）。传入新内容即覆盖写入，不传 content 则返回当前文件内容供查阅。",
+    parameters: {
+      type: "object",
+      properties: {
+        agentId: { type: "string", description: "要修改的 Agent ID" },
+        file: {
+          type: "string",
+          description: "要修改的文件名（不含 .md 后缀）",
+          enum: ["SOUL", "CHARACTER", "JOB", "BOOTSTRAP", "TOOLS"],
+        },
+        content: {
+          type: "string",
+          description: "新的文件内容（传入则覆盖写入，不传则返回当前内容供查阅）",
+        },
+      },
+      required: ["agentId", "file"],
+    },
+    async execute(params, _context: ToolContext): Promise<ToolResult> {
+      const agentId = params.agentId as string;
+      const file = params.file as string;
+      const content = params.content as string | undefined;
+
+      const agent = registry.get(agentId);
+      if (!agent) {
+        return { toolCallId: "", content: `未找到 Agent: ${agentId}`, isError: true };
+      }
+
+      const filePath = path.join(agent.paths.directory, `${file}.md`);
+
+      if (content !== undefined) {
+        // 写入模式
+        fs.writeFileSync(filePath, content, "utf-8");
+        log.info("Butler modified %s for agent %s", file, agentId);
+        return { toolCallId: "", content: `已更新 ${agent.name} (${agentId}) 的 ${file}.md` };
+      } else {
+        // 读取模式
+        if (!fs.existsSync(filePath)) {
+          return { toolCallId: "", content: `${file}.md 不存在于 ${agent.name} (${agentId})`, isError: true };
+        }
+        const current = fs.readFileSync(filePath, "utf-8");
+        return { toolCallId: "", content: `=== ${agent.name} 的 ${file}.md ===\n\n${current}` };
+      }
+    },
+  };
+}
+
 // ---- ButlerAgent ----
 
 export class ButlerAgent extends Agent {
@@ -698,18 +933,21 @@ export class ButlerAgent extends Agent {
     });
 
     // Register butler tools
+    const bsDataRoot = path.dirname(path.dirname(this.paths.directory));
     this.toolRegistry.register(makeCreateAgentTool(registry, () => provider, this.butlerRegistry, providerResolver));
-    this.toolRegistry.register(makeDestroyAgentTool(registry, this.butlerRegistry));
-    this.toolRegistry.register(makeCreateGroupTool(groupManager, this.butlerRegistry));
+    this.toolRegistry.register(makeDestroyAgentTool(registry, this.butlerRegistry, groupManager, bsDataRoot));
+    this.toolRegistry.register(makeCreateGroupTool(groupManager, this.butlerRegistry, registry));
     this.toolRegistry.register(makeDestroyGroupTool(groupManager, this.butlerRegistry));
+    this.toolRegistry.register(makeBindWorkspaceTool(registry));
     this.toolRegistry.register(makeListTool(registry, groupManager));
     this.toolRegistry.register(makeRunGroupTool(groupManager, this.butlerRegistry));
-    this.toolRegistry.register(makeAddToGroupTool(groupManager, this.butlerRegistry));
+    this.toolRegistry.register(makeAddToGroupTool(groupManager, this.butlerRegistry, registry));
 
     // 新增管家工具
     this.toolRegistry.register(makeReadRegistryTool(this.butlerRegistry));
     this.toolRegistry.register(makeUpdateRegistryTool(this.butlerRegistry));
-    this.toolRegistry.register(makeAnalyzeTaskTool(() => provider, this.butlerRegistry));
+    this.toolRegistry.register(makeModifyAgentTool(registry));
+    this.toolRegistry.register(makeCheckGroupTool(groupManager));
 
     // Register channel binding tools
     if (router) {
@@ -734,9 +972,9 @@ export class ButlerAgent extends Agent {
     const dataRoot = path.dirname(path.dirname(this.paths.directory));
     this.toolRegistry.register(makeTodoAddTool(dataRoot, (gid) => groupManager.getGroupTodoStore?.(gid)));
     this.toolRegistry.register(makeTodoListTool(dataRoot, (gid) => groupManager.getGroupTodoStore?.(gid)));
-    this.toolRegistry.register(makeTodoCompleteTool(dataRoot, (gid) => groupManager.getGroupTodoStore?.(gid)));
+    this.toolRegistry.register(makeTodoCompleteTool(dataRoot, (gid) => groupManager.getGroupTodoStore?.(gid), (gid) => groupManager.getScanner?.(gid)));
     this.toolRegistry.register(makeTodoRemoveTool(dataRoot, (gid) => groupManager.getGroupTodoStore?.(gid)));
-    this.toolRegistry.register(currentTimeTool);
+    this.toolRegistry.register(makeTodoReviewTool(dataRoot, (gid) => groupManager.getGroupTodoStore?.(gid)));
 
     // Re-create conversation loop with updated tools
     const perm = new PermissionEnforcer({ mode: "full-access" }, undefined, this.paths.workspaceDir);
@@ -753,7 +991,7 @@ export class ButlerAgent extends Agent {
       toolExecutor: executor,
       agentId: config.id,
       sessionId: "butler",
-      workingDir: this.paths.workspaceDir,
+      workingDir: this.effectiveWorkspace,
       maxToolRounds: appConfig?.core?.butlerMaxToolRounds ?? config.maxToolRounds,
     });
 

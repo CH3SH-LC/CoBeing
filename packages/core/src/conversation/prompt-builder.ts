@@ -1,5 +1,11 @@
 /**
  * System Prompt 组装器
+ *
+ * 缓存优化核心：AGENTS.md 作为所有 Agent 共享的前缀（最前端），
+ * Agent 特有内容（SOUL/CHARACTER/JOB/BOOTSTRAP）后移，
+ * 确保 DeepSeek 前缀缓存在多智能体切换时命中。
+ *
+ * 前缀顺序：AGENTS.md（共享） → SOUL → CHARACTER → ROLE_PLAY → JOB → BOOTSTRAP → volatile
  */
 import type { AgentConfig } from "@cobeing/shared";
 import type { AgentFiles } from "../agent/paths.js";
@@ -25,11 +31,6 @@ interface PromptConfig {
   systemPrompt: string;
 }
 
-/**
- * 从 Agent 文件链 + MemoryStore 快照构建 system prompt
- *
- * 链式顺序：SOUL → CHARACTER → BOOTSTRAP → systemPrompt(role) → JOB → AGENTS → MemoryStore 快照（USER → TOOLS → EXPERIENCE → MEMORY）
- */
 /** 角色扮演强化指令 — 在 CHARACTER.md 之后注入 */
 const ROLE_PLAY_INSTRUCTION = `# 角色扮演要求
 
@@ -43,27 +44,27 @@ const ROLE_PLAY_INSTRUCTION = `# 角色扮演要求
 export function buildSystemPromptFromFiles(files: AgentFiles, config: PromptConfig, memoryStore?: MemoryStore): string {
   const parts: string[] = [];
 
-  // 1. SOUL.md — 性格特质
+  // 1. AGENTS.md — 工作空间指南（共享前缀，最大化缓存命中）
+  const agents = files.readAgents();
+  if (agents) {
+    parts.push(agents);
+  }
+
+  // 2. SOUL.md — 性格特质
   const soul = files.readSoul();
   if (soul) {
     parts.push(soul);
   }
 
-  // 2. CHARACTER.md — 人物描写与背景
+  // 3. CHARACTER.md — 人物描写与背景
   const character = files.readCharacter();
   if (character) {
     parts.push(character);
   }
 
-  // 2.5 角色扮演强化指令 — 确保 LLM 用角色方式说话
+  // 3.5 角色扮演强化指令 — 确保 LLM 用角色方式说话
   if (character) {
     parts.push(ROLE_PLAY_INSTRUCTION);
-  }
-
-  // 3. BOOTSTRAP.md — 创建时知识和行为提醒（不删除，每次激发）
-  const bootstrap = files.readBootstrap();
-  if (bootstrap) {
-    parts.push(bootstrap);
   }
 
   // 4. systemPrompt — 角色描述（主体）
@@ -75,10 +76,16 @@ export function buildSystemPromptFromFiles(files: AgentFiles, config: PromptConf
     parts.push(job);
   }
 
-  // 6. AGENTS.md — 工作空间指南
-  const agents = files.readAgents();
-  if (agents) {
-    parts.push(agents);
+  // 6. BOOTSTRAP.md — 创建时知识和行为提醒（不删除，每次激发）
+  const bootstrap = files.readBootstrap();
+  if (bootstrap) {
+    parts.push(bootstrap);
+  }
+
+  // 6.5 当前装载的技能列表
+  const configJson = files.readConfig();
+  if (configJson?.skills && Array.isArray(configJson.skills) && configJson.skills.length > 0) {
+    parts.push(`\n## 当前装载的技能\n\n${(configJson.skills as string[]).join("、")}`);
   }
 
   // 7-10. 从 MemoryStore 快照加载（如果提供了 MemoryStore）
@@ -113,6 +120,84 @@ export function buildSystemPromptFromFiles(files: AgentFiles, config: PromptConf
   return parts.join("\n\n");
 }
 
+// ---- 三区架构：缓存优化 ----
+
+/** 缓存友好的 prompt 结构 */
+export interface CacheablePrompt {
+  /** 共享前缀 — 所有 Agent 完全相同（AGENTS.md），跨 Agent 缓存命中 */
+  sharedPrefix: string;
+  /** Agent 特有前缀 — Agent 生命周期内只构建一次（SOUL + CHARACTER + ROLE_PLAY + JOB + BOOTSTRAP + systemPrompt） */
+  agentPrefix: string;
+  /** 易失部分 — 每次调用时动态构建（MemoryStore 快照 + 群组协作上下文） */
+  volatile: string;
+}
+
+/**
+ * 构建缓存友好的 system prompt（三区架构）
+ *
+ * 前缀顺序（缓存命中从左到右递减）：
+ * 1. AGENTS.md（所有 Agent 相同） — 最大化跨 Agent 前缀缓存命中
+ * 2. SOUL → CHARACTER → ROLE_PLAY → JOB → BOOTSTRAP → systemPrompt（Agent 内冻结）
+ * 3. 记忆快照 + 群组上下文（每次动态）
+ */
+export function buildCacheablePrompt(
+  files: AgentFiles,
+  config: PromptConfig,
+  memoryStore?: MemoryStore,
+  groupContext?: string,
+): CacheablePrompt {
+  // 共享前缀：AGENTS.md（所有 Agent 使用相同模板 → 跨 Agent 缓存命中）
+  const sharedPrefix = files.readAgents() || "";
+
+  // Agent 特有前缀（每个 Agent 不同，但在 Agent 生命周期内不变）
+  const agentParts: string[] = [];
+
+  const soul = files.readSoul();
+  if (soul) agentParts.push(soul);
+
+  const character = files.readCharacter();
+  if (character) {
+    agentParts.push(character);
+    agentParts.push(ROLE_PLAY_INSTRUCTION);
+  }
+
+  agentParts.push(config.systemPrompt || `你是${config.name}，${config.role}`);
+
+  const job = files.readJob();
+  if (job) agentParts.push(job);
+
+  const bootstrap = files.readBootstrap();
+  if (bootstrap) agentParts.push(bootstrap);
+
+  // Volatile: 记忆快照 + 群组上下文
+  const volatileParts: string[] = [];
+
+  if (memoryStore) {
+    const snapshot = memoryStore.snapshotForSystemPrompt();
+    if (snapshot) volatileParts.push(snapshot);
+  } else {
+    const user = files.readUser();
+    if (user) volatileParts.push(`# 用户偏好\n\n${user}`);
+
+    const tools = files.readTools();
+    if (tools && tools.length > 50) volatileParts.push(tools);
+
+    const experience = files.readExperience();
+    if (experience && experience.length > 50) volatileParts.push(`# 你积累的经验\n\n${experience}`);
+
+    const memory = files.readMemoryIndex();
+    if (memory) volatileParts.push(`# 你的历史记忆\n\n${memory}`);
+  }
+
+  if (groupContext) volatileParts.push(groupContext);
+
+  return {
+    sharedPrefix,
+    agentPrefix: agentParts.join("\n\n"),
+    volatile: volatileParts.join("\n\n"),
+  };
+}
+
 // ---- 群组协作上下文注入 ----
 
 /** 成员画像摘要 */
@@ -140,6 +225,13 @@ export interface GroupTodoSummary {
   assignee?: string;
 }
 
+/** Agent 活跃状态摘要 */
+export interface AgentActiveStatusSummary {
+  agentId: string;
+  status: "idle" | "processing";
+  since: number;
+}
+
 /**
  * 构建群组协作上下文，注入到 system prompt 末尾
  */
@@ -150,6 +242,7 @@ export function buildGroupCollaborationContext(
   todos: GroupTodoSummary[],
   owner?: string,
   groupId?: string,
+  activeStatuses?: AgentActiveStatusSummary[],
 ): string {
   const parts: string[] = [];
 
@@ -170,21 +263,47 @@ export function buildGroupCollaborationContext(
     parts.push(`## 你的队友\n\n${lines.join("\n")}`);
   }
 
+  // 能力覆盖分析（收集所有成员的核心能力关键词，由 LLM 自行判断任务匹配度）
+  const allCapabilities = members
+    .filter(m => m.id !== currentAgentId && m.capabilities)
+    .map(m => `- ${m.name}: ${m.capabilities}`);
+  if (allCapabilities.length > 0 && workspace.task) {
+    parts.push(`## 群组能力覆盖\n\n现有成员能力：\n${allCapabilities.join("\n")}\n\n当前任务所需能力请自行对比以上列表。如果任务需要的能力在群组中缺失，请 @mention 群主说明。`);
+  }
+
+  // 当前活跃状态
+  if (activeStatuses && activeStatuses.length > 0) {
+    const statusLines = activeStatuses
+      .filter(s => s.agentId !== currentAgentId)
+      .map(s => {
+        const member = members.find(m => m.id === s.agentId);
+        const name = member?.name || s.agentId;
+        if (s.status === "processing") {
+          const elapsed = Math.floor((Date.now() - s.since) / 1000);
+          return `- **${name}**: 正在处理中（${elapsed}秒）`;
+        }
+        return `- **${name}**: 空闲`;
+      });
+    if (statusLines.length > 0) {
+      parts.push(`## 当前活跃状态\n\n${statusLines.join("\n")}`);
+    }
+  }
+
   // 当前任务
   if (workspace.task) {
-    const truncated = workspace.task.length > 500 ? workspace.task.slice(0, 500) + "..." : workspace.task;
+    const truncated = workspace.task.length > 2000 ? workspace.task.slice(0, 2000) + "..." : workspace.task;
     parts.push(`## 当前任务\n\n${truncated}`);
   }
 
   // 当前计划
   if (workspace.plan) {
-    const truncated = workspace.plan.length > 500 ? workspace.plan.slice(0, 500) + "..." : workspace.plan;
+    const truncated = workspace.plan.length > 2000 ? workspace.plan.slice(0, 2000) + "..." : workspace.plan;
     parts.push(`## 当前计划\n\n${truncated}`);
   }
 
   // 当前进度
   if (workspace.progress) {
-    const truncated = workspace.progress.length > 500 ? workspace.progress.slice(0, 500) + "..." : workspace.progress;
+    const truncated = workspace.progress.length > 2000 ? workspace.progress.slice(0, 2000) + "..." : workspace.progress;
     parts.push(`## 当前进度\n\n${truncated}`);
   }
 
@@ -196,20 +315,47 @@ export function buildGroupCollaborationContext(
     parts.push(`## 待办事项\n\n${lines.join("\n")}`);
   }
 
-  // 群组经验
+  // 群组经验（他山之石）
   if (workspace.experienceSummary) {
-    parts.push(`## 群组经验\n\n${workspace.experienceSummary}`);
+    parts.push(`## 他山之石 — 群组协作经验
+
+以下是本群组其他成员沉淀的关键决策、教训和有效模式。遇到类似问题时优先参考这些经验，避免重复踩坑。
+
+${workspace.experienceSummary}`);
+  } else {
+    parts.push(`## 他山之石
+
+暂无群组协作经验记录。完成重要协作后，请使用 \`group-experience-add\` 将关键决策和教训记录下来，帮助其他成员。`);
   }
 
   // 协作行为指引
   parts.push(`## 协作规则
 
+- 发言前先自问：我需要做什么？我做过了吗？没做完就去做，做完了直接汇报结果。禁止宣布意图（"我马上去做"、"我来处理"等）
 - 只在你能提供价值时发言，不要每条都回
-- 完成工作后汇报结果，不要等别人问
-- 遇到阻塞立刻说，不要卡着不说
+- 完成工作后使用 \`group-update-progress\` 汇报结果，不要等别人问
+- 遇到阻塞使用 \`group-send\` 立刻说，不要卡着不说
 - 群主分配任务后直接执行，有异议再提
 - 分歧 2 轮无共识 → @mention 群主仲裁
-- 重要协作结束后，调用 \`experience-reflect\` 总结本次协作的关键收获，写入你的个人经验`);
+- 需要其他成员协助时，使用 \`group-send\` 发起请求并 @mention 对应成员
+- 重要协作结束后，调用 \`experience-reflect\` 总结本次协作的关键收获，写入你的个人经验
+
+## 角色自适应提示
+
+根据你的 JOB.md（专注领域）调整行为：
+
+- **当前任务与你的领域匹配** → 主动承担相关部分，直接开始分析或执行，不需要等群主分配
+- **需要多领域协作** → 分析清楚后 @mention 对应成员，说明你负责什么、需要对方做什么
+- **你的领域在当前任务中用不上** → 保持待命，不要强行参与，但仍可补充相关信息
+- **看到其他成员的讨论涉及你的领域** → 可主动提供专业意见，即使没有被 @mention
+
+## 能力互补提示
+
+如果当前任务超出了你的能力范围：
+1. 先分析任务具体需要什么能力
+2. 查看队友列表中谁擅长这些领域
+3. @mention 对应成员并说明你需要什么帮助
+4. 如果群组中没有对应能力的人，@mention 群主说明能力缺口`);
 
   // 群主专属职责
   if (owner && currentAgentId === owner) {

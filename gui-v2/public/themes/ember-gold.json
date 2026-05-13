@@ -1,0 +1,46 @@
+{
+  "name": "熔岩暗金",
+  "description": "暖黑底 + 赤铜金强调，热情力量，游戏质感",
+  "base": {
+    "gradient-from": "#0D0905",
+    "gradient-to": "#100C08",
+    "gradient-angle": 145
+  },
+  "surface": {
+    "bg": "rgba(28,22,18,0.88)",
+    "bg-solid": "#1C1612",
+    "elevated": "#2A2018",
+    "hover": "#382C20",
+    "input": "#140E0A",
+    "border": "rgba(55,44,34,0.7)",
+    "shadow": "0 1px 3px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25)",
+    "shadow-lg": "0 4px 12px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.35)"
+  },
+  "content": {
+    "accent": "#F97316",
+    "accent-warm": "#FBBF24",
+    "accent-dim": "#3D1A08",
+    "txt": "#F0E8DC",
+    "txt-sub": "#B8A898",
+    "txt-muted": "#756A58",
+    "success": "#4ADE80",
+    "warning": "#F97316",
+    "danger": "#F87171",
+    "purple": "#C084FC"
+  },
+  "chat": {
+    "msg-user": "#2C2018",
+    "msg-assistant": "#1C1814",
+    "msg-system": "#201C14",
+    "msg-tool": "#281C18"
+  },
+  "misc": {
+    "scrollbar": "#342820",
+    "scrollbar-hover": "#524034",
+    "overlay": "rgba(0,0,0,0.65)",
+    "code-bg": "#100C08",
+    "selection-bg": "#F97316",
+    "selection-fg": "#140E0A",
+    "divider": "#382C20"
+  }
+}

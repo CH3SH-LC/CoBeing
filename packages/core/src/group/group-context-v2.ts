@@ -31,9 +31,9 @@ function nextMsgId(): string {
   return `msg-${(++msgCounter).toString().padStart(4, "0")}`;
 }
 
-/** 解析文本中的所有 @mention（支持中文，排除 Markdown 标记） */
+/** 解析文本中的所有 @mention（支持中文，排除 Markdown 标记，最少 3 字符避免误匹配） */
 function parseMentions(content: string): string[] {
-  const regex = /@([\w一-鿿][\w一-鿿-]*)/g;
+  const regex = /@([\w一-鿿][\w一-鿿-]{2,})/g;
   const mentions: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
@@ -45,6 +45,12 @@ function parseMentions(content: string): string[] {
   return [...new Set(mentions)];
 }
 
+export interface AgentActiveStatus {
+  agentId: string;
+  status: "idle" | "processing";
+  since: number; // timestamp when status started
+}
+
 export class GroupContextV2 {
   readonly groupId: string;
   private messages: GroupMessageV2[] = [];
@@ -52,9 +58,28 @@ export class GroupContextV2 {
   private talkCounter = 0;
   /** 消息写入后的回调（WakeSystem 使用） */
   private onMessageCallbacks: Array<(msg: GroupMessageV2) => void> = [];
+  /** Agent 活跃状态追踪 */
+  private agentStatuses = new Map<string, AgentActiveStatus>();
 
   constructor(groupId: string) {
     this.groupId = groupId;
+  }
+
+  /** 设置 Agent 活跃状态 */
+  setAgentStatus(agentId: string, status: "idle" | "processing"): void {
+    const existing = this.agentStatuses.get(agentId);
+    if (existing && existing.status === status) return;
+    this.agentStatuses.set(agentId, { agentId, status, since: Date.now() });
+  }
+
+  /** 获取所有 Agent 的活跃状态 */
+  getActiveStatuses(): AgentActiveStatus[] {
+    return [...this.agentStatuses.values()];
+  }
+
+  /** 清除所有 Agent 状态 */
+  clearAgentStatuses(): void {
+    this.agentStatuses.clear();
   }
 
   // ---- Main 频道 ----

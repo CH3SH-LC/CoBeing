@@ -5,6 +5,9 @@ import { ChannelsSection } from "./ChannelsSection";
 import { McpSection } from "./McpSection";
 import { LogsSection } from "./LogsSection";
 import { SandboxMonitor } from "../sandbox/SandboxMonitor";
+import { UsageMonitor } from "./UsageMonitor";
+import { ChatSearch } from "./ChatSearch";
+import { getWsClient } from "@/hooks/useWebSocket";
 import { cn } from "@/lib/utils";
 import mainIcon from "@/assets/main-icon.png";
 
@@ -15,7 +18,10 @@ const MENU_SECTIONS = [
   { id: "channels" as const, label: "Channels", group: "连接" },
   { id: "mcp" as const, label: "MCP 服务器", group: "连接" },
   { id: "sandbox" as const, label: "沙箱监控", group: "运维" },
+  { id: "usage" as const, label: "用量监控", group: "运维" },
+  { id: "search" as const, label: "搜索对话", group: "数据" },
   { id: "logs" as const, label: "日志", group: "数据" },
+  { id: "export" as const, label: "导出数据", group: "数据" },
   { id: "about" as const, label: "关于", group: "数据" },
 ];
 
@@ -66,7 +72,10 @@ export function SettingsView() {
         {settingsSection === "channels" && <ChannelsSection />}
         {settingsSection === "mcp" && <McpSection />}
         {settingsSection === "sandbox" && <SandboxSection />}
+        {settingsSection === "usage" && <UsageSection />}
         {settingsSection === "logs" && <LogsSection />}
+        {settingsSection === "search" && <SearchSection />}
+        {settingsSection === "export" && <ExportSection />}
         {settingsSection === "about" && <AboutSection />}
       </div>
     </div>
@@ -89,6 +98,14 @@ function SandboxSection() {
       <h2 className="text-lg font-semibold text-txt mb-1">沙箱监控</h2>
       <p className="text-sm text-txt-muted mb-6">查看和管理智能体沙箱容器状态</p>
       <SandboxMonitor />
+    </div>
+  );
+}
+
+function UsageSection() {
+  return (
+    <div>
+      <UsageMonitor />
     </div>
   );
 }
@@ -170,7 +187,54 @@ function GeneralSection() {
   );
 }
 
+function SearchSection() {
+  return (
+    <div>
+      <h2 className="text-lg font-semibold text-txt mb-1">搜索对话</h2>
+      <p className="text-sm text-txt-muted mb-6">全文搜索群组对话和 Agent 聊天历史</p>
+      <ChatSearch />
+    </div>
+  );
+}
+
+function ExportSection() {
+  const handleExport = (type: string, id?: string) => {
+    const ws = getWsClient();
+    ws?.send({ type: "export_data", payload: { exportType: type, exportAgentId: id, exportGroupId: id } });
+  };
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold text-txt mb-1">导出数据</h2>
+      <p className="text-sm text-txt-muted mb-6">将 CoBeing 数据导出为 JSON 文件，便于备份和迁移</p>
+      <div className="flex flex-col max-w-md" style={{ gap: 12 }}>
+        <button
+          onClick={() => handleExport("all")}
+          className="rounded-xl bg-elevated text-left transition-colors hover:bg-hover"
+          style={{ padding: "16px 20px" }}
+        >
+          <div className="text-sm font-medium text-txt">导出全部数据</div>
+          <div className="text-xs text-txt-muted mt-1">包含所有 Agent、群组和配置</div>
+        </button>
+        <button
+          onClick={() => handleExport("agent", "butler")}
+          className="rounded-xl bg-elevated text-left transition-colors hover:bg-hover"
+          style={{ padding: "16px 20px" }}
+        >
+          <div className="text-sm font-medium text-txt">导出管家数据</div>
+          <div className="text-xs text-txt-muted mt-1">仅导出 butler Agent 数据</div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AboutSection() {
+  const handleTutorial = () => {
+    const openFn = (window as any).__cobeingOpenTutorial;
+    if (openFn) openFn();
+  };
+
   return (
     <div>
       <h2 className="text-lg font-semibold text-txt mb-4">关于</h2>
@@ -188,6 +252,12 @@ function AboutSection() {
           <InfoCard label="后端" value="TypeScript Core" />
           <InfoCard label="协议" value="WebSocket" />
         </div>
+        <button
+          onClick={handleTutorial}
+          className="w-full py-2.5 rounded-xl text-sm font-medium transition-colors hover:opacity-90 bg-accent text-white"
+        >
+          重新打开新手教程
+        </button>
       </div>
     </div>
   );

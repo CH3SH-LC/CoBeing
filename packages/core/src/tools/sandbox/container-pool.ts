@@ -2,7 +2,7 @@ import { spawn, exec } from "node:child_process";
 import path from "node:path";
 import { createLogger } from "@cobeing/shared";
 import type { NetworkConfig, SandboxRunOptions, SandboxRunResult, SecurityConfig } from "@cobeing/shared";
-import { buildNetworkArgs } from "./network-whitelist.js";
+import { buildNetworkArgs, buildWhitelistRules } from "./network-whitelist.js";
 import { buildSecurityArgs } from "./security.js";
 
 const log = createLogger("container-pool");
@@ -28,9 +28,8 @@ export class ContainerPool {
 
   /** Docker 可用性缓存（避免重复检测） */
   private static _dockerAvailable: boolean | null = null;
-  /** 镜像构建锁（防止并发构建同一镜像） */
-  private static _buildingImage: string | null = null;
-  private static _buildPromise: Promise<void> | null = null;
+  /** 镜像构建锁 — 按镜像名隔离，防止并发构建同一镜像 */
+  private static _buildPromises = new Map<string, Promise<void>>();
 
   /** 设置 Docker 可用性（由外部调用，如 runtime 启动时） */
   static setDockerAvailable(available: boolean): void {
@@ -76,11 +75,19 @@ export class ContainerPool {
     const args = this.buildCreateArgs(this.agentDir);
     const containerId = await this.dockerCreate(args);
 
+    // 启动容器
+    await this.dockerCmd(["start", containerId]);
+
     this.container = {
       id: containerId,
       status: "running",
       createdAt: Date.now(),
     };
+
+    // 如果网络模式是 whitelist，应用 iptables 规则
+    if (this.config.network?.mode === "whitelist" && this.config.network.allowDomains?.length) {
+      await this.applyWhitelistRules(containerId, this.config.network.allowDomains);
+    }
 
     log.info("Container created: %s for agent %s", containerId, this.agentId);
     return this.container;
@@ -210,8 +217,6 @@ export class ContainerPool {
     try {
       await this.dockerCmd(["image", "inspect", this.image]);
       // 镜像存在，清除构建锁
-      ContainerPool._buildingImage = null;
-      ContainerPool._buildPromise = null;
     } catch (inspectErr: any) {
       // 区分 "image not found" 和 "Docker daemon 错误"
       const errMsg = inspectErr.message || "";
@@ -232,12 +237,13 @@ export class ContainerPool {
     }
   }
 
-  /** 构建镜像（带去重锁，防止并发构建） */
+  /** 构建镜像（带去重锁，防止并发构建同一镜像） */
   private async buildImage(): Promise<void> {
-    // 如果已有构建任务在进行中，等待它完成
-    if (ContainerPool._buildingImage === this.image && ContainerPool._buildPromise) {
+    // 如果已有同镜像的构建任务，等待它完成
+    const existing = ContainerPool._buildPromises.get(this.image);
+    if (existing) {
       log.info("Waiting for ongoing build of %s...", this.image);
-      await ContainerPool._buildPromise;
+      await existing;
       // 构建完成后验证镜像是否存在
       try {
         await this.dockerCmd(["image", "inspect", this.image]);
@@ -248,14 +254,13 @@ export class ContainerPool {
     }
 
     // 设置构建锁
-    ContainerPool._buildingImage = this.image;
-    ContainerPool._buildPromise = this.doBuild();
+    const promise = this.doBuild();
+    ContainerPool._buildPromises.set(this.image, promise);
 
     try {
-      await ContainerPool._buildPromise;
+      await promise;
     } finally {
-      ContainerPool._buildingImage = null;
-      ContainerPool._buildPromise = null;
+      ContainerPool._buildPromises.delete(this.image);
     }
   }
 
@@ -270,6 +275,33 @@ export class ContainerPool {
         `沙箱镜像 ${this.image} 不存在且构建失败: ${buildErr.message}\n` +
         `请运行: scripts/build-sandbox.sh`
       );
+    }
+  }
+
+  /** 应用 iptables 白名单规则（容器网络 whitelist 模式） */
+  private async applyWhitelistRules(containerId: string, allowDomains: string[]): Promise<void> {
+    try {
+      // 获取容器 IP
+      const inspect = await this.dockerCmd([
+        "inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", containerId,
+      ]);
+      const containerIp = inspect.trim();
+      if (!containerIp) {
+        log.warn("Container %s has no IP, skipping iptables whitelist", containerId);
+        return;
+      }
+      const rules = buildWhitelistRules(containerIp, allowDomains);
+      for (const rule of rules) {
+        try {
+          const escaped = rule.replace(/"/g, '\\"');
+          await this.dockerCmd(["exec", containerId, "sh", "-c", escaped]);
+        } catch {
+          // iptables 不可用（如容器内无 iptables），静默忽略
+        }
+      }
+      log.info("Applied %d iptables whitelist rules to container %s", rules.length, containerId);
+    } catch (err: any) {
+      log.warn("Failed to apply iptables whitelist rules: %s", err.message);
     }
   }
 
@@ -293,16 +325,22 @@ export class ContainerPool {
     });
   }
 
-  /** 执行 docker 命令并返回 stdout */
+  /** 执行 docker 命令并返回 stdout（使用 spawn 防注入） */
   private dockerCmd(args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-      exec(`docker ${args.join(" ")}`, { timeout: 30000 }, (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(stderr || error.message));
+      const proc = spawn("docker", args, { timeout: 30000 });
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
+      proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+      proc.on("close", (code) => {
+        if (code !== 0) {
+          reject(new Error(stderr || `exit code ${code}`));
         } else {
           resolve(stdout);
         }
       });
+      proc.on("error", reject);
     });
   }
 }

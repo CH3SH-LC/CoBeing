@@ -1,9 +1,10 @@
 import { cn } from "@/lib/utils";
-import { Fragment } from "react";
+import { Fragment, useEffect } from "react";
 import { useSettingsStore } from "@/stores/settings";
 import { useAgentsStore } from "@/stores/agents";
 import { useGroupsStore } from "@/stores/groups";
 import { useChatStore } from "@/stores/chat";
+import { getWsClient } from "@/hooks/useWebSocket";
 import { CreateAgentDialog } from "@/components/agent/CreateAgentDialog";
 import { CreateGroupDialog } from "@/components/group/CreateGroupDialog";
 
@@ -18,6 +19,31 @@ export function Sidebar() {
   const groupDialogOpen = useSettingsStore((s) => s.createGroupDialogOpen);
   const setAgentDialogOpen = useSettingsStore((s) => s.setCreateAgentDialogOpen);
   const setGroupDialogOpen = useSettingsStore((s) => s.setCreateGroupDialogOpen);
+  const agents = useAgentsStore((s) => s.agents);
+  const selectedAgent = useAgentsStore((s) => s.selectedAgent);
+  const selectAgent = useAgentsStore((s) => s.selectAgent);
+  const groups = useGroupsStore((s) => s.groups);
+  const selectedGroup = useGroupsStore((s) => s.selectedGroup);
+  const selectGroup = useGroupsStore((s) => s.selectGroup);
+  const setActiveConv = useChatStore((s) => s.setActiveConversation);
+
+  // Auto-select first item when switching views and nothing valid is selected
+  useEffect(() => {
+    if (activeView === "agents" && agents.length > 0) {
+      const isValid = agents.some((a) => a.id === selectedAgent);
+      if (!isValid) {
+        selectAgent(agents[0].id);
+        setActiveConv(agents[0].id);
+      }
+    }
+    if (activeView === "groups" && groups.length > 0) {
+      const isValid = groups.some((g) => g.id === selectedGroup);
+      if (!isValid) {
+        selectGroup(groups[0].id);
+        setActiveConv(groups[0].id);
+      }
+    }
+  }, [activeView, agents, groups]);
 
   if (activeView !== "agents" && activeView !== "groups") return null;
 
@@ -49,8 +75,16 @@ function AgentList() {
   const selectedAgent = useAgentsStore((s) => s.selectedAgent);
   const selectAgent = useAgentsStore((s) => s.selectAgent);
   const setActiveConv = useChatStore((s) => s.setActiveConversation);
+  const messageStore = useChatStore((s) => s.messageStore);
   const openDialog = useSettingsStore((s) => s.setCreateAgentDialogOpen);
   const handleSelect = (id: string) => { selectAgent(id); setActiveConv(id); };
+
+  const sortedAgents = [...agents].sort((a, b) => {
+    const aLast = messageStore[a.id]?.slice(-1)[0]?.timestamp ?? 0;
+    const bLast = messageStore[b.id]?.slice(-1)[0]?.timestamp ?? 0;
+    if (aLast !== bLast) return bLast - aLast;
+    return a.name.localeCompare(b.name);
+  });
 
   return (
     <>
@@ -61,7 +95,14 @@ function AgentList() {
       >
         + 新建 Agent
       </button>
-      {agents.map((agent, i) => (
+      <button
+        onClick={() => getWsClient()?.send({ type: "get_state" })}
+        className="w-full shrink-0 rounded-lg text-txt-muted text-xs hover:text-txt hover:bg-hover transition-colors"
+        style={{ padding: "6px 0" }}
+      >
+        刷新列表
+      </button>
+      {sortedAgents.map((agent, i) => (
         <Fragment key={agent.id}>
           {i > 0 && <ListDivider />}
           <button
@@ -83,7 +124,7 @@ function AgentList() {
           </button>
         </Fragment>
       ))}
-      {agents.length === 0 && <p className="text-txt-muted text-sm text-center" style={{ padding: "40px 0" }}>暂无 Agent</p>}
+      {sortedAgents.length === 0 && <p className="text-txt-muted text-sm text-center" style={{ padding: "40px 0" }}>暂无 Agent</p>}
     </>
   );
 }
@@ -93,8 +134,16 @@ function GroupList() {
   const selectedGroup = useGroupsStore((s) => s.selectedGroup);
   const selectGroup = useGroupsStore((s) => s.selectGroup);
   const setActiveConv = useChatStore((s) => s.setActiveConversation);
+  const messageStore = useChatStore((s) => s.messageStore);
   const openDialog = useSettingsStore((s) => s.setCreateGroupDialogOpen);
   const handleSelect = (id: string) => { selectGroup(id); setActiveConv(id); };
+
+  const sortedGroups = [...groups].sort((a, b) => {
+    const aLast = messageStore[a.id]?.slice(-1)[0]?.timestamp ?? 0;
+    const bLast = messageStore[b.id]?.slice(-1)[0]?.timestamp ?? 0;
+    if (aLast !== bLast) return bLast - aLast;
+    return a.name.localeCompare(b.name);
+  });
 
   return (
     <>
@@ -105,7 +154,14 @@ function GroupList() {
       >
         + 新建群组
       </button>
-      {groups.map((group, i) => (
+      <button
+        onClick={() => getWsClient()?.send({ type: "get_state" })}
+        className="w-full shrink-0 rounded-lg text-txt-muted text-xs hover:text-txt hover:bg-hover transition-colors"
+        style={{ padding: "6px 0" }}
+      >
+        刷新列表
+      </button>
+      {sortedGroups.map((group, i) => (
         <Fragment key={group.id}>
           {i > 0 && <ListDivider />}
           <button
@@ -122,12 +178,18 @@ function GroupList() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-purple font-medium truncate">{group.name}</div>
+                {group.status === 'completed' && (
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-success/10 text-success ml-2 shrink-0">已完成</span>
+                )}
+                {group.status === 'archived' && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-txt-muted/10 text-txt-muted ml-2 shrink-0">已归档</span>
+                )}
               </div>
             </div>
           </button>
         </Fragment>
       ))}
-      {groups.length === 0 && <p className="text-txt-muted text-sm text-center" style={{ padding: "40px 0" }}>暂无群组</p>}
+      {sortedGroups.length === 0 && <p className="text-txt-muted text-sm text-center" style={{ padding: "40px 0" }}>暂无群组</p>}
     </>
   );
 }

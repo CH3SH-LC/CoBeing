@@ -54,6 +54,15 @@ describe("PermissionEnforcer", () => {
     expect(enforcer.check("read-file", { path: "/etc/hosts" }).allowed).toBe(true);
   });
 
+  it("workspace-write allows relative paths within working dir", () => {
+    const enforcer = new PermissionEnforcer(
+      { mode: "workspace-write" }, toolConfig, "/workspace",
+    );
+    expect(enforcer.check("write-file", { path: "output.txt" }).allowed).toBe(true);
+    expect(enforcer.check("write-file", { path: "./subdir/file.txt" }).allowed).toBe(true);
+    expect(enforcer.check("write-file", { path: "../outside.txt" }).allowed).toBe(false);
+  });
+
   it("no tool config still works", () => {
     const enforcer = new PermissionEnforcer(
       { mode: "read-only" }, undefined, "/workspace",

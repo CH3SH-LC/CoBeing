@@ -5,6 +5,18 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 
+const PROTECTED_AGENTS = new Set(["butler", "host"]);
+
+function isProtectedPath(targetPath: string, agentId: string): boolean {
+  const normalized = path.resolve(targetPath).replace(/\\/g, "/");
+  for (const protectedId of PROTECTED_AGENTS) {
+    if (agentId === protectedId) continue; // 自身可以修改自己的文件
+    const pattern = `/agents/${protectedId}/`;
+    if (normalized.includes(pattern)) return true;
+  }
+  return false;
+}
+
 export const writeFileTool: Tool = {
   name: "write-file",
   description: "写入文件（覆盖或创建）",
@@ -18,14 +30,18 @@ export const writeFileTool: Tool = {
   },
   async execute(params, context: ToolContext): Promise<ToolResult> {
     const filePath = path.resolve(context.workingDir, params.path as string);
+    if (isProtectedPath(filePath, context.agentId)) {
+      return { toolCallId: "", content: "拒绝: 无法修改受保护的 Agent 文件", isError: true };
+    }
+
     const content = params.content as string;
 
     try {
-      // 确保目录存在
       const dir = path.dirname(filePath);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(filePath, content, "utf-8");
-      return { toolCallId: "", content: `已写入 ${filePath} (${content.length} 字符)` };
+      const relPath = path.relative(context.workingDir, filePath);
+      return { toolCallId: "", content: `已写入 ${relPath} (${content.length} 字符)` };
     } catch (err: any) {
       return { toolCallId: "", content: `写入文件失败: ${err.message}`, isError: true };
     }

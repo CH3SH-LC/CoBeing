@@ -106,7 +106,7 @@ export function ThemeSelector() {
                     {active && (
                       <span
                         className="text-xs px-1.5 py-0.5 rounded-full font-medium"
-                        style={{ backgroundColor: c.accent, color: "#FFFFFF" }}
+                        style={{ backgroundColor: c.accent, color: "var(--color-white)" }}
                       >
                         当前
                       </span>

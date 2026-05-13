@@ -5,19 +5,28 @@ import type { ToolCall, ToolResult, SandboxConfig, SandboxRunner } from "@cobein
 import { EventEmitter, createLogger } from "@cobeing/shared";
 import { ToolRegistry } from "./registry.js";
 import { PermissionEnforcer } from "./permission.js";
+import type { ObservabilityDB } from "../observability/observability-db.js";
 
 const log = createLogger("tool-executor");
 
 export class ToolExecutor {
+  private agentName: string;
+
   constructor(
     private registry: ToolRegistry,
     private permission: PermissionEnforcer,
     private events?: EventEmitter,
     private sandboxConfig?: SandboxConfig,
     private sandboxRunner?: SandboxRunner,
-  ) {}
+    private observabilityDB?: ObservabilityDB,
+    agentName?: string,
+  ) {
+    this.agentName = agentName ?? "unknown";
+  }
 
   async execute(toolCall: ToolCall, agentId: string, sessionId: string, workingDir: string, callDepth = 0): Promise<ToolResult> {
+    const startTime = Date.now();
+
     // 1. 查找工具
     const tool = this.registry.get(toolCall.function.name);
     if (!tool) {
@@ -61,6 +70,21 @@ export class ToolExecutor {
       result: result.content,
       isError: result.isError ?? false,
     });
+
+    if (this.observabilityDB) {
+      const paramStr = JSON.stringify(params);
+      const resultStr = typeof result.content === "string" ? result.content : JSON.stringify(result.content);
+      this.observabilityDB.insertToolCall({
+        agent_id: agentId,
+        agent_name: this.agentName,
+        tool_name: toolCall.function.name,
+        is_error: result.isError ? 1 : 0,
+        latency_ms: Date.now() - startTime,
+        param_chars: paramStr.length,
+        result_chars: resultStr.length,
+        timestamp: Date.now(),
+      });
+    }
 
     return result;
   }

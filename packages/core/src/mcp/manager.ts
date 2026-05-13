@@ -71,6 +71,35 @@ export class MCPManager {
     this.tools = this.tools.filter(t => !t.name.startsWith(`mcp:${id}:`));
   }
 
+  /** 获取所有已连接的服务器信息（供 mcp-discover 工具使用） */
+  getServers(): Array<{
+    id: string;
+    serverName: string;
+    toolCount: number;
+    tools: Array<{ name: string; description?: string; inputSchema: Record<string, unknown> }>;
+    connected: boolean;
+  }> {
+    return [...this.clients.entries()].map(([id, client]) => {
+      const serverTools = this.tools.filter(t => t.name.startsWith(`mcp:${id}:`));
+      return {
+        id,
+        serverName: client.serverName,
+        toolCount: serverTools.length,
+        tools: serverTools.map(t => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.parameters,
+        })),
+        connected: client.connected,
+      };
+    });
+  }
+
+  /** 获取指定服务器的所有桥接工具（供 mcp-register 工具使用） */
+  getServerTools(serverId: string): Tool[] {
+    return this.tools.filter(t => t.name.startsWith(`mcp:${serverId}:`));
+  }
+
   /** 获取所有桥接的 Tool 对象 */
   getTools(): Tool[] {
     return [...this.tools];

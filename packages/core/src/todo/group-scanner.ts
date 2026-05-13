@@ -2,12 +2,15 @@
 import { createLogger } from "@cobeing/shared";
 import type { TodoItem } from "./types.js";
 import { TodoStore } from "./store.js";
+import { OVERDUE_THRESHOLD_MS } from "./types.js";
 
 const log = createLogger("group-todo-scanner");
 
 export interface GroupScannerCallbacks {
   onTrigger: (groupId: string, todo: TodoItem, message: string) => Promise<void>;
   onCompleteAction?: (groupId: string, todo: TodoItem) => Promise<void>;
+  /** 依赖条件满足时通知下游 Agent（上游完成后，检查下游所有依赖是否完成） */
+  onDependencyMet?: (groupId: string, todo: TodoItem) => Promise<void>;
 }
 
 export class GroupTodoScanner {
@@ -43,10 +46,13 @@ export class GroupTodoScanner {
     log.info("GroupTodoScanner stopped for %s", this.groupId);
   }
 
-  /** 扫描并触发到期 TODO — 不同 targetAgent 并行，同一 targetAgent 依次 */
+  /** 扫描并触发到期 TODO — 不同 targetAgent 并行，同一 targetAgent 依次，逾期优先 */
   async scanOnce(): Promise<void> {
     const dueTodos = this.store.getDueTodos();
     if (dueTodos.length === 0) return;
+
+    // 逾期任务优先触发（triggerAt 越早越靠前）
+    dueTodos.sort((a, b) => new Date(a.triggerAt).getTime() - new Date(b.triggerAt).getTime());
 
     // 按 targetAgentId 分组
     const grouped = new Map<string, TodoItem[]>();
@@ -62,39 +68,97 @@ export class GroupTodoScanner {
       this.triggerTodosSequentially(todos),
     );
     await Promise.allSettled(promises);
+
+    // Completion detection: all TODOs done → mark group completed
+    try {
+      const allTodos = this.store.list();
+      if (allTodos.length > 0 && allTodos.every(t => t.status === 'completed')) {
+        const gm = (globalThis as any).__cobeingGroupManager;
+        if (gm) {
+          const group = gm.get(this.groupId);
+          const lastMsgs = group?.groupDb?.getAllMessages({ limit: 1 });
+          const lastMsgAge = lastMsgs?.length ? Date.now() - lastMsgs[0].timestamp : Infinity;
+          if (lastMsgAge > 3600000) {
+            gm.completeGroup?.(this.groupId);
+          }
+        }
+      }
+    } catch (err: any) {
+      log.error("Completion check failed for %s: %s", this.groupId, err.message);
+    }
   }
 
   private async triggerTodosSequentially(todos: TodoItem[]): Promise<void> {
     for (const todo of todos) {
       try {
         const message = this.formatTriggerMessage(todo);
-        this.store.markTriggered(todo.id);
         log.info("Group %s: triggering TODO %s for %s", this.groupId, todo.id, todo.targetAgentId);
         await this.callbacks.onTrigger(this.groupId, todo, message);
+        this.store.markTriggered(todo.id);
       } catch (err: any) {
         log.error("Group %s: failed to trigger TODO %s: %s", this.groupId, todo.id, err.message);
       }
     }
   }
 
-  /** 完成 TODO 并执行 onComplete 动作链 */
+  /** 完成 TODO 并执行 onComplete 动作链 + 检查下游依赖 */
   async complete(todoId: string): Promise<TodoItem | undefined> {
     const item = this.store.complete(todoId);
-    if (item?.onComplete && this.callbacks.onCompleteAction) {
+    if (!item) return undefined;
+
+    // 1. 执行 onComplete 动作链
+    if (item.onComplete && this.callbacks.onCompleteAction) {
       try {
         await this.callbacks.onCompleteAction(this.groupId, item);
       } catch (err: any) {
         log.error("Group %s: onComplete action failed for %s: %s", this.groupId, todoId, err.message);
       }
     }
+
+    // 1.5 自动同步工作区文档
+    try {
+      const gm = (globalThis as any).__cobeingGroupManager;
+      if (gm) {
+        const group = gm.get(this.groupId);
+        if (group) {
+          group.workspace.appendProgress('System', `TODO "${item.title}" 已完成`);
+        }
+      }
+    } catch (err: any) {
+      log.error("Workspace sync failed for %s: %s", this.groupId, err.message);
+    }
+
+    // 2. 检查下游依赖：是否有其他 TODO 依赖当前这个
+    if (this.callbacks.onDependencyMet) {
+      const dependents = this.store.getDependents(todoId);
+      for (const dep of dependents) {
+        if (this.store.areDependenciesMet(dep.id)) {
+          log.info("Group %s: all dependencies met for TODO %s (%s), notifying", this.groupId, dep.id, dep.title);
+          try {
+            await this.callbacks.onDependencyMet(this.groupId, dep);
+          } catch (err: any) {
+            log.error("Group %s: onDependencyMet failed for %s: %s", this.groupId, dep.id, err.message);
+          }
+        }
+      }
+    }
+
     return item;
   }
 
   private formatTriggerMessage(todo: TodoItem): string {
+    const now = Date.now();
+    const triggerTime = new Date(todo.triggerAt).getTime();
+    const overdueMs = now - triggerTime;
+    const isOverdue = overdueMs > OVERDUE_THRESHOLD_MS;
+    const overdueHours = Math.floor(overdueMs / OVERDUE_THRESHOLD_MS);
+
     return `【系统通知 — 群组 TODO 触发 @ ${this.groupId}】
 标题: ${todo.title}
 内容: ${todo.description}
 指派给: ${todo.targetAgentId || "未指定"}
+触发时间: ${todo.triggerAt}
+逾期: ${isOverdue ? `是，已逾期 ${overdueHours} 小时` : "否"}
 续期提示: ${todo.recurrenceHint}
 
 请根据上述内容执行相应操作。

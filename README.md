@@ -67,7 +67,7 @@ CoBeing/
 ├── packages/
 │   ├── shared/          # Shared types and utilities
 │   ├── providers/       # LLM Provider implementations
-│   ├── channels/        # Channel adapters
+│   ├── channels/        # QQBot channel adapter
 │   └── core/            # Core logic
 ├── gui-v2/              # Tauri desktop application
 ├── config/              # Configuration files
@@ -87,15 +87,22 @@ Agent is the core unit of CoBeing. Each Agent has independent:
 - **SOUL.md**: Personality traits and behavioral principles
 - **CHARACTER.md**: Character description and background
 - **JOB.md**: Focus areas and work methods
-- **MEMORY.md**: Memory storage
+- **MEMORY.md**: Memory storage (SQLite FTS5 full-text search)
 - **EXPERIENCE.md**: Experience accumulation
+- **TOOLS.md**: Tool usage strategies
+- Configurable LLM Provider and Model per Agent
+- External workspace binding (`bind` to any project directory)
+- 4-level permission system (full-access / workspace-write / read-only / ask)
 
 ### Group
 
-Group is a container for multi-Agent collaboration, supporting:
-- Multiple collaboration protocols (discussion, division of labor, relay, etc.)
-- Task assignment and progress tracking
-- Decision recording and knowledge sharing
+Group is the core collaboration unit for multiple Agents, more like a "project team" than a "chat room":
+- **Lifecycle management** — active → completed (auto-detect when all TODOs done & idle >1h) → archived (zip packaged)
+- **Task decomposition** — Host breaks down tasks with parent-child hierarchy and dependency chains (dependsOn)
+- **Voting & consensus** — vote-create / cast / result, majority approval with Host arbitration on tie
+- **Experience accumulation** — group-experience-add / summarize, cross-Agent knowledge sharing via EXPERIENCE.md
+- **Group workspace** — shared TASK.md / PLAN.md / PROGRESS.md / MEMBERS.md / STRUCTURE.md
+- **Screener** — optional dual-model pre-filtering, lightweight LLM judges whether to wake the main model
 
 ### Skill
 
@@ -103,18 +110,58 @@ Skill is a reusable workflow methodology, stored in the `skills/` directory:
 - Each skill is a directory containing `SKILL.md`
 - Supports frontmatter metadata
 - Can be dynamically loaded and executed by Agents
+- **Meta-skills** — cognitive-toolkit, collaboration-mindset, learning-loop
+- Agent-level skill whitelist (config.json skills field)
 
 ### Channel
 
 Channel is the interface for user interaction:
-- Currently supports QQBot (via OneBot v11 protocol)
-- More channels under development (Discord, WeCom, Feishu, etc.)
+- QQBot (Official QQ Bot API v2)
 
-By connecting QQBot, you can **communicate with Agent groups directly on mobile QQ**, enabling collaboration anytime, anywhere.
+Connect QQBot to communicate with Agent groups directly on QQ.
 
 ---
 
 ## Changelog
+
+### v1.2.0 (2026-05-13)
+
+**New Features:**
+- Master Registry — unified Agent/Group registry (`data/registry.json`), single source of truth
+- Group lifecycle management — active → completed → archived state machine with auto-completion detection
+- Group workspace — Agents in groups now point file tools to the group workspace directory
+- Voting & consensus — vote-create/cast/result, majority approval with Host arbitration
+- Task dependency management — parent-child task hierarchy, dependsOn chains, auto-trigger downstream
+- Agent external workspace binding — `bind` any external project directory as workspace
+- Observability dashboard — LLM calls, tool calls, token stats, latency metrics, auto-refresh
+- Provider auto-fallback — automatic failover on timeout/503/500/402/429 errors
+- Theme system redesign — 6 visually distinct themes (3 light: Sakura Mint, Amber Dawn, Lavender Rain; 3 dark: Ink Jade, Amethyst Night, Ember Gold)
+- All UI colors migrated to CSS variables — theme-aware color system, zero hardcoded colors
+- TODO kanban board — 4-column view with batch complete/delete/reassign operations
+- Meta-skills system — cognitive-toolkit, collaboration-mindset, learning-loop
+- Message status feedback — sending → sent → streaming → done/error lifecycle in UI
+- Channel message sender attribution — external channel messages display actual sender name
+
+**Improvements:**
+- WakeSystem redesigned with fire-and-forget per-group independent timers
+- Agent/Group lists sorted by recent message time
+- Sidebar auto-selects first item on view switch
+- Tool call bubbles merged into collapsible groups in Agent chat
+- Group chat UI aligned with Agent chat (centered input, animated thinking indicator)
+- Overdue TODO detection with priority sorting
+- Warehouse: Agent awareness of teammates, capabilities, and active status in group context
+- Proactive collaboration: `group-send` and `group-update-progress` tools for Agents
+- Knowledge sharing: `group-experience-add` and `group-experience-summarize`
+
+**Fixes:**
+- Ghost groups permanently resolved (content-level validation + delete fallback rename)
+- Full-chain message persistence fix (14 items: save timing, race conditions, sender attribution)
+- Group member add/remove not persisting to config.json → restart losing members
+- PermissionEnforcer path resolution causing all group tool calls being rejected
+- Windows SQLite WAL file lock preventing Agent/Group deletion
+- Shutdown race condition causing data loss (server_shutting_down broadcast)
+- Zombie process + build cache causing inconsistent version at startup
+- Tool call round limit removed (was 20, now unlimited via config-loader.ts)
 
 ### v1.1.1 (2026-04-27)
 
@@ -179,16 +226,12 @@ pnpm dev
 | Provider | Models | Status |
 |----------|--------|--------|
 | DeepSeek | V4 Flash, V4 Pro | ✅ |
-| OpenAI | GPT-5.4, GPT-4.1, O4 Mini | ✅ |
-| Anthropic | Claude Opus 4.7, Sonnet 4.6, Haiku 4.5 | ✅ |
-| Google | Gemini 3.1 Pro, Gemini 3 Flash | ✅ |
-| Zhipu | GLM-5.1, GLM-4V Plus, CodeGeeX 4 | ✅ |
-| Qwen | Qwen 3.6, QwQ 32B, Qwen Max | ✅ |
-| MiniMax | MiniMax 2.7, MiniMax M1 | ✅ |
-| Volcengine | Seed 2.0, Doubao Pro | ✅ |
-| Grok | Grok 3, Grok 3 Mini | ✅ |
-| Moonshot | Kimi 2.6, Moonshot V1 | ✅ |
-| SiliconFlow | DeepSeek V3/R1, Qwen3, GLM-4 | ✅ |
+| Zhipu (GLM) | GLM-5.1, GLM-4.7, GLM-Z1, CodeGeeX 4 | ✅ |
+| Qwen | Qwen-Max, Qwen-Plus, Qwen-Turbo, QwQ 32B | ✅ |
+| MiniMax | MiniMax-M2.7, MiniMax-M2.5, abab6.5s | ✅ |
+| Volcengine (Doubao) | Seed 2.0, Doubao Pro, Doubao Lite | ✅ |
+| Moonshot (Kimi) | Kimi K2.6, Kimi K2.5, Kimi K2 | ✅ |
+| MiMo | MiMo V2.5 Pro, MiMo V2 Pro, MiMo V2 Flash | ✅ |
 
 ---
 

@@ -51,6 +51,9 @@ export class OpenAICompatProvider implements LLMProvider {
 
     body.max_tokens = maxTokens ?? 4096;
 
+    // 请求包含 usage 统计（DeepSeek 等 provider 在流式最后一个 chunk 返回）
+    body.stream_options = { include_usage: true };
+
     // DeepSeek V4 思考模式参数
     if (thinkingEnabled) {
       body.thinking = { type: "enabled" };
@@ -70,6 +73,7 @@ export class OpenAICompatProvider implements LLMProvider {
         "Authorization": `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: params.abortSignal,
     });
 
     if (!response.ok) {
@@ -148,6 +152,19 @@ export class OpenAICompatProvider implements LLMProvider {
               }
               pendingToolCalls.clear();
             }
+          }
+
+          // usage 统计（流式最后一个 chunk，DeepSeek 等 provider 返回）
+          if (json.usage) {
+            yield {
+              type: "usage",
+              usage: {
+                inputTokens: json.usage.prompt_tokens ?? 0,
+                outputTokens: json.usage.completion_tokens ?? 0,
+                cacheHitTokens: json.usage.prompt_cache_hit_tokens ?? 0,
+                cacheMissTokens: json.usage.prompt_cache_miss_tokens ?? 0,
+              },
+            };
           }
         } catch {
           // skip malformed JSON lines

@@ -19,10 +19,12 @@ export class ToolRegistry {
   }
 
   listDefinitions(): ToolDefinition[] {
-    return [...this.tools.values()].map(t => ({
-      type: "function" as const,
-      function: { name: t.name, description: t.description, parameters: t.parameters },
-    }));
+    return [...this.tools.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, t]) => ({
+        type: "function" as const,
+        function: { name: t.name, description: t.description, parameters: t.parameters },
+      }));
   }
 
   listAll(): Tool[] {

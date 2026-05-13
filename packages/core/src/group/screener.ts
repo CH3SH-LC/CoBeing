@@ -45,6 +45,7 @@ export interface ScreenerResult {
 export class Screener {
   private provider: LLMProvider;
   private model: string;
+  private stats = { totalChecked: 0, totalFiltered: 0, estimatedTokensSaved: 0 };
 
   constructor(provider: LLMProvider, model?: string) {
     this.provider = provider;
@@ -56,6 +57,9 @@ export class Screener {
     if (!recentMessages.trim()) {
       return { shouldWake: false, reason: "无消息", suggestion: "无" };
     }
+
+    this.stats.totalChecked++;
+    const estimatedTokens = Math.ceil(recentMessages.length / 3); // rough estimate
 
     try {
       let result = "";
@@ -71,11 +75,21 @@ export class Screener {
         }
       }
 
-      return this.parseResult(result);
+      const parsed = this.parseResult(result);
+      if (!parsed.shouldWake) {
+        this.stats.totalFiltered++;
+        this.stats.estimatedTokensSaved += estimatedTokens;
+      }
+      return parsed;
     } catch (err: any) {
       log.warn("Screener failed: %s", err.message);
       return { shouldWake: false, reason: `初筛失败: ${err.message}`, suggestion: "无" };
     }
+  }
+
+  /** 获取过滤统计 */
+  getStats() {
+    return { ...this.stats };
   }
 
   /** 解析初筛结果 */

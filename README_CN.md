@@ -127,7 +127,7 @@ CoBeing/
 ├── packages/
 │   ├── shared/          # 共享类型和工具
 │   ├── providers/       # LLM Provider 实现
-│   ├── channels/        # Channel 适配器
+│   ├── channels/        # QQBot Channel 适配器
 │   └── core/            # 核心逻辑
 ├── gui-v2/              # Tauri 桌面应用
 ├── config/              # 配置文件
@@ -147,15 +147,22 @@ Agent 是 CoBeing 的核心单元，每个 Agent 有独立的：
 - **SOUL.md**：性格特质和行为准则
 - **CHARACTER.md**：人物描写和背景
 - **JOB.md**：专注领域和工作方式
-- **MEMORY.md**：记忆存储
+- **MEMORY.md**：记忆存储（SQLite FTS5 全文搜索）
 - **EXPERIENCE.md**：经验积累
+- **TOOLS.md**：工具使用策略
+- 每个 Agent 可独立配置 LLM Provider 和 Model
+- 外部工作区绑定（`bind` 到任意项目目录）
+- 4 级权限系统（full-access / workspace-write / read-only / ask）
 
 ### Group
 
-Group 是多个 Agent 协作的容器，支持：
-- 多种协作协议（讨论、分工、接力等）
-- 任务分配和进度跟踪
-- 决策记录和知识共享
+Group 是多 Agent 协作的核心单元，更像"项目工作组"而非"聊天群"：
+- **生命周期管理** — active → completed（自动检测 TODO 全完成 + 静默 >1h）→ archived（zip 打包归档）
+- **任务分解** — 群主分解任务，支持父子层级和依赖链（dependsOn）
+- **投票与共识** — vote-create / cast / result，过半通过，平局群主仲裁
+- **经验沉淀** — group-experience-add / summarize，跨 Agent 知识共享
+- **群组工作区** — 共享 TASK.md / PLAN.md / PROGRESS.md / MEMBERS.md / STRUCTURE.md
+- **Screener** — 可选双模型初筛，轻量 LLM 判断是否唤醒主模型
 
 ### Skill
 
@@ -163,18 +170,58 @@ Skill 是可复用的工作流方法论，存储在 `skills/` 目录：
 - 每个技能是一个目录，包含 `SKILL.md`
 - 支持 frontmatter 元数据
 - 可以被 Agent 动态加载和执行
+- **元技能体系** — cognitive-toolkit / collaboration-mindset / learning-loop
+- Agent 级技能白名单（config.json skills 字段）
 
 ### Channel
 
 Channel 是与用户交互的渠道：
-- 目前支持 QQBot（通过 OneBot v11 协议）
-- 更多渠道正在开发中（Discord、企业微信、飞书等）
+- QQBot（QQ 官方 Bot API v2）
 
-通过接入 QQBot，你可以**在手机 QQ 上直接与 Agent 群组对话**，随时随地协作。
+接入 QQBot 后，可以在 QQ 上与 Agent 群组对话。
 
 ---
 
 ## 更新日志
+
+### v1.2.0（2026-05-13）
+
+**新功能：**
+- Master Registry — 统一 Agent/Group 注册表（`data/registry.json`），单一真相源
+- 群组生命周期管理 — active → completed → archived 状态机，自动完成检测
+- 群组工作区 — Agent 在群组中文件工具自动指向群组工作区目录
+- 投票与共识机制 — vote-create/cast/result，过半通过，群主仲裁
+- 任务依赖管理 — 父子任务层级，dependsOn 依赖链，上游完成自动触发下游
+- Agent 外部工作区绑定 — `bind` 到任意外部项目目录
+- 可观测性仪表盘 — LLM 调用、工具调用、Token 统计、延迟指标，自动刷新
+- Provider 自动降级 — timeout/503/500/402/429 等错误自动切换备选 Provider
+- 主题系统重设计 — 6 个视觉鲜明主题（3 浅色：樱花薄荷/晨曦琥珀/薰衣草雨；3 深色：墨夜翡翠/子夜紫晶/熔岩暗金）
+- 全部 UI 颜色迁移至 CSS 变量 — 主题感知颜色系统，零硬编码
+- TODO 看板视图 — 4 列分组 + 批量完成/删除/重新分配
+- 元技能体系 — cognitive-toolkit / collaboration-mindset / learning-loop
+- 消息状态反馈 — sending → sent → streaming → done/error 完整生命周期
+- 渠道消息发送者署名 — 外部渠道消息正确显示发送者名称
+
+**改进：**
+- WakeSystem 重设计为 fire-and-forget 独立定时器模式，各群组并发不阻塞
+- Agent/群组列表按最近发言时间排序
+- 侧边栏切换视图时自动选择首个项目
+- Agent 对话中工具调用合并为可折叠组
+- 群组聊天界面与 Agent 聊天对齐（居中输入框、动画思考指示器）
+- 逾期 TODO 检测与优先排序
+- 协作意识：Agent 感知队友能力、活跃状态
+- 主动协作：Agent 可通过 group-send / group-update-progress 工具主动沟通
+- 知识共享：group-experience-add / group-experience-summarize 沉淀协作经验
+
+**修复：**
+- 幽灵群组彻底解决（内容级验证 + delete fallback 重命名）
+- 全链路对话持久化修复（14 项：保存时机、竞态、发送者署名等）
+- 群组成员变更不持久化 → 重启丢失成员
+- PermissionEnforcer 路径解析不一致导致群组工具调用全部被拒绝
+- Windows SQLite WAL 文件锁导致无法删除 Agent/群组
+- 关闭顺序竞态导致对话数据丢失
+- 僵尸进程 + 编译缓存导致启动版本不一致
+- 工具调用轮次限制解除（原 20 轮 → 无限）
 
 ### v1.1.1（2026-04-27）
 
@@ -192,33 +239,19 @@ Channel 是与用户交互的渠道：
 
 ---
 
-## 快速开始
-
-### 方式一：使用 Release 压缩包（推荐）
-
-1. 前往 [Releases](https://github.com/CH3SH-LC/CoBeing/releases) 下载最新压缩包
-2. 解压到任意目录
-3. 双击 `start.bat` 启动
-
-> **注意：** 后台运行终端可能导致杀毒软件误判。如果遇到拦截，请将 CoBeing 目录添加到杀毒软件的白名单中。
-
-### 方式二：从源码构建
+## 支持的语言模型
 
 > **建议：** 推荐使用 **DeepSeek V4**，兼顾性能和成本。
 
 | Provider | 模型 | 状态 |
 |----------|------|------|
 | DeepSeek | V4 Flash, V4 Pro | ✅ |
-| OpenAI | GPT-5.4, GPT-4.1, O4 Mini | ✅ |
-| Anthropic | Claude Opus 4.7, Sonnet 4.6, Haiku 4.5 | ✅ |
-| Google | Gemini 3.1 Pro, Gemini 3 Flash | ✅ |
-| 智谱 | GLM-5.1, GLM-4V Plus, CodeGeeX 4 | ✅ |
-| 通义千问 | Qwen 3.6, QwQ 32B, Qwen Max | ✅ |
-| MiniMax | MiniMax 2.7, MiniMax M1 | ✅ |
-| 火山引擎 | Seed 2.0, Doubao Pro | ✅ |
-| Grok | Grok 3, Grok 3 Mini | ✅ |
-| Moonshot | Kimi 2.6, Moonshot V1 | ✅ |
-| SiliconFlow | DeepSeek V3/R1, Qwen3, GLM-4 | ✅ |
+| 智谱 (GLM) | GLM-5.1, GLM-4.7, GLM-Z1, CodeGeeX 4 | ✅ |
+| 通义千问 | Qwen-Max, Qwen-Plus, Qwen-Turbo, QwQ 32B | ✅ |
+| MiniMax | MiniMax-M2.7, MiniMax-M2.5, abab6.5s | ✅ |
+| 火山引擎 (豆包) | Seed 2.0, Doubao Pro, Doubao Lite | ✅ |
+| Moonshot (Kimi) | Kimi K2.6, Kimi K2.5, Kimi K2 | ✅ |
+| MiMo | MiMo V2.5 Pro, MiMo V2 Pro, MiMo V2 Flash | ✅ |
 
 ---
 

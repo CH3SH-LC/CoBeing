@@ -37,7 +37,9 @@ describe("ChannelRouter", () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    // 关闭所有 SQLite 连接再删除临时目录（Windows 需要）
+    groupManager?.disposeAll();
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* Windows EPERM */ }
   });
 
   describe("no binding", () => {

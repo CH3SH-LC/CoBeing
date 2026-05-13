@@ -12,14 +12,10 @@ const PRESETS = [
   { id: "deepseek", nameZh: "DeepSeek", type: "openai-compat", apiKeyEnv: "DEEPSEEK_API_KEY", generalURL: "https://api.deepseek.com", codingURL: "https://api.deepseek.com" },
   { id: "zhipu", nameZh: "智谱 / GLM", type: "openai-compat", apiKeyEnv: "ZHIPU_API_KEY", generalURL: "https://open.bigmodel.cn/api/paas/v4", codingURL: "https://open.bigmodel.cn/api/coding/paas/v4" },
   { id: "qwen", nameZh: "通义千问", type: "openai-compat", apiKeyEnv: "QWEN_API_KEY", generalURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", codingURL: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-  { id: "minimax", nameZh: "MiniMax", type: "openai-compat", apiKeyEnv: "MINIMAX_API_KEY", generalURL: "https://api.minimax.chat/v1", codingURL: "https://api.minimax.chat/v1" },
+  { id: "minimax", nameZh: "MiniMax", type: "openai-compat", apiKeyEnv: "MINIMAX_API_KEY", generalURL: "https://api.minimaxi.com/v1", codingURL: "https://api.minimaxi.com/v1" },
   { id: "volcengine", nameZh: "火山引擎 / 豆包", type: "openai-compat", apiKeyEnv: "VOLCENGINE_API_KEY", generalURL: "https://ark.cn-beijing.volces.com/api/v3", codingURL: "https://ark.cn-beijing.volces.com/api/v3" },
-  { id: "moonshot", nameZh: "月之暗面 / Kimi", type: "openai-compat", apiKeyEnv: "MOONSHOT_API_KEY", generalURL: "https://api.moonshot.ai/v1", codingURL: "https://api.moonshot.ai/v1" },
-  { id: "siliconflow", nameZh: "硅基流动", type: "openai-compat", apiKeyEnv: "SILICONFLOW_API_KEY", generalURL: "https://api.siliconflow.cn/v1", codingURL: "https://api.siliconflow.cn/v1" },
-  { id: "openai", nameZh: "OpenAI", type: "openai-compat", apiKeyEnv: "OPENAI_API_KEY", generalURL: "https://api.openai.com/v1", codingURL: "https://api.openai.com/v1" },
-  { id: "anthropic", nameZh: "Anthropic", type: "anthropic", apiKeyEnv: "ANTHROPIC_API_KEY", generalURL: "", codingURL: "" },
-  { id: "gemini", nameZh: "Google Gemini", type: "gemini", apiKeyEnv: "GEMINI_API_KEY", generalURL: "", codingURL: "" },
-  { id: "grok", nameZh: "Grok / xAI", type: "openai-compat", apiKeyEnv: "XAI_API_KEY", generalURL: "https://api.x.ai/v1", codingURL: "https://api.x.ai/v1" },
+  { id: "moonshot", nameZh: "月之暗面 / Kimi", type: "openai-compat", apiKeyEnv: "MOONSHOT_API_KEY", generalURL: "https://api.moonshot.cn/v1", codingURL: "https://api.moonshot.cn/v1" },
+  { id: "mimo", nameZh: "小米 MiMo", type: "openai-compat", apiKeyEnv: "MIMO_API_KEY", generalURL: "https://api.xiaomimimo.com/v1", codingURL: "https://api.xiaomimimo.com/v1" },
 ];
 
 export function ProvidersSection() {
@@ -205,8 +201,6 @@ export function ProvidersSection() {
               <span className="text-sm text-txt-sub">类型</span>
               <select value={editing.entry.type} onChange={(e) => setEditing({ ...editing, entry: { ...editing.entry, type: e.target.value } })} className="mt-1 w-full px-3 py-2 rounded-lg bg-input border border-bdr text-sm text-txt focus:outline-none focus:border-accent/50">
                 <option value="openai-compat">OpenAI Compatible</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="gemini">Gemini</option>
               </select>
             </label>
 

@@ -1,10 +1,14 @@
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-accent/15 text-accent",
+  "in-progress": "bg-warning/15 text-warning",
+  review: "bg-purple/15 text-purple",
   completed: "bg-success/15 text-success",
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  pending: "待完成",
+  pending: "待处理",
+  "in-progress": "进行中",
+  review: "审核中",
   completed: "已完成",
 };
 

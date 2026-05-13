@@ -30,6 +30,7 @@ function createMockProvider() {
 describe("E2E Integration", () => {
   let tmpDir: string;
   const agents: Agent[] = [];
+  const groupManagers: GroupManager[] = [];
 
   function createAgent(config: Parameters<typeof Agent["prototype"]["constructor"]> extends [infer C, ...infer R] ? any : any, provider: any, dataRoot?: string) {
     const agent = new Agent(config, provider, dataRoot);
@@ -40,6 +41,7 @@ describe("E2E Integration", () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cobeing-e2e-"));
     agents.length = 0;
+    groupManagers.length = 0;
   });
 
   afterEach(async () => {
@@ -48,9 +50,14 @@ describe("E2E Integration", () => {
       try { await agent.dispose(); } catch { /* ignore */ }
     }
     agents.length = 0;
-    // Windows 上短暂等待让文件句柄释放
-    await new Promise(r => setTimeout(r, 50));
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    // 关闭所有 GroupManager 的 SQLite 连接
+    for (const gm of groupManagers) {
+      gm.disposeAll();
+    }
+    groupManagers.length = 0;
+    // Windows 上短暂等待让文件句柄释放（必要时重试）
+    await new Promise(r => setTimeout(r, 100));
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* Windows EPERM */ }
   });
 
   describe("Agent 文件系统 + 记忆", () => {
@@ -142,6 +149,7 @@ describe("E2E Integration", () => {
     it("群组 + GroupManager + Registry 协同", () => {
       const registry = new AgentRegistry();
       const groupManager = new GroupManager(registry, tmpDir);
+      groupManagers.push(groupManager);
 
       const agent1 = createAgent({
         id: "a1", name: "A1", role: "r1", systemPrompt: "s", provider: "mock", model: "mock",

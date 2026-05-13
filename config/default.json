@@ -4,8 +4,6 @@
     "dataDir": "./data",
     "skillsDir": "./skills",
     "promptsDir": "./prompts",
-    "maxToolRounds": 20,
-    "butlerMaxToolRounds": 40,
     "memory": {
       "charLimits": {
         "memory": 3000,
@@ -29,14 +27,6 @@
     "host"
   ],
   "providers": {
-    "anthropic": {
-      "apiKeyEnv": "ANTHROPIC_API_KEY",
-      "type": "anthropic"
-    },
-    "openai": {
-      "apiKeyEnv": "OPENAI_API_KEY",
-      "baseURL": "https://api.openai.com/v1"
-    },
     "deepseek": {
       "apiKeyEnv": "DEEPSEEK_API_KEY",
       "baseURL": "https://api.deepseek.com"
@@ -52,34 +42,49 @@
     },
     "minimax": {
       "apiKeyEnv": "MINIMAX_API_KEY",
-      "baseURL": "https://api.minimax.chat/v1"
+      "baseURL": "https://api.minimaxi.com/v1"
     },
     "volcengine": {
       "apiKeyEnv": "VOLCENGINE_API_KEY",
       "baseURL": "https://ark.cn-beijing.volces.com/api/v3"
     },
-    "gemini": {
-      "apiKeyEnv": "GEMINI_API_KEY",
-      "type": "gemini"
-    },
-    "grok": {
-      "apiKeyEnv": "XAI_API_KEY",
-      "baseURL": "https://api.x.ai/v1"
-    },
     "moonshot": {
       "apiKeyEnv": "MOONSHOT_API_KEY",
-      "baseURL": "https://api.moonshot.ai/v1"
+      "baseURL": "https://api.moonshot.cn/v1"
     },
-    "siliconflow": {
-      "apiKeyEnv": "SILICONFLOW_API_KEY",
-      "baseURL": "https://api.siliconflow.cn/v1"
+    "mimo": {
+      "apiKeyEnv": "MIMO_API_KEY",
+      "baseURL": "https://api.xiaomimimo.com/v1"
     }
   },
-  "channels": {},
+  "channels": {
+    "qqbot": {
+      "name": "QQ Bot",
+      "enabled": false,
+      "type": "qqbot",
+      "qqbotAppId": "",
+      "qqbotAppSecret": "",
+      "bindTo": {
+        "type": "agent",
+        "agentId": "butler"
+      }
+    }
+  },
   "gui": {
     "enabled": true,
     "wsPort": 18765
   },
   "groups": [],
-  "mcpServers": {}
+  "mcpServers": {
+    "qqbot": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["packages/mcp-servers/qqbot/dist/index.js"],
+      "env": {
+        "QQ_BOT_APP_ID": "",
+        "QQ_BOT_TOKEN": "",
+        "QQ_BOT_AUTO_CONNECT_GATEWAY": "false"
+      }
+    }
+  }
 }

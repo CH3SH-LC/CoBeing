@@ -60,6 +60,8 @@ export class AgentTodoScanner {
         const store = new TodoStore(agentDir);
         const dueTodos = store.getDueTodos();
         if (dueTodos.length > 0) {
+          // 逾期的排前面，优先触发
+          dueTodos.sort((a, b) => new Date(a.triggerAt).getTime() - new Date(b.triggerAt).getTime());
           agentDueMap.set(agentId, { store, todos: dueTodos });
         }
       } catch (err: any) {
@@ -89,10 +91,10 @@ export class AgentTodoScanner {
         }
 
         const message = this.formatTriggerMessage(todo);
-        store.markTriggered(todo.id);
         log.info("Triggering TODO %s for agent %s: %s", todo.id, agentId, todo.title);
 
         await this.callbacks.onTrigger(agentId, todo, message);
+        store.markTriggered(todo.id);
       } catch (err: any) {
         log.error("Failed to trigger TODO %s: %s", todo.id, err.message);
       }

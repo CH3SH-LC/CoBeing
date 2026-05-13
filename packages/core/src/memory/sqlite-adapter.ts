@@ -8,7 +8,7 @@
 import Database, { type Database as BetterSqlite3Database, type Statement } from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import { createLogger } from "@cobeing/shared";
+import { createLogger, cleanupSQLiteAuxFiles } from "@cobeing/shared";
 
 const log = createLogger("sqlite-adapter");
 
@@ -18,6 +18,8 @@ export interface EntryRow {
   content: string;
   created_at: number;
   updated_at: number;
+  /** 搜索结果截断预览（可选，仅 search 时填充） */
+  snippet?: string;
 }
 
 export interface HistoryRow {
@@ -27,6 +29,8 @@ export interface HistoryRow {
   content: string;
   tool_name: string | null;
   timestamp: number;
+  /** 搜索结果截断预览（可选，仅 search 时填充） */
+  snippet?: string;
 }
 
 // ─── CJK 分词 ───
@@ -66,6 +70,7 @@ function buildMatchExpr(query: string): string {
 
 export class SqliteAdapter {
   private db: BetterSqlite3Database;
+  private dbPath: string;
   private stmts!: {
     insertEntry: Statement;
     updateEntry: Statement;
@@ -80,6 +85,7 @@ export class SqliteAdapter {
   private hasFts5: boolean;
 
   private constructor(dbPath: string) {
+    this.dbPath = dbPath;
     // 确保目录存在
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
@@ -280,8 +286,27 @@ export class SqliteAdapter {
 
   // ─── 搜索 ───
 
+  /** 以匹配位置为中心截断内容，返回上下文窗口 */
+  private snippetAroundMatch(content: string, query: string, window = 80): string | undefined {
+    const idx = content.toLowerCase().indexOf(query.toLowerCase());
+    if (idx === -1) {
+      // 搜不到精确位置，退化为前缀截断
+      if (content.length <= window * 2) return undefined;
+      return content.slice(0, window * 2) + "...";
+    }
+    const start = Math.max(0, idx - window);
+    const end = Math.min(content.length, idx + query.length + window);
+    let snippet = "";
+    if (start > 0) snippet += "...";
+    snippet += content.slice(start, end);
+    if (end < content.length) snippet += "...";
+    return snippet;
+  }
+
   /** 搜索记忆条目（FTS5 with CJK tokenization，降级 LIKE） */
   searchEntries(query: string, target?: string, limit = 10): EntryRow[] {
+    let results: EntryRow[] = [];
+
     if (this.hasFts5) {
       try {
         const matchExpr = buildMatchExpr(query);
@@ -297,25 +322,35 @@ export class SqliteAdapter {
         sql += ` ORDER BY rank LIMIT ?`;
         params.push(limit);
 
-        return this.db.prepare(sql).all(...params) as EntryRow[];
+        results = this.db.prepare(sql).all(...params) as EntryRow[];
       } catch {
         // FTS5 查询语法错误，降级为 LIKE
       }
     }
 
-    let sql = "SELECT * FROM entries WHERE content LIKE ?";
-    const params: unknown[] = [`%${query}%`];
-    if (target) {
-      sql += " AND target = ?";
-      params.push(target);
+    if (results.length === 0) {
+      let sql = "SELECT * FROM entries WHERE content LIKE ?";
+      const params: unknown[] = [`%${query}%`];
+      if (target) {
+        sql += " AND target = ?";
+        params.push(target);
+      }
+      sql += " ORDER BY created_at ASC LIMIT ?";
+      params.push(limit);
+      results = this.db.prepare(sql).all(...params) as EntryRow[];
     }
-    sql += " ORDER BY created_at ASC LIMIT ?";
-    params.push(limit);
-    return this.db.prepare(sql).all(...params) as EntryRow[];
+
+    // 为每条结果生成截断预览
+    for (const row of results) {
+      row.snippet = this.snippetAroundMatch(row.content, query);
+    }
+    return results;
   }
 
   /** 搜索对话历史（FTS5 with CJK tokenization，降级 LIKE） */
   searchHistory(query: string, session?: string, limit = 10): HistoryRow[] {
+    let results: HistoryRow[] = [];
+
     if (this.hasFts5) {
       try {
         const matchExpr = buildMatchExpr(query);
@@ -331,21 +366,29 @@ export class SqliteAdapter {
         sql += ` ORDER BY h.timestamp DESC LIMIT ?`;
         params.push(limit);
 
-        return this.db.prepare(sql).all(...params) as HistoryRow[];
+        results = this.db.prepare(sql).all(...params) as HistoryRow[];
       } catch {
         // FTS5 降级为 LIKE
       }
     }
 
-    let sql = "SELECT * FROM history WHERE content LIKE ?";
-    const params: unknown[] = [`%${query}%`];
-    if (session) {
-      sql += " AND session = ?";
-      params.push(session);
+    if (results.length === 0) {
+      let sql = "SELECT * FROM history WHERE content LIKE ?";
+      const params: unknown[] = [`%${query}%`];
+      if (session) {
+        sql += " AND session = ?";
+        params.push(session);
+      }
+      sql += " ORDER BY timestamp DESC LIMIT ?";
+      params.push(limit);
+      results = this.db.prepare(sql).all(...params) as HistoryRow[];
     }
-    sql += " ORDER BY timestamp DESC LIMIT ?";
-    params.push(limit);
-    return this.db.prepare(sql).all(...params) as HistoryRow[];
+
+    // 为每条结果生成截断预览
+    for (const row of results) {
+      row.snippet = this.snippetAroundMatch(row.content, query);
+    }
+    return results;
   }
 
   // ─── History ───
@@ -371,12 +414,19 @@ export class SqliteAdapter {
     this.stmts.setSyncMtime.run(target, mtime);
   }
 
-  /** 关闭数据库 */
+  /** 关闭数据库并清理 WAL 辅助文件（Windows 兼容） */
   close(): void {
+    try {
+      this.db.pragma("wal_checkpoint(TRUNCATE)");
+    } catch { /* ignore */ }
+    try {
+      this.db.pragma("journal_mode = DELETE");
+    } catch { /* ignore */ }
     try {
       this.db.close();
     } catch {
-      // 已关闭或无操作
+      // already closed
     }
+    cleanupSQLiteAuxFiles(this.dbPath);
   }
 }

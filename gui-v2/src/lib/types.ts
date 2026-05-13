@@ -1,6 +1,6 @@
 // ── Shared Types for CoBeing Frontend ──
 
-export type ViewType = "butler" | "agents" | "groups" | "skills" | "settings";
+export type ViewType = "butler" | "agents" | "groups" | "skills" | "settings" | "dashboard";
 export type AgentStatus = "idle" | "running" | "error";
 export type MessageDirection = "in" | "out" | "system" | "tool";
 export type PermissionMode = "full-access" | "workspace-write" | "read-only" | "ask";
@@ -50,6 +50,7 @@ export interface GroupInfo {
   name: string;
   members: string[];
   topic?: string;
+  status?: 'active' | 'completed' | 'archived';
 }
 
 export interface GroupDetail {
@@ -95,6 +96,11 @@ export interface LogMessage {
   timestamp: number;
   senderId?: string;
   senderName?: string;
+  /** Per-message send status for user (in) messages */
+  status?: 'sending' | 'sent' | 'streaming' | 'done' | 'error';
+  errorMessage?: string;
+  /** Tool calls that happened during this response (attached at finalizeStream) */
+  toolCalls?: ToolEvent[];
 }
 
 export interface ToolEvent {
@@ -163,4 +169,24 @@ export interface WsMessagePayload {
   direction: string;
   content: string;
   timestamp: number;
+}
+
+// ── Usage Stats ──
+
+export interface UsageStats {
+  agentId: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitTokens: number;
+  cacheMissTokens: number;
+  timestamp: number;
+}
+
+export interface DashboardData {
+  tokens: { today: number; total: number; daily: { date: string; input: number; output: number }[] };
+  latency: { p50: number; p95: number; hourly: { hour: string; avg: number }[] };
+  tools: { name: string; count: number; errorRate: number }[];
+  errors: { llmErrorRate: number; llmErrors: number; llmTotal: number;
+            toolErrorRate: number; toolErrors: number; toolTotal: number; fallbackCount: number };
+  agents: { agentId: string; agentName: string; callCount: number; totalTokens: number }[];
 }

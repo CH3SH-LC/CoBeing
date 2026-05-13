@@ -7,7 +7,7 @@
 import Database, { type Database as BetterSqlite3Database } from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import { createLogger } from "@cobeing/shared";
+import { createLogger, cleanupSQLiteAuxFiles } from "@cobeing/shared";
 
 const log = createLogger("group-agent-memory");
 
@@ -49,14 +49,15 @@ export interface AgentFragment {
 export class GroupAgentMemory {
   readonly agentId: string;
   private db: BetterSqlite3Database;
+  private dbPath: string;
   private hasFts5: boolean;
 
   constructor(agentId: string, memoryDir: string) {
     this.agentId = agentId;
     fs.mkdirSync(memoryDir, { recursive: true });
 
-    const dbPath = path.join(memoryDir, `${agentId}.db`);
-    this.db = new Database(dbPath);
+    this.dbPath = path.join(memoryDir, `${agentId}.db`);
+    this.db = new Database(this.dbPath);
     this.db.pragma("journal_mode = WAL");
     this.hasFts5 = this.initTables();
   }
@@ -175,8 +176,11 @@ export class GroupAgentMemory {
     return row.cnt;
   }
 
-  /** 关闭数据库 */
+  /** 关闭数据库并清理 WAL 辅助文件 */
   close(): void {
+    try { this.db.pragma("wal_checkpoint(TRUNCATE)"); } catch { /* ignore */ }
+    try { this.db.pragma("journal_mode = DELETE"); } catch { /* ignore */ }
     try { this.db.close(); } catch { /* ignore */ }
+    cleanupSQLiteAuxFiles(this.dbPath);
   }
 }

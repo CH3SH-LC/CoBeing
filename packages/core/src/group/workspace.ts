@@ -369,6 +369,31 @@ _记录哪些协作方式效果好_
     this.writePlan(newPlan);
   }
 
+  /** 泛型写文件（限 structure / plan / task） */
+  writeFile(name: string, content: string): void {
+    const paths: Record<string, string> = {
+      structure: this.paths.structure,
+      plan: this.paths.plan,
+      task: this.paths.task,
+    };
+    const filePath = paths[name];
+    if (!filePath) throw new Error(`Unknown workspace file: ${name}`);
+    writeFileSync(filePath, content, "utf-8");
+    logger.info(`[Group:${this.groupId}] Wrote ${name}`);
+  }
+
+  /** 泛型读文件（限 structure / plan / task） */
+  readFile(name: string): string | null {
+    const paths: Record<string, string> = {
+      structure: this.paths.structure,
+      plan: this.paths.plan,
+      task: this.paths.task,
+    };
+    const filePath = paths[name];
+    if (!filePath || !existsSync(filePath)) return null;
+    return readFileSync(filePath, "utf-8");
+  }
+
   /**
    * 获取工作空间摘要
    */

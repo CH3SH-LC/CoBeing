@@ -47,8 +47,8 @@ export class LocalFilterEngine {
     }
   }
 
-  /** 评估群消息，返回过滤结果 */
-  async evaluate(groupId: string, messages: GroupMessageV2[]): Promise<FilterResult> {
+  /** 评估群消息，返回过滤结果。customSystemPrompt 为群组级自定义 prompt（覆盖默认） */
+  async evaluate(groupId: string, messages: GroupMessageV2[], customSystemPrompt?: string): Promise<FilterResult> {
     if (!this._enabled || !this.model || !this.context) {
       return { shouldWake: true, reason: "本地过滤未启用", priority: "normal" };
     }
@@ -67,8 +67,9 @@ export class LocalFilterEngine {
       const sequence = this.context.getSequence();
       const session = new LlamaChatSession({ contextSequence: sequence });
 
+      const systemPrompt = customSystemPrompt || FILTER_SYSTEM_PROMPT;
       const response = await session.prompt(
-        `${FILTER_SYSTEM_PROMPT}\n\n${prompt}`,
+        `${systemPrompt}\n\n${prompt}`,
         {
           grammar: this.grammar,
           maxTokens: 256,

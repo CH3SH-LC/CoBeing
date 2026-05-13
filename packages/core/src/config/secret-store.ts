@@ -5,6 +5,8 @@
  * 加密后以 "enc:" 前缀存储，向后兼容明文。
  */
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import os from "node:os";
 import { createLogger } from "@cobeing/shared";
 
@@ -15,11 +17,28 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 const PREFIX = "enc:";
 
-/** 基于机器特征派生 32 字节密钥 */
+/** 持久化密钥文件路径（用户主目录下，跨项目共享） */
+function getKeyFilePath(): string {
+  const dir = path.join(os.homedir(), ".cobeing");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, "secret-key");
+}
+
+/** 基于机器特征 + 持久化随机盐派生 32 字节密钥 */
 function deriveKey(): Buffer {
   const hostname = os.hostname();
   const username = os.userInfo().username;
-  const seed = `cobeing:${hostname}:${username}`;
+  // 尝试读取持久化密钥文件，不存在则生成
+  const keyPath = getKeyFilePath();
+  let salt: string;
+  try {
+    salt = fs.readFileSync(keyPath, "utf-8").trim();
+  } catch {
+    salt = crypto.randomBytes(32).toString("hex");
+    fs.writeFileSync(keyPath, salt, "utf-8");
+    log.info("New secret key generated at %s", keyPath);
+  }
+  const seed = `cobeing:${hostname}:${username}:${salt}`;
   return crypto.createHash("sha256").update(seed).digest();
 }
 

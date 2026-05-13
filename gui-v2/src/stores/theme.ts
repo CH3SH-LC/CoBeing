@@ -162,7 +162,7 @@ async function fetchBuiltInIds(): Promise<string[]> {
 }
 
 export const useThemeStore = create<ThemeStore>((set, get) => ({
-  current: "aurora-light",
+   current: "sakura-mint",
   presets: {},
   loaded: false,
   _builtInIds: [],
@@ -192,7 +192,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
 
       // 3. Determine active theme
       const saved = localStorage.getItem(STORAGE_KEY);
-      const themeId = saved && all[saved] ? saved : Object.keys(builtIn)[0] || "aurora-light";
+      const themeId = saved && all[saved] ? saved : Object.keys(builtIn)[0] || "sakura-mint";
 
       if (all[themeId]) {
         applyTheme(all[themeId]);

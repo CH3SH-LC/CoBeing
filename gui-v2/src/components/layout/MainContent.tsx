@@ -7,6 +7,7 @@ import { ChatView } from "@/components/chat/ChatView";
 import { GroupChatView } from "@/components/chat/GroupChatView";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { SkillCenter } from "@/components/skill/SkillCenter";
+import { DashboardView } from "@/components/observability/DashboardView";
 
 export function MainContent() {
   const activeView = useSettingsStore((s) => s.activeView);
@@ -22,6 +23,26 @@ export function MainContent() {
     }
   }, [activeView, activeConv, setActiveConv]);
 
+  // Sync active conversation when switching between agents/groups views
+  useEffect(() => {
+    if (activeView === "groups" && activeConv) {
+      const isAgent = agents.some((a) => a.id === activeConv);
+      const isGroup = groups.some((g) => g.id === activeConv);
+      if (isAgent || (!isGroup && groups.length > 0)) {
+        const firstGroup = groups[0];
+        if (firstGroup) setActiveConv(firstGroup.id);
+      }
+    }
+    if (activeView === "agents" && activeConv) {
+      const isGroup = groups.some((g) => g.id === activeConv);
+      const isAgent = agents.some((a) => a.id === activeConv);
+      if (isGroup || (!isAgent && agents.length > 0)) {
+        const firstAgent = agents[0];
+        if (firstAgent) setActiveConv(firstAgent.id);
+      }
+    }
+  }, [activeView]);
+
   // Determine if active conversation is a group
   const isGroupChat = !!groups.find((g) => g.id === activeConv) && !agents.find((a) => a.id === activeConv);
 
@@ -29,7 +50,7 @@ export function MainContent() {
   if (activeView === "butler") {
     return (
       <main className="flex-1 h-full flex flex-col min-w-0 min-h-0 overflow-hidden">
-        <ChatView targetAgentId="butler" />
+        <ChatView key="butler" targetAgentId="butler" />
       </main>
     );
   }
@@ -38,7 +59,9 @@ export function MainContent() {
   if (activeView === "agents" || activeView === "groups") {
     return (
       <main className="flex-1 h-full flex flex-col min-w-0 min-h-0 overflow-hidden">
-        {isGroupChat ? <GroupChatView /> : <ChatView />}
+        {isGroupChat
+          ? <GroupChatView key={activeConv ?? "group-empty"} />
+          : <ChatView key={activeConv ?? "chat-empty"} />}
       </main>
     );
   }
@@ -47,6 +70,7 @@ export function MainContent() {
   return (
     <main className="flex-1 h-full flex flex-col min-w-0 min-h-0 overflow-hidden">
       {activeView === "skills" && <SkillCenter />}
+      {activeView === "dashboard" && <DashboardView />}
       {activeView === "settings" && <SettingsView />}
     </main>
   );

@@ -17,7 +17,9 @@ import { ContainerPool } from "../tools/sandbox/container-pool.js";
 import { WakeSystem } from "./wake-system.js";
 import { CurrentMd } from "./current-md.js";
 import { GroupAgentMemory } from "./agent-memory.js";
+import { GroupDB } from "./group-db.js";
 import path from "node:path";
+import fs from "node:fs";
 import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("group");
@@ -29,11 +31,39 @@ export class Group {
   readonly ctxV2: GroupContextV2;
   readonly wakeSystem: WakeSystem;
   readonly currentMd: CurrentMd;
+  readonly groupDb: GroupDB;
 
   private registry: AgentRegistry;
   private owner?: Agent;
   private _dataRoot: string;
   private agentMemories = new Map<string, GroupAgentMemory>();
+
+  /** 绑定的外部工作目录（null 则使用默认群组 workspace） */
+  private _boundWorkspace: string | null = null;
+
+  /** 默认工作区目录 */
+  get workspaceDir(): string {
+    return path.join(this._dataRoot, "groups", this.config.id, "workspace");
+  }
+
+  /** 有效工作目录：绑定路径优先，否则默认 workspace */
+  get effectiveWorkspace(): string {
+    return this._boundWorkspace ?? this.workspaceDir;
+  }
+
+  /** 获取当前绑定路径（null 表示未绑定） */
+  get boundWorkspace(): string | null {
+    return this._boundWorkspace;
+  }
+
+  /** 绑定到外部工作目录 */
+  setBoundWorkspace(dir: string | null): void {
+    if (dir) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    this._boundWorkspace = dir;
+    log.info("[%s] Bound workspace: %s", this.id, dir ?? "(cleared)");
+  }
   private maxCurrentMessages: number;
   /** Optional GroupManager reference for context persistence */
   private _groupManager?: import("./manager.js").GroupManager;
@@ -41,6 +71,7 @@ export class Group {
   constructor(config: GroupConfig, registry: AgentRegistry, dataRoot: string = "data") {
     this.id = config.id;
     this.config = config;
+    if (!this.config.status) (this.config as any).status = 'active';
     this.registry = registry;
     this._dataRoot = dataRoot;
 
@@ -50,7 +81,8 @@ export class Group {
     // 创建记忆系统
     const memoryDir = path.join(dataRoot, "groups", config.id, "memory");
     this.currentMd = new CurrentMd(memoryDir);
-    this.maxCurrentMessages = (globalThis as any).__cobeingConfig?.core?.groupMemory?.maxCurrentMessages ?? 100;
+    this.groupDb = new GroupDB(config.id, memoryDir);
+    this.maxCurrentMessages = (globalThis as any).__cobeingConfig?.core?.groupMemory?.maxCurrentMessages ?? 200;
 
     // 创建唤醒系统（注入记忆依赖 + 群主 ID）
     this.wakeSystem = new WakeSystem(
@@ -72,6 +104,11 @@ export class Group {
     const memberNames = config.members.map(id => this.resolveAgentName(id));
     this.workspace = new GroupWorkspace(config.id, config.name, dataRoot);
     this.workspace.initialize(memberNames, ownerName);
+
+    // 确保群组 workspace/ 目录存在
+    try {
+      fs.mkdirSync(this.workspaceDir, { recursive: true });
+    } catch { /* ignore */ }
 
     // 为初始成员挂载群组目录
     for (const memberId of config.members) {
@@ -117,8 +154,15 @@ export class Group {
    * 用户或群主发消息到 main 频道（触发唤醒起点）
    */
   postMessage(fromAgentId: string, content: string): GroupMessageV2 {
+    if (this.config.status === 'archived') {
+      throw new Error(`群组 ${this.config.name} 已归档，无法发送消息`);
+    }
+    if (this.config.status === 'completed') {
+      throw new Error(`群组 ${this.config.name} 已完成，无法发送消息。如需继续请先恢复为活跃状态`);
+    }
     const msg = this.ctxV2.append(fromAgentId, content, "main");
     this.persistMessage(msg, "main");
+    this.writeToGroupDb(msg, "main");
     return msg;
   }
 
@@ -135,6 +179,7 @@ export class Group {
   postToTalk(talkId: string, fromAgentId: string, content: string): GroupMessageV2 {
     const msg = this.ctxV2.append(fromAgentId, content, talkId);
     this.persistMessage(msg, talkId);
+    this.writeToGroupDb(msg, talkId);
     return msg;
   }
 
@@ -148,6 +193,7 @@ export class Group {
       : `[Talk ${talkId} 结论]`;
     const msg = this.ctxV2.append(fromAgentId, `${header}\n\n${summary}`, "main");
     this.persistMessage(msg, "main");
+    this.writeToGroupDb(msg, "main");
     return msg;
   }
 
@@ -160,12 +206,52 @@ export class Group {
 
   /** 注入本地过滤引擎到 WakeSystem */
   setLocalFilter(filter: import("./local-filter.js").LocalFilterEngine): void {
+    this._localFilter = filter;
     this.wakeSystem.setLocalFilter(filter);
+  }
+
+  /** 群组级自定义筛选 prompt（null 表示使用默认） */
+  private _screenerPrompt: string | null = null;
+  private _localFilter: import("./local-filter.js").LocalFilterEngine | null = null;
+
+  get screenerPrompt(): string | null {
+    return this._screenerPrompt;
+  }
+
+  setScreenerPrompt(prompt: string | null): void {
+    this._screenerPrompt = prompt;
   }
 
   /** 注入 Agent 响应回调到 WakeSystem（用于广播到前端） */
   setOnAgentResponse(cb: (groupId: string, agentId: string, content: string, tag: string) => void): void {
     this.wakeSystem.setOnAgentResponse(cb);
+  }
+
+  setOnAgentEvent(cb: import("./wake-system.js").WakeSystemConfig["onAgentEvent"]): void {
+    this.wakeSystem.setOnAgentEvent(cb);
+  }
+
+  setOnQueueChange(cb: import("./wake-system.js").WakeSystemConfig["onQueueChange"]): void {
+    this.wakeSystem.setOnQueueChange(cb);
+  }
+
+  /** 获取当前唤醒队列的快照（含正在处理中的 Agent） */
+  getWakeQueue(): ReturnType<WakeSystem["getQueue"]> {
+    return this.wakeSystem.getQueue();
+  }
+
+  pauseWakeSystem(): void { this.wakeSystem.pause(); }
+  resumeWakeSystem(): void { this.wakeSystem.resume(); }
+  clearWakeQueue(): void { this.wakeSystem.clearQueue(); }
+
+  /** 设置 Agent 活跃状态 */
+  setAgentStatus(agentId: string, status: "idle" | "processing"): void {
+    this.ctxV2.setAgentStatus(agentId, status);
+  }
+
+  /** 获取所有 Agent 活跃状态 */
+  getActiveStatuses(): import("./group-context-v2.js").AgentActiveStatus[] {
+    return this.ctxV2.getActiveStatuses();
   }
 
   // ---- 兼容旧 API ----
@@ -249,7 +335,9 @@ export class Group {
   }
 
   injectMessage(fromAgentId: string, content: string): void {
-    this.ctxV2.append(fromAgentId, content, "main");
+    const msg = this.ctxV2.append(fromAgentId, content, "main");
+    this.persistMessage(msg, "main");
+    this.writeToGroupDb(msg, "main");
   }
 
   getOwner(): Agent | undefined {
@@ -277,12 +365,24 @@ export class Group {
         );
         log.info("[%s] BOOTSTRAP injected for %s in group context", this.id, agentId);
       }
+
+      // 同步 MEMBERS.md
+      this.workspace.writeMembers(
+        this.config.members.map(id => this.resolveAgentName(id)),
+        this.resolveAgentName(this.config.owner),
+      );
     }
   }
 
   removeMember(agentId: string): void {
     this.unmountGroupForAgent(agentId);
     this.config.members = this.config.members.filter(id => id !== agentId);
+
+    // 同步 MEMBERS.md
+    this.workspace.writeMembers(
+      this.config.members.map(id => this.resolveAgentName(id)),
+      this.resolveAgentName(this.config.owner),
+    );
   }
 
   /** 将群组 workspace 挂载到 agent 的沙箱容器 */
@@ -378,6 +478,40 @@ export class Group {
     this._groupManager = mgr;
   }
 
+  /** Compute which agents can see a message based on its tag */
+  computeVisibility(tag: string): string[] {
+    if (tag === "main" || tag === "system") {
+      return [...this.config.members];
+    }
+    // talk message — only talk members visible
+    const talk = this.ctxV2.getTalk(tag);
+    return talk ? talk.members : [];
+  }
+
+  /** Write a message to GroupDB with computed visibility and sync to agent DBs */
+  private writeToGroupDb(msg: GroupMessageV2, tag: string): void {
+    this.groupDb.insertMessage(
+      msg.id, tag, msg.fromAgentId, msg.content, msg.timestamp,
+      this.computeVisibility(tag),
+    );
+    this.syncToAgentDbs(msg, tag);
+  }
+
+  /** Sync a message to all visible agent DBs */
+  private syncToAgentDbs(msg: GroupMessageV2, tag: string): void {
+    const visibleTo = this.computeVisibility(tag);
+    for (const agentId of visibleTo) {
+      const mem = this.getAgentMemory(agentId);
+      mem.syncMessages([{
+        msgId: msg.id,
+        tag: msg.tag,
+        fromAgentId: msg.fromAgentId,
+        content: msg.content,
+        timestamp: msg.timestamp,
+      }]);
+    }
+  }
+
   /** Persist a message to context.jsonl */
   private persistMessage(msg: GroupMessageV2, tag: string): void {
     if (!this._groupManager) return;
@@ -387,5 +521,21 @@ export class Group {
       tag,
       timestamp: msg.timestamp,
     });
+  }
+
+  /** 释放 SQLite 等资源（测试清理时使用） */
+  setStatus(status: 'active' | 'completed' | 'archived'): void {
+    (this.config as any).status = status;
+  }
+
+  dispose(): void {
+    this.wakeSystem?.pause();
+    this.wakeSystem?.clearQueue();
+    // Close all per-agent SQLite databases before closing the main GroupDB
+    for (const [, mem] of this.agentMemories) {
+      try { mem.close(); } catch { /* ignore */ }
+    }
+    this.agentMemories.clear();
+    try { this.groupDb.close(); } catch { /* ignore */ }
   }
 }

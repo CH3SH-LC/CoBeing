@@ -147,7 +147,7 @@ export function Clock({ hour, minute, onChange }: ClockProps) {
                   style={{
                     fontSize: 12,
                     fontWeight: isSelected ? 600 : 400,
-                    fill: isSelected ? "#fff" : "var(--color-txt-sub)",
+                    fill: isSelected ? "var(--color-white)" : "var(--color-txt-sub)",
                   }}
                 >
                   {pad(m)}

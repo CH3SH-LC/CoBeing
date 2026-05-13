@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ViewType } from "@/lib/types";
 
-export type SettingsSection = "general" | "theme" | "providers" | "channels" | "mcp" | "sandbox" | "logs" | "about";
+export type SettingsSection = "general" | "theme" | "providers" | "channels" | "mcp" | "sandbox" | "usage" | "logs" | "search" | "export" | "about";
 export type CloseBehavior = "minimize" | "close";
 
 interface NotificationSettings {

@@ -9,6 +9,7 @@ const NAV_ITEMS: { icon: string; view: ViewType; label: string }[] = [
   { icon: "👤", view: "agents", label: "智能体" },
   { icon: "👥", view: "groups", label: "群组" },
   { icon: "⚡", view: "skills", label: "技能" },
+  { icon: "📊", view: "dashboard", label: "仪表盘" },
   { icon: "⚙️", view: "settings", label: "设置" },
 ];
 

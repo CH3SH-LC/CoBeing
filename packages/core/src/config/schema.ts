@@ -37,7 +37,7 @@ export interface AppConfig {
   /** Agent ID 列表 — 完整配置在 data/agents/{id}/config.json */
   agents: string[];
   providers: Record<string, {
-    type?: "openai-compat" | "anthropic" | "gemini";
+    type?: "openai-compat";
     apiKeyEnv?: string;
     baseURL?: string;
     apiKey?: string;
@@ -45,35 +45,10 @@ export interface AppConfig {
   }>;
   channels: Record<string, {
     enabled: boolean;
-    type: "onebot" | "wecom" | "feishu" | "discord" | "qqbot";
-    // OneBot / QQ
-    wsUrl?: string;
-    botQQ?: string;
-    accessToken?: string;
-    allowedGroups?: number[];
-    allowedUsers?: number[];
-    // WeCom
-    wecomCorpId?: string;
-    wecomAgentId?: string;
-    wecomSecret?: string;
-    wecomToken?: string;
-    wecomEncodingAesKey?: string;
-    wecomPort?: number;
-    // Feishu
-    feishuAppId?: string;
-    feishuAppSecret?: string;
-    feishuVerificationToken?: string;
-    feishuEncryptKey?: string;
-    feishuPort?: number;
-    // Discord
-    discordBotToken?: string;
-    discordGuildId?: string;
-    discordAllowedChannels?: string[];
-    // QQ Bot Official API v2
+    type: "qqbot";
     qqbotAppId?: string;
     qqbotAppSecret?: string;
     qqbotIntents?: number;
-    // Binding
     bindTo?: ChannelBindTo;
   }>;
   gui?: {

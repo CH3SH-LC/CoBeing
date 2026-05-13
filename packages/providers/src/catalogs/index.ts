@@ -4,10 +4,8 @@ import { ZHIPU_MODELS } from "./zhipu.js";
 import { QWEN_MODELS } from "./qwen.js";
 import { MINIMAX_MODELS } from "./minimax.js";
 import { VOLCENGINE_MODELS } from "./volcengine.js";
-import { OPENAI_MODELS } from "./openai.js";
-import { GROK_MODELS } from "./grok.js";
 import { MOONSHOT_MODELS } from "./moonshot.js";
-import { SILICONFLOW_MODELS } from "./siliconflow.js";
+import { MIMO_MODELS } from "./mimo.js";
 
 /** 按 provider ID 索引的模型目录 */
 export const PROVIDER_CATALOGS: Record<string, ModelInfo[]> = {
@@ -16,10 +14,8 @@ export const PROVIDER_CATALOGS: Record<string, ModelInfo[]> = {
   qwen: QWEN_MODELS,
   minimax: MINIMAX_MODELS,
   volcengine: VOLCENGINE_MODELS,
-  openai: OPENAI_MODELS,
-  grok: GROK_MODELS,
   moonshot: MOONSHOT_MODELS,
-  siliconflow: SILICONFLOW_MODELS,
+  mimo: MIMO_MODELS,
 };
 
 // ---- Provider 预设 ----
@@ -65,7 +61,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     name: "MiniMax",
     nameZh: "MiniMax",
     type: "openai-compat",
-    baseURLs: { general: "https://api.minimax.chat/v1", coding: "https://api.minimax.chat/v1" },
+    baseURLs: { general: "https://api.minimaxi.com/v1", coding: "https://api.minimaxi.com/v1" },
     defaultPlan: "general",
   },
   {
@@ -81,47 +77,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     name: "Moonshot / Kimi",
     nameZh: "月之暗面 / Kimi",
     type: "openai-compat",
-    baseURLs: { general: "https://api.moonshot.ai/v1", coding: "https://api.moonshot.ai/v1" },
+    baseURLs: { general: "https://api.moonshot.cn/v1", coding: "https://api.moonshot.cn/v1" },
     defaultPlan: "general",
   },
   {
-    id: "siliconflow",
-    name: "SiliconFlow",
-    nameZh: "硅基流动",
+    id: "mimo",
+    name: "MiMo",
+    nameZh: "小米 MiMo",
     type: "openai-compat",
-    baseURLs: { general: "https://api.siliconflow.cn/v1", coding: "https://api.siliconflow.cn/v1" },
-    defaultPlan: "general",
-  },
-  {
-    id: "openai",
-    name: "OpenAI",
-    nameZh: "OpenAI",
-    type: "openai-compat",
-    baseURLs: { general: "https://api.openai.com/v1", coding: "https://api.openai.com/v1" },
-    defaultPlan: "general",
-  },
-  {
-    id: "anthropic",
-    name: "Anthropic",
-    nameZh: "Anthropic",
-    type: "anthropic",
-    baseURLs: { general: "", coding: "" },
-    defaultPlan: "general",
-  },
-  {
-    id: "gemini",
-    name: "Google Gemini",
-    nameZh: "Google Gemini",
-    type: "gemini",
-    baseURLs: { general: "", coding: "" },
-    defaultPlan: "general",
-  },
-  {
-    id: "grok",
-    name: "Grok / xAI",
-    nameZh: "Grok / xAI",
-    type: "openai-compat",
-    baseURLs: { general: "https://api.x.ai/v1", coding: "https://api.x.ai/v1" },
+    baseURLs: { general: "https://api.xiaomimimo.com/v1", coding: "https://api.xiaomimimo.com/v1" },
     defaultPlan: "general",
   },
 ];

@@ -56,7 +56,9 @@ function extractPath(params: Record<string, unknown>): string | null {
 }
 
 function isWithinWorkingDir(targetPath: string, workingDir: string): boolean {
-  const resolved = path.resolve(targetPath);
+  // 先解析 workingDir（绝对路径），再以此为基准解析 targetPath
+  // 与工具端 path.resolve(context.workingDir, params.path) 保持一致
   const resolvedWorking = path.resolve(workingDir);
+  const resolved = path.resolve(resolvedWorking, targetPath);
   return resolved.startsWith(resolvedWorking + path.sep) || resolved === resolvedWorking;
 }

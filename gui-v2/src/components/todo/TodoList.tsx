@@ -3,12 +3,17 @@ import { TodoItemCard } from "./TodoItem";
 
 interface TodoListProps {
   todos: TodoItemData[];
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
   onComplete: (id: string) => void;
   onRemove: (id: string) => void;
+  onStatusCycle?: (id: string) => void;
   filter?: "pending" | "completed" | "all";
 }
 
-export function TodoList({ todos, onComplete, onRemove, filter = "all" }: TodoListProps) {
+export function TodoList({
+  todos, selectedIds, onToggleSelect, onComplete, onRemove, onStatusCycle, filter = "all",
+}: TodoListProps) {
   const filtered = filter === "all" ? todos : todos.filter((t) => t.status === filter);
 
   const sorted = [...filtered].sort((a, b) => {
@@ -31,8 +36,11 @@ export function TodoList({ todos, onComplete, onRemove, filter = "all" }: TodoLi
         <TodoItemCard
           key={todo.id}
           todo={todo}
+          selected={selectedIds.has(todo.id)}
+          onToggleSelect={onToggleSelect}
           onComplete={onComplete}
           onRemove={onRemove}
+          onStatusCycle={onStatusCycle}
         />
       ))}
     </div>

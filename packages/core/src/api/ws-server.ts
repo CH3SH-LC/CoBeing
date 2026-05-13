@@ -15,7 +15,8 @@ import { ButlerRegistry } from "../butler/registry.js";
 import { SkillRepository } from "../skills/repository.js";
 import type { AgentConfig } from "@cobeing/shared";
 import { encrypt, decrypt } from "../config/secret-store.js";
-import { rmDirRecursive } from "@cobeing/shared";
+import { SubAgentSpawner } from "../agent/spawner.js";
+import { rmDirRecursive, addAgentToRegistry, removeAgentFromRegistry, addGroupToRegistry, removeGroupFromRegistry, updateGroupMembers } from "@cobeing/shared";
 import type { LLMProvider } from "@cobeing/providers";
 import { TodoStore } from "../todo/store.js";
 import { DockerSandbox } from "../tools/sandbox/docker-sandbox.js";
@@ -63,7 +64,9 @@ export class CoreWSServer {
   private onProviderChange: ((providerId: string) => void) | null = null;
   private onMcpConfigChange: ((serverId: string, config: unknown) => Promise<void>) | null = null;
 
-  constructor(private port: number = 18765, private configPath?: string) {}
+  constructor(private port: number = 18765, private configPath?: string) {
+    (globalThis as any).__cobeingWSServer = this;
+  }
 
   /** 注入 AgentRegistry — 后续 getState 直接读取 */
   setAgentRegistry(registry: AgentRegistry): void {
@@ -84,6 +87,28 @@ export class CoreWSServer {
           mentions: extractMentions(content),
           timestamp: Date.now(),
         },
+      });
+    });
+    // 设置 Agent 事件广播回调（agent_started / agent_completed / agent_error）
+    gm.setOnAgentEvent((event) => {
+      this.broadcast({
+        type: event.type,
+        payload: {
+          agentId: event.agentId,
+          agentName: event.agentName,
+          groupId: event.groupId,
+          mentions: event.mentions,
+          error: (event as any).error,
+          timestamp: Date.now(),
+        },
+      });
+    });
+
+    // 设置唤醒队列变更回调
+    gm.setOnQueueChange((groupId, queueData) => {
+      this.broadcast({
+        type: "wake_queue_update",
+        payload: { groupId, queue: queueData.queue, processing: queueData.processing, processingAgents: queueData.processingAgents, timestamp: Date.now() },
       });
     });
   }
@@ -120,7 +145,7 @@ export class CoreWSServer {
 
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.wss = new WebSocketServer({ port: this.port });
+      this.wss = new WebSocketServer({ port: this.port, host: "127.0.0.1" });
 
       this.wss.on("error", (err: NodeJS.ErrnoException) => {
         if (err.code === "EADDRINUSE") {
@@ -159,7 +184,10 @@ export class CoreWSServer {
     });
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
+    // 通知所有客户端立即保存数据，然后等待 flush
+    this.broadcast({ type: "server_shutting_down", payload: { timestamp: Date.now() } });
+    await new Promise(resolve => setTimeout(resolve, 800));
     this.wss?.close();
     this.wss = null;
   }
@@ -208,6 +236,27 @@ export class CoreWSServer {
         this.sendToClient(ws, { type: "state", payload: this.getState() });
         break;
 
+      case "get_wake_queue": {
+        const queues = this.groupManager?.getAllWakeQueues() ?? {};
+        const formatted: Record<string, { groupId: string; groupName: string; queue: any[]; processing: string | null; processingAgents: string[] }> = {};
+        for (const [gid, data] of Object.entries(queues)) {
+          const group = this.groupManager?.get(gid);
+          const groupName: string = (group as any)?.config?.name || gid;
+          formatted[gid] = { groupId: gid, groupName, queue: data.queue, processing: data.processing, processingAgents: data.processingAgents ?? [] };
+        }
+        // 额外收集所有非空闲 Agent（含直接对话和 TODO 触发路径）
+        const activeAgents: Array<{ agentId: string; agentName: string; status: string; groupId?: string }> = [];
+        const allAgents = this.agentRegistry?.list() ?? [];
+        for (const a of allAgents) {
+          const st = a.getStatus();
+          if (st !== "idle") {
+            activeAgents.push({ agentId: a.id, agentName: a.name, status: st });
+          }
+        }
+        this.sendToClient(ws, { type: "wake_queue_update", payload: { queues: formatted, activeAgents, timestamp: Date.now() } });
+        break;
+      }
+
       case "send_message": {
         const { agentId, content } = msg.payload as { agentId: string; content: string };
         const agent = this.agentRegistry?.get(agentId);
@@ -217,6 +266,7 @@ export class CoreWSServer {
         }
         // Check if this is a group-context message (content starts with [群组 groupId])
         const groupMatch = content.match(/^\[群组 ([^\]]+)\]\s*(.*)/s);
+        let collabContext: string | undefined;
         if (groupMatch) {
           const gId = groupMatch[1];
           const gContent = groupMatch[2];
@@ -225,7 +275,7 @@ export class CoreWSServer {
             // Post to group context
             group.postMessage("user", gContent);
 
-            // 为群主设置群组协作上下文
+            // 构建群组协作上下文（局部变量，通过 run() 参数传递，不设置 Agent 全局状态）
             const { buildGroupCollaborationContext } = await import("../conversation/prompt-builder.js");
             const members = group.getMemberProfiles();
             const workspace = group.workspace.getSummary();
@@ -244,7 +294,7 @@ export class CoreWSServer {
               }));
             }
 
-            const collabContext = buildGroupCollaborationContext(
+            collabContext = buildGroupCollaborationContext(
               agentId,
               members,
               {
@@ -257,43 +307,99 @@ export class CoreWSServer {
               group.config.owner,
               gId,
             );
-            agent.setGroupContext(collabContext);
           }
         }
 
         this.logMessage("in", content);
+        // 广播 agent 开始处理 — 前端用于显示触发链路
+        const triggerContent = groupMatch ? groupMatch[2] : content;
+        const channelId = groupMatch ? groupMatch[1] : agentId;
+        // 提取 @mentions 并按 resolved agent ID 去重，附加通道信息
+        const rawMentions = triggerContent.match(/@([\w一-鿿][\w一-鿿-]{2,})/g)?.map(m => m.slice(1)) || [];
+        const seenIds = new Set<string>();
+        const dedupedMentions: Array<{ text: string; channel: string }> = [];
+        for (const m of rawMentions) {
+          const resolved = this.agentRegistry?.get(m)?.id
+            || this.agentRegistry?.list().find(a => a.name === m)?.id
+            || m;
+          if (!seenIds.has(resolved)) {
+            seenIds.add(resolved);
+            dedupedMentions.push({ text: `@${m}`, channel: channelId });
+          }
+        }
+        this.broadcast({
+          type: "agent_started",
+          payload: {
+            agentId,
+            agentName: agent.config?.name || agentId,
+            groupId: groupMatch ? groupMatch[1] : undefined,
+            mentions: dedupedMentions.length > 0 ? dedupedMentions : undefined,
+            timestamp: Date.now(),
+          },
+        });
         agent.run(content, {
-          onToken: (token) => {
-            this.sendToClient(ws, { type: "stream_token", payload: { token } });
-          },
-          onToolCall: (tc) => {
-            this.broadcast({
-              type: "tool_event",
-              payload: {
-                agentId,
-                toolName: tc.function.name,
-                params: (() => { try { return JSON.parse(tc.function.arguments); } catch { return {}; } })(),
-                status: "start",
-              },
-            });
-          },
-          onToolResult: (tcId, result) => {
-            this.broadcast({
-              type: "tool_event",
-              payload: {
-                agentId,
-                toolCallId: tcId,
-                result: typeof result === "string" ? result.slice(0, 2000) : String(result),
-                status: "complete",
-              },
-            });
+          groupId: groupMatch ? groupMatch[1] : undefined,
+          groupContext: collabContext,
+          workingDir: groupMatch ? this.groupManager?.get(groupMatch[1])?.effectiveWorkspace : undefined,
+          events: {
+            onToken: (token) => {
+              this.sendToClient(ws, { type: "stream_token", payload: { token } });
+            },
+            onToolCall: (tc) => {
+              this.broadcast({
+                type: "tool_event",
+                payload: {
+                  agentId,
+                  toolName: tc.function.name,
+                  params: (() => { try { return JSON.parse(tc.function.arguments); } catch { return {}; } })(),
+                  status: "start",
+                },
+              });
+            },
+            onToolResult: (tcId, result) => {
+              this.broadcast({
+                type: "tool_event",
+                payload: {
+                  agentId,
+                  toolCallId: tcId,
+                  result: typeof result === "string" ? result.slice(0, 2000) : String(result),
+                  status: "complete",
+                },
+              });
+            },
+            onUsage: (usage) => {
+              this.broadcast({
+                type: "usage_stats",
+                payload: {
+                  agentId,
+                  inputTokens: usage.inputTokens,
+                  outputTokens: usage.outputTokens,
+                  cacheHitTokens: usage.cacheHitTokens ?? 0,
+                  cacheMissTokens: usage.cacheMissTokens ?? 0,
+                  timestamp: Date.now(),
+                },
+              });
+            },
           },
         }).then((response) => {
-          // 清理群组协作上下文
-          if (groupMatch) agent.clearGroupContext();
 
           this.logMessage("out", response.content);
-          this.sendToClient(ws, { type: "agent_response", payload: { content: response.content } });
+          this.sendToClient(ws, { type: "agent_response", payload: { content: response.content, groupId: groupMatch?.[1], agentId, agentName: agent.config?.name || agentId } });
+
+          // 检查回复是否包含错误
+          const isError = response.content.startsWith("⚠️") || response.content.startsWith("[错误]") || response.content === "达到最大工具调用轮数限制";
+
+          // 广播 agent 完成/错误处理
+          this.broadcast({
+            type: isError ? "agent_error" : "agent_completed",
+            payload: {
+              agentId,
+              agentName: agent.config?.name || agentId,
+              groupId: groupMatch ? groupMatch[1] : undefined,
+              error: isError ? response.content : undefined,
+              timestamp: Date.now(),
+            },
+          });
           // Broadcast group_message if this was a group context
           if (groupMatch) {
             const gId = groupMatch[1];
@@ -338,6 +444,17 @@ export class CoreWSServer {
           const errMsg = err instanceof Error ? err.message : String(err);
           this.logMessage("system", `LLM Error: ${errMsg}`);
           this.sendToClient(ws, { type: "error", payload: { message: errMsg } });
+          // 广播 agent_error
+          this.broadcast({
+            type: "agent_error",
+            payload: {
+              agentId,
+              agentName: agent.config?.name || agentId,
+              groupId: groupMatch ? groupMatch[1] : undefined,
+              error: `AI 服务异常: ${errMsg.slice(0, 200)}`,
+              timestamp: Date.now(),
+            },
+          });
           this.broadcastState();
         });
         break;
@@ -352,14 +469,19 @@ export class CoreWSServer {
         try {
           const raw = fs.readFileSync(configFilePath, "utf-8");
           const config = JSON.parse(raw);
-          // 解密所有 provider 的 apiKey
+          // 解密所有 provider 的 apiKey（用于解析环境变量，但不返回明文）
           if (config.providers) {
             for (const prov of Object.values(config.providers) as Array<Record<string, unknown>>) {
               if (typeof prov.apiKey === "string") {
-                prov.apiKey = decrypt(prov.apiKey);
+                const decrypted = decrypt(prov.apiKey);
+                prov.apiKey = decrypted;
               }
             }
             resolveProviderApiKeys(config.providers as Record<string, Record<string, unknown>>);
+            // 移除明文 apiKey，只保留掩码值 _apiKeyResolved
+            for (const prov of Object.values(config.providers) as Array<Record<string, unknown>>) {
+              delete prov.apiKey;
+            }
           }
           this.sendToClient(ws, { type: "config", payload: config });
         } catch (err) {
@@ -378,13 +500,31 @@ export class CoreWSServer {
           // 如果更新的是 provider 的 apiKey，加密后存储
           let storedValue = value;
           if (cfgPath.match(/^providers\.[^.]+\.apiKey$/) && typeof value === "string" && value) {
+            // 防止前端将掩码值（含 ****）回传导致加密损坏
+            if (value.includes("****")) {
+              // 跳过更新 apiKey，保留现有加密值
+              this.sendToClient(ws, { type: "config_updated", payload: { path: cfgPath, success: true } });
+              break;
+            }
             storedValue = encrypt(value);
           }
           // 如果更新的是整个 provider 对象且含 apiKey，加密其中的 apiKey
           if (cfgPath.match(/^providers\.[^.]+$/) && typeof value === "object" && value !== null) {
             const obj = value as Record<string, unknown>;
             if (typeof obj.apiKey === "string" && obj.apiKey) {
-              storedValue = { ...obj, apiKey: encrypt(obj.apiKey) };
+              if (obj.apiKey.includes("****")) {
+                // 掩码值，使用现有加密 key
+                const existing = config.providers?.[cfgPath.split(".").pop()!] as Record<string, unknown> | undefined;
+                storedValue = { ...obj, apiKey: existing?.apiKey ?? obj.apiKey };
+              } else {
+                storedValue = { ...obj, apiKey: encrypt(obj.apiKey) };
+              }
+            } else if (!("apiKey" in obj) || obj.apiKey === undefined || obj.apiKey === "") {
+              // 未传 apiKey：保留现有加密值，防止误删
+              const existing = config.providers?.[cfgPath.split(".").pop()!] as Record<string, unknown> | undefined;
+              if (existing?.apiKey) {
+                storedValue = { ...obj, apiKey: existing.apiKey };
+              }
             }
           }
 
@@ -392,7 +532,7 @@ export class CoreWSServer {
           fs.writeFileSync(configFilePath, JSON.stringify(config, null, 2) + "\n", "utf-8");
           this.sendToClient(ws, { type: "config_updated", payload: { path: cfgPath, success: true } });
 
-          // 广播配置时解密 apiKey + 解析环境变量
+          // 广播配置时解密 apiKey + 解析环境变量（但不返回明文）
           const broadcastConfig = JSON.parse(JSON.stringify(config));
           if (broadcastConfig.providers) {
             for (const prov of Object.values(broadcastConfig.providers) as Array<Record<string, unknown>>) {
@@ -401,6 +541,9 @@ export class CoreWSServer {
               }
             }
             resolveProviderApiKeys(broadcastConfig.providers as Record<string, Record<string, unknown>>);
+            for (const prov of Object.values(broadcastConfig.providers) as Array<Record<string, unknown>>) {
+              delete prov.apiKey;
+            }
           }
           this.broadcast({ type: "config", payload: broadcastConfig });
 
@@ -471,7 +614,7 @@ export class CoreWSServer {
           model: modelId,
           permissions: { mode: "workspace-write" },
           sandbox: sandboxConfig,
-          tools: ["bash", "read-file", "write-file", "glob", "grep", "web-fetch"],
+          tools: ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch", "agent-message"],
           skills,
         };
 
@@ -482,25 +625,102 @@ export class CoreWSServer {
           name, role, provider: providerId, model: modelId,
           permissions: { mode: "workspace-write" },
           sandbox: sandboxConfig,
-          tools: ["bash", "read-file", "write-file", "glob", "grep", "web-fetch"],
+          tools: ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch", "agent-message"],
           skills,
         });
 
-        // Copy templates
+        // 用子智能体生成核心文件（soul/character/job/bootstrap）
+        const provided: Record<string, string> = {};
+        const missing = ["soul", "character", "job", "bootstrap"];
+
+        try {
+          const spawner = new SubAgentSpawner(config, prov, agentPaths.workspaceDir);
+          const creatorSystemPrompt = `你是 Agent 创建专家。你的任务是为一个新 Agent 生成核心文件内容。
+
+核心文件定义：
+- soul: AI 的性格特质和行为准则。像个人说话，不要像客服。用聊天的语气。
+- character: AI 的人物描写 — 姓名、背景、个性。要像一个活生生的人，有口癖、有小习惯、有态度。不要"专业、严谨、有条理"这种空话。
+- job: AI 的专注领域 — 擅长什么、如何工作。写具体工具和方法论。
+- bootstrap: Agent 出生时就知道的关键知识。可写入项目背景、行为提醒等。
+
+要求：
+- character 必须有血有肉：写出说话习惯、背景故事、真实的小癖好
+- 像个人，不像客服。回答简洁自然
+- 性格别太极端——但要有温度、有态度
+- job 必须具体：列出擅长做的事、使用的工具、工作方式
+- 定位面向技能领域，不面向具体项目
+- 所有内容用中文写`;
+
+          const generated = await spawner.spawnForJSON({
+            systemPrompt: creatorSystemPrompt,
+            task: `为 Agent "${name}" 生成核心文件。角色：${role}。请生成以下字段：${missing.join(", ")}`,
+            expectedFields: missing,
+          });
+
+          for (const field of missing) {
+            if (generated[field]) {
+              provided[field] = generated[field];
+            }
+          }
+          log.info("Sub-agent generated files for %s: %s", id, missing.filter(f => generated[f]).join(", "));
+        } catch (err) {
+          log.warn("Sub-agent generation failed for %s, falling back to templates: %s", id, err);
+        }
+
+        // 写入 LLM 生成的内容
+        if (provided.soul) {
+          fs.writeFileSync(path.join(agentPaths.directory, "SOUL.md"), provided.soul, "utf-8");
+        }
+        if (provided.character) {
+          fs.writeFileSync(path.join(agentPaths.directory, "CHARACTER.md"), provided.character, "utf-8");
+        }
+        if (provided.job) {
+          fs.writeFileSync(path.join(agentPaths.directory, "JOB.md"), provided.job, "utf-8");
+        }
+        if (provided.bootstrap) {
+          fs.writeFileSync(path.join(agentPaths.directory, "BOOTSTRAP.md"), provided.bootstrap, "utf-8");
+        }
+
+        // 从模板复制其余文件（USER, AGENTS, TOOLS, MEMORY, EXPERIENCE — 仅未生成或未写入的）
         const templatesDir = path.resolve("config/templates");
         const templateFiles = ["SOUL.md", "CHARACTER.md", "JOB.md", "USER.md", "AGENTS.md", "TOOLS.md", "MEMORY.md", "EXPERIENCE.md", "BOOTSTRAP.md"];
         for (const tmplFile of templateFiles) {
-          const src = path.join(templatesDir, tmplFile);
           const dst = path.join(agentPaths.directory, tmplFile);
-          if (fs.existsSync(src) && !fs.existsSync(dst)) {
-            let content = fs.readFileSync(src, "utf-8");
-            content = content.replace(/\{\{name\}\}/g, name).replace(/\{\{role\}\}/g, role);
-            fs.writeFileSync(dst, content, "utf-8");
+          if (!fs.existsSync(dst)) {
+            const src = path.join(templatesDir, tmplFile);
+            if (fs.existsSync(src)) {
+              let content = fs.readFileSync(src, "utf-8");
+              content = content.replace(/\{\{name\}\}/g, name).replace(/\{\{role\}\}/g, role);
+              fs.writeFileSync(dst, content, "utf-8");
+            }
           }
         }
 
         const agent = new Agent(config, prov, this.dataRoot);
         this.agentRegistry!.register(agent);
+
+        // 注册 skills 和群组通信工具
+        if (this.skillRepo) {
+          agent.injectSkillRepository(this.skillRepo);
+        }
+        if (this.groupManager) {
+          agent.injectGroupTools((gid) => this.groupManager!.get(gid));
+        }
+        if (this.agentRegistry) {
+          agent.injectAgentMessageTool(this.agentRegistry);
+        }
+        // Set up provider fallback via runtime
+        const runtime = (globalThis as any).__cobeingRuntime;
+        if (runtime?.providersMap) {
+          agent.setAllProviders(runtime.providersMap);
+        }
+
+        // 更新 master registry（单一真相源）
+        addAgentToRegistry(this.dataRoot, {
+          id, name, role,
+          status: "active",
+          createdAt: new Date().toISOString(),
+        });
 
         // Update ButlerRegistry
         const butlerReg = new ButlerRegistry(this.dataRoot);
@@ -547,6 +767,14 @@ export class CoreWSServer {
           topic,
         });
 
+        // 为初始成员注入群组通信工具
+        for (const memberId of allMembers) {
+          const mAgent = this.agentRegistry?.get(memberId);
+          if (mAgent && this.groupManager) {
+            mAgent.injectGroupTools((gid) => this.groupManager!.get(gid));
+          }
+        }
+
         // Update ButlerRegistry
         const butlerReg = new ButlerRegistry(this.dataRoot);
         butlerReg.registerGroup({
@@ -558,6 +786,15 @@ export class CoreWSServer {
         this.logMessage("system", `Group created: ${name} (${id})`);
         this.sendToClient(ws, { type: "group_created", payload: { id, name } });
         this.broadcastState();
+
+        // 唤醒群主与用户对接（不唤醒组员）
+        const newGroup = this.groupManager!.get(id);
+        if (newGroup) {
+          newGroup.postMessage("system", `@host 新群组"${name}"已创建，成员包括：${allMembers.map(m => {
+            const a = this.agentRegistry?.get(m);
+            return a?.name ?? m;
+          }).join("、")}。请与用户对接，明确任务目标和分工方案。`);
+        }
         break;
       }
 
@@ -576,6 +813,22 @@ export class CoreWSServer {
           this.sendToClient(ws, { type: "error", payload: { message: `Agent not found: ${agentId}` } });
           break;
         }
+        // 级联：从所有所属群组中移除
+        const agentName = agent.name;
+        if (this.groupManager) {
+          const affectedGroups = this.groupManager.getGroupsForAgent(agentId);
+          for (const g of affectedGroups) {
+            try {
+              g.removeMember(agentId);
+              // 同步 registry members（registry 优先于 config.json）
+              updateGroupMembers(this.dataRoot, g.id, g.config.members);
+              this.groupManager.saveGroup(g.id);
+              g.postMessage("system", `[系统] 成员 ${agentName} 已被销毁，已从群组移除。`);
+            } catch (e: any) {
+              log.error("Failed to remove %s from group %s: %s", agentId, g.id, e.message);
+            }
+          }
+        }
         // 释放资源
         try {
           await agent.dispose();
@@ -583,6 +836,8 @@ export class CoreWSServer {
           log.error("Failed to dispose agent %s: %s", agentId, e.message);
         }
         this.agentRegistry!.unregister(agentId);
+        // 从 master registry 移除
+        removeAgentFromRegistry(this.dataRoot, agentId);
         // 删除本地数据目录
         const agentPaths = AgentPaths.forAgent(agentId, this.dataRoot);
         try {
@@ -590,6 +845,21 @@ export class CoreWSServer {
           log.info("Deleted agent data: %s", agentPaths.directory);
         } catch (e: any) {
           log.error("Failed to delete agent data %s: %s", agentPaths.directory, e.message);
+          // Fallback: at least delete/rename config.json to prevent resurrection on restart
+          try {
+            if (fs.existsSync(agentPaths.configPath)) {
+              try {
+                fs.unlinkSync(agentPaths.configPath);
+                log.info("Deleted config.json to prevent agent resurrection: %s", agentPaths.configPath);
+              } catch (unlinkErr: any) {
+                const renamedPath = agentPaths.configPath + ".deleted." + Date.now();
+                fs.renameSync(agentPaths.configPath, renamedPath);
+                log.info("Renamed config.json to prevent agent resurrection: %s", renamedPath);
+              }
+            }
+          } catch (e2: any) {
+            log.error("Failed to delete/rename config.json %s: %s", agentPaths.configPath, e2.message);
+          }
         }
         const butlerReg = new ButlerRegistry(this.dataRoot);
         butlerReg.unregisterAgent(agentId);
@@ -610,11 +880,56 @@ export class CoreWSServer {
           this.sendToClient(ws, { type: "error", payload: { message: `Group not found: ${groupId}` } });
           break;
         }
+        // 发送解散通知
+        const groupName = group.config.name;
+        const memberNames = group.config.members.map((m: string) => {
+          const a = this.agentRegistry?.get(m);
+          return a?.name ?? m;
+        }).join("、");
+        try {
+          group.postMessage("system", `[系统] 群组 "${groupName}" 已被解散。前成员: ${memberNames}。相关文件已清理。`);
+        } catch {}
         this.groupManager!.delete(groupId);
         const butlerReg = new ButlerRegistry(this.dataRoot);
         butlerReg.unregisterGroup(groupId);
         this.logMessage("system", `Group destroyed: ${groupId}`);
         this.sendToClient(ws, { type: "group_destroyed", payload: { groupId } });
+        this.broadcastState();
+        break;
+      }
+
+      case "stop_agent": {
+        const { agentId: stopId } = msg.payload as { agentId: string };
+        const target = this.agentRegistry?.get(stopId);
+        if (!target) { this.sendToClient(ws, { type: "error", payload: { message: `Agent not found: ${stopId}` } }); break; }
+        target.stop();
+        this.sendToClient(ws, { type: "agent_stopped", payload: { agentId: stopId } });
+        this.broadcastState();
+        break;
+      }
+
+      case "bind_workspace": {
+        const { agentId, workspacePath } = msg.payload as { agentId: string; workspacePath?: string };
+        const agent = this.agentRegistry?.get(agentId);
+        if (!agent) {
+          this.sendToClient(ws, { type: "error", payload: { message: `Agent not found: ${agentId}` } });
+          break;
+        }
+        const raw = workspacePath?.trim();
+        if (!raw || raw === "default") {
+          agent.setBoundWorkspace(null);
+          this.sendToClient(ws, { type: "workspace_bound", payload: { agentId, path: null, effectiveWorkspace: agent.effectiveWorkspace } });
+          this.logMessage("system", `Workspace unbound for ${agent.name}, restored: ${agent.effectiveWorkspace}`);
+          break;
+        }
+        const resolved = path.resolve(raw);
+        if (!fs.existsSync(resolved)) {
+          this.sendToClient(ws, { type: "error", payload: { message: `Directory not found: ${resolved}` } });
+          break;
+        }
+        agent.setBoundWorkspace(resolved);
+        this.sendToClient(ws, { type: "workspace_bound", payload: { agentId, path: resolved, effectiveWorkspace: agent.effectiveWorkspace } });
+        this.logMessage("system", `Workspace bound for ${agent.name}: ${resolved}`);
         this.broadcastState();
         break;
       }
@@ -708,6 +1023,7 @@ export class CoreWSServer {
         files.writeConfig(merged);
         // Also update in-memory config
         Object.assign(agent.config, config);
+        agent.rebuildLoop();
         this.logMessage("system", `Agent updated: ${agentId}`);
         this.sendToClient(ws, { type: "agent_updated", payload: { agentId } });
         this.broadcastState();
@@ -801,6 +1117,13 @@ export class CoreWSServer {
           break;
         }
         addGroup.addMember(addAId);
+        // 为新成员注入群组通信工具
+        const addAgent = this.agentRegistry?.get(addAId);
+        if (addAgent && this.groupManager) {
+          addAgent.injectGroupTools((gid) => this.groupManager!.get(gid));
+        }
+        // 更新 master registry
+        updateGroupMembers(this.dataRoot, addGId, addGroup.config.members);
         this.groupManager!.saveGroup(addGId);
         // Update ButlerRegistry
         const addButlerReg = new ButlerRegistry(this.dataRoot);
@@ -830,6 +1153,8 @@ export class CoreWSServer {
           break;
         }
         rmGroup.removeMember(rmAId);
+        // 更新 master registry
+        updateGroupMembers(this.dataRoot, rmGId, rmGroup.config.members);
         this.groupManager!.saveGroup(rmGId);
         // Update ButlerRegistry
         const rmButlerReg = new ButlerRegistry(this.dataRoot);
@@ -907,6 +1232,69 @@ export class CoreWSServer {
         break;
       }
 
+      case "get_group_history": {
+        const { groupId, before, limit } = msg.payload as { groupId: string; before?: number; limit?: number };
+        if (!groupId) {
+          this.sendToClient(ws, { type: "error", payload: { message: "groupId is required" } });
+          break;
+        }
+        const ghGroup = this.groupManager?.get(groupId);
+        if (!ghGroup) {
+          this.sendToClient(ws, { type: "group_history", payload: { groupId, messages: [], hasMore: false } });
+          break;
+        }
+        const db = ghGroup.groupDb;
+        if (!db) {
+          this.sendToClient(ws, { type: "group_history", payload: { groupId, messages: [], hasMore: false } });
+          break;
+        }
+        const actualLimit = Math.min(limit ?? 50, 100);
+        const stored = db.getAllMessages({ before, limit: actualLimit });
+        const hasMore = stored.length > actualLimit;
+        const msgs = stored.slice(0, actualLimit);
+        const formatted = msgs.map((m) => ({
+          direction: "out" as const,
+          content: m.content,
+          timestamp: m.timestamp,
+          senderId: m.from_agent_id,
+        }));
+        this.sendToClient(ws, { type: "group_history", payload: { groupId, messages: formatted, hasMore } });
+        break;
+      }
+
+      case "get_dashboard": {
+        const { groupId: gId } = (msg.payload as { groupId?: string }) ?? {};
+        const rt = (globalThis as any).__cobeingRuntime;
+        if (!rt?.observabilityDB) {
+          this.sendToClient(ws, { type: "dashboard", payload: { error: "Observability not available" } });
+          break;
+        }
+        this.sendToClient(ws, { type: "dashboard", payload: rt.observabilityDB.getDashboard(gId) });
+        break;
+      }
+
+      case "get_llm_stats": {
+        const { agentId, groupId, since, limit } = (msg.payload as any) ?? {};
+        const rt = (globalThis as any).__cobeingRuntime;
+        if (!rt?.observabilityDB) {
+          this.sendToClient(ws, { type: "llm_stats", payload: { error: "Observability not available" } });
+          break;
+        }
+        this.sendToClient(ws, { type: "llm_stats", payload: rt.observabilityDB.getLLMStats({ agentId, groupId, since, limit }) });
+        break;
+      }
+
+      case "get_tool_stats": {
+        const { agentId, groupId, since, limit } = (msg.payload as any) ?? {};
+        const rt = (globalThis as any).__cobeingRuntime;
+        if (!rt?.observabilityDB) {
+          this.sendToClient(ws, { type: "tool_stats", payload: { error: "Observability not available" } });
+          break;
+        }
+        this.sendToClient(ws, { type: "tool_stats", payload: rt.observabilityDB.getToolStats({ agentId, groupId, since, limit }) });
+        break;
+      }
+
       case "get_agent_files": {
         const { agentId: aId } = msg.payload as { agentId: string };
         if (!aId) {
@@ -971,12 +1359,14 @@ export class CoreWSServer {
       }
 
       case "get_chat_current": {
-        // Read current.md from each agent's memory/ directory
+        // Read current.md only for registered agents and groups
         const conversations: Record<string, unknown[]> = {};
+        // Registered agents
         const agentsDir = path.join(this.dataRoot, "agents");
         if (fs.existsSync(agentsDir)) {
           for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue;
+            if (!this.agentRegistry?.get(entry.name)) continue;
             const curPath = path.join(agentsDir, entry.name, "memory", "current.md");
             if (fs.existsSync(curPath)) {
               try {
@@ -987,11 +1377,12 @@ export class CoreWSServer {
             }
           }
         }
-        // Also read group current.md
+        // Registered groups
         const groupsDir = path.join(this.dataRoot, "groups");
         if (fs.existsSync(groupsDir)) {
           for (const entry of fs.readdirSync(groupsDir, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue;
+            if (!this.groupManager?.get(entry.name)) continue;
             const curPath = path.join(groupsDir, entry.name, "memory", "current.md");
             if (fs.existsSync(curPath)) {
               try {
@@ -1011,9 +1402,15 @@ export class CoreWSServer {
         if (!saveConvs) break;
         for (const [convId, msgs] of Object.entries(saveConvs)) {
           if (!Array.isArray(msgs) || msgs.length === 0) continue;
-          // Determine path: try agents/ first, then groups/
-          let memDir = path.join(this.dataRoot, "agents", convId, "memory");
-          if (!fs.existsSync(path.join(this.dataRoot, "agents", convId))) {
+          // Only save for registered agents or groups (prevent zombie dir creation)
+          const isAgent = this.agentRegistry?.get(convId);
+          const isGroup = this.groupManager?.get(convId);
+          if (!isAgent && !isGroup) continue;
+          // Determine path: agents/ or groups/
+          let memDir: string;
+          if (isAgent) {
+            memDir = path.join(this.dataRoot, "agents", convId, "memory");
+          } else {
             memDir = path.join(this.dataRoot, "groups", convId, "memory");
           }
           if (!fs.existsSync(memDir)) fs.mkdirSync(memDir, { recursive: true });
@@ -1026,11 +1423,12 @@ export class CoreWSServer {
       }
 
       case "clear_chat_current": {
-        // Clear all agent current.md
+        // Clear all agent current.md (only registered agents)
         const clrAgentsDir = path.join(this.dataRoot, "agents");
         if (fs.existsSync(clrAgentsDir)) {
           for (const entry of fs.readdirSync(clrAgentsDir, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue;
+            if (!this.agentRegistry?.get(entry.name)) continue;
             const curPath = path.join(clrAgentsDir, entry.name, "memory", "current.md");
             if (fs.existsSync(curPath)) {
               const empty = `# Current Chat History\n\n> Cleared.\n\n\`\`\`json\n${JSON.stringify({ messages: [], savedAt: Date.now() }, null, 2)}\n\`\`\`\n`;
@@ -1038,11 +1436,12 @@ export class CoreWSServer {
             }
           }
         }
-        // Clear all group current.md
+        // Clear all group current.md (only registered groups)
         const clrGroupsDir = path.join(this.dataRoot, "groups");
         if (fs.existsSync(clrGroupsDir)) {
           for (const entry of fs.readdirSync(clrGroupsDir, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue;
+            if (!this.groupManager?.get(entry.name)) continue;
             const curPath = path.join(clrGroupsDir, entry.name, "memory", "current.md");
             if (fs.existsSync(curPath)) {
               const empty = `# Current Chat History\n\n> Cleared.\n\n\`\`\`json\n${JSON.stringify({ messages: [], savedAt: Date.now() }, null, 2)}\n\`\`\`\n`;
@@ -1125,6 +1524,223 @@ export class CoreWSServer {
         }
         this.sendToClient(ws, { type: "todo_removed", payload: { todoId: rTodoId } });
         this.broadcast({ type: "todo_updated", payload: { scope: rScope, agentId: rAgentId, groupId: rGroupId } });
+        break;
+      }
+
+      case "update_todo_status": {
+        const { todoId: sTodoId, status: sStatus, scope: sScope, agentId: sAgentId, groupId: sGroupId } = msg.payload as {
+          todoId: string; status: string; scope: "agent" | "group"; agentId?: string; groupId?: string;
+        };
+        const store = this.resolveTodoStore(sScope, sAgentId, sGroupId);
+        if (!store) {
+          this.sendToClient(ws, { type: "error", payload: { message: "无法确定 TODO 存储" } });
+          break;
+        }
+        const result = store.updateStatus(sTodoId, sStatus as any);
+        if (!result.ok) {
+          this.sendToClient(ws, { type: "error", payload: { message: result.error || "更新失败" } });
+          break;
+        }
+        this.broadcast({ type: "todo_updated", payload: { scope: sScope, agentId: sAgentId, groupId: sGroupId } });
+        break;
+      }
+
+      case "batch_complete_todo": {
+        const { todoIds, scope: bcScope, agentId: bcAgentId, groupId: bcGroupId } = msg.payload as {
+          todoIds: string[]; scope: "agent" | "group"; agentId?: string; groupId?: string;
+        };
+        const store = this.resolveTodoStore(bcScope, bcAgentId, bcGroupId);
+        if (!store) { this.sendToClient(ws, { type: "error", payload: { message: "无法确定 TODO 存储" } }); break; }
+        const result = store.batchComplete(todoIds);
+        this.sendToClient(ws, { type: "todo_batch_result", payload: { action: "complete", ...result } });
+        this.broadcast({ type: "todo_updated", payload: { scope: bcScope, agentId: bcAgentId, groupId: bcGroupId } });
+        break;
+      }
+
+      case "batch_remove_todo": {
+        const { todoIds: brIds, scope: brScope, agentId: brAgentId, groupId: brGroupId } = msg.payload as {
+          todoIds: string[]; scope: "agent" | "group"; agentId?: string; groupId?: string;
+        };
+        const store = this.resolveTodoStore(brScope, brAgentId, brGroupId);
+        if (!store) { this.sendToClient(ws, { type: "error", payload: { message: "无法确定 TODO 存储" } }); break; }
+        const result = store.batchRemove(brIds);
+        this.sendToClient(ws, { type: "todo_batch_result", payload: { action: "remove", ...result } });
+        this.broadcast({ type: "todo_updated", payload: { scope: brScope, agentId: brAgentId, groupId: brGroupId } });
+        break;
+      }
+
+      case "batch_update_todo": {
+        const { todoIds: buIds, scope: buScope, agentId: buAgentId, groupId: buGroupId, targetAgentId } = msg.payload as {
+          todoIds: string[]; scope: "agent" | "group"; agentId?: string; groupId?: string; targetAgentId?: string;
+        };
+        const store = this.resolveTodoStore(buScope, buAgentId, buGroupId);
+        if (!store) { this.sendToClient(ws, { type: "error", payload: { message: "无法确定 TODO 存储" } }); break; }
+        const result = store.batchUpdate(buIds, { targetAgentId });
+        this.sendToClient(ws, { type: "todo_batch_result", payload: { action: "update", ...result } });
+        this.broadcast({ type: "todo_updated", payload: { scope: buScope, agentId: buAgentId, groupId: buGroupId } });
+        break;
+      }
+
+      case "get_screener_stats": {
+        const { groupId: scrGroupId } = msg.payload as { groupId: string };
+        const gm = this.groupManager;
+        if (!gm) { this.sendToClient(ws, { type: "error", payload: { message: "GroupManager 未初始化" } }); break; }
+        const g = gm.get(scrGroupId);
+        if (!g) { this.sendToClient(ws, { type: "error", payload: { message: `群组未找到: ${scrGroupId}` } }); break; }
+        const screener = (g as any).screener;
+        if (!screener?.getStats) {
+          this.sendToClient(ws, { type: "screener_stats", payload: { groupId: scrGroupId, totalChecked: 0, totalFiltered: 0, estimatedTokensSaved: 0 } });
+        } else {
+          this.sendToClient(ws, { type: "screener_stats", payload: { groupId: scrGroupId, ...screener.getStats() } });
+        }
+        break;
+      }
+
+      case "get_group_health": {
+        const { groupId: hlGroupId } = msg.payload as { groupId: string };
+        const gm2 = this.groupManager;
+        if (!gm2) { this.sendToClient(ws, { type: "error", payload: { message: "GroupManager 未初始化" } }); break; }
+        const g2 = gm2.get(hlGroupId);
+        if (!g2) { this.sendToClient(ws, { type: "error", payload: { message: `群组未找到: ${hlGroupId}` } }); break; }
+
+        // TODO 完成率
+        const todoStore = (g2 as any).groupTodoStore;
+        let totalTodos = 0; let completedTodos = 0; let longestPendingHours = 0;
+        if (todoStore) {
+          const all = todoStore.list();
+          totalTodos = all.length;
+          completedTodos = all.filter((t: any) => t.status === "completed").length;
+          const now = Date.now();
+          let oldestPending = Infinity;
+          for (const t of all) {
+            if (t.status !== "completed") {
+              const triggerTime = new Date(t.triggerAt).getTime();
+              if (triggerTime < oldestPending) oldestPending = triggerTime;
+            }
+          }
+          if (oldestPending < Infinity) {
+            longestPendingHours = Math.round((now - oldestPending) / 3600000 * 10) / 10;
+          }
+        }
+
+        // 成员参与度
+        const memberActivity: Array<{ agentId: string; name: string; messageCount: number; lastActive: string | null }> = [];
+        for (const m of g2.config.members) {
+          const agent = this.agentRegistry?.get(m);
+          const history = (g2 as any).ctxV2?.getMessages?.() ?? [];
+          const agentMsgs = history.filter((msg: any) => msg.fromAgentId === m);
+          const lastMsg = agentMsgs.length > 0 ? agentMsgs[agentMsgs.length - 1] : null;
+          memberActivity.push({
+            agentId: m,
+            name: agent?.name ?? m,
+            messageCount: agentMsgs.length,
+            lastActive: lastMsg?.timestamp ? new Date(lastMsg.timestamp).toISOString() : null,
+          });
+        }
+
+        // 群组状态
+        const status = (g2 as any).status ?? "active";
+        const createdAt = (g2 as any).createdAt ?? "";
+
+        this.sendToClient(ws, {
+          type: "group_health",
+          payload: {
+            groupId: hlGroupId,
+            status,
+            createdAt,
+            memberCount: g2.config.members.length,
+            memberActivity,
+            todoStats: { total: totalTodos, completed: completedTodos, completionRate: totalTodos > 0 ? Math.round(completedTodos / totalTodos * 100) : 0 },
+            longestPendingHours,
+          },
+        });
+        break;
+      }
+
+      case "get_agent_timeline": {
+        const { agentId: tlAgentId, limit: tlLimit } = msg.payload as { agentId: string; limit?: number };
+        const obsDb = (globalThis as any).__cobeingObsDb;
+        if (!obsDb) { this.sendToClient(ws, { type: "error", payload: { message: "Observability DB 未初始化" } }); break; }
+        try {
+          const { calls } = obsDb.getToolStats({ agentId: tlAgentId, limit: tlLimit ?? 50 });
+          this.sendToClient(ws, { type: "agent_timeline", payload: { agentId: tlAgentId, events: calls } });
+        } catch { this.sendToClient(ws, { type: "agent_timeline", payload: { agentId: tlAgentId, events: [] } }); }
+        break;
+      }
+
+      case "search_conversation": {
+        const { query, groupId: scGroupId, session: scSession } = msg.payload as { query: string; groupId?: string; session?: string };
+        if (!query?.trim()) { this.sendToClient(ws, { type: "error", payload: { message: "query required" } }); break; }
+        try {
+          const agentId = "butler";
+          const agentDir = path.join(this.dataRoot, "agents", agentId);
+          const { MemoryStore } = await import("../memory/memory-store.js");
+          const store = MemoryStore.createLazy(agentDir);
+          await store.ready();
+          const results = store.searchHistory(query, scSession ?? scGroupId, 20);
+          this.sendToClient(ws, { type: "search_results", payload: { query, results } });
+        } catch (err: any) {
+          this.sendToClient(ws, { type: "error", payload: { message: `搜索失败: ${err.message}` } });
+        }
+        break;
+      }
+
+      case "export_data": {
+        const { exportType, exportAgentId, exportGroupId } = msg.payload as { exportType: string; exportAgentId?: string; exportGroupId?: string };
+        try {
+          // 路径穿越防护
+          const safeId = (id: string): boolean => /^[\w-]+$/.test(id);
+          if (exportAgentId && !safeId(exportAgentId)) { this.sendToClient(ws, { type: "error", payload: { message: "非法 agentId" } }); break; }
+          if (exportGroupId && !safeId(exportGroupId)) { this.sendToClient(ws, { type: "error", payload: { message: "非法 groupId" } }); break; }
+
+          const files: Array<{ path: string; content: string }> = [];
+          let targetDir: string;
+
+          if (exportType === "agent" && exportAgentId) {
+            targetDir = path.join(this.dataRoot, "agents", exportAgentId);
+          } else if (exportType === "group" && exportGroupId) {
+            targetDir = path.join(this.dataRoot, "groups", exportGroupId);
+          } else {
+            targetDir = this.dataRoot;
+          }
+
+          // 二次确认目标目录在 dataRoot 内
+          const normalizedTarget = path.resolve(targetDir);
+          const normalizedRoot = path.resolve(this.dataRoot);
+          if (!normalizedTarget.startsWith(normalizedRoot)) {
+            this.sendToClient(ws, { type: "error", payload: { message: "导出路径超出数据目录" } });
+            break;
+          }
+
+          if (fs.existsSync(targetDir)) {
+            const collectFiles = (dir: string, prefix: string) => {
+              for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                const fp = path.join(dir, entry.name);
+                const rel = path.join(prefix, entry.name);
+                if (entry.isDirectory()) {
+                  collectFiles(fp, rel);
+                } else if (entry.isFile() && !entry.name.endsWith(".db") && !entry.name.endsWith(".db-wal") && !entry.name.endsWith(".db-shm")) {
+                  try {
+                    const content = fs.readFileSync(fp, "utf-8");
+                    if (content.length < 500_000) {
+                      files.push({ path: rel, content });
+                    } else {
+                      files.push({ path: rel, content: `[文件过大 ${content.length} chars，已省略]` });
+                    }
+                  } catch {
+                    files.push({ path: rel, content: "[二进制文件，已省略]" });
+                  }
+                }
+              }
+            };
+            collectFiles(targetDir, "");
+          }
+
+          const json = JSON.stringify({ exportType, exportedAt: new Date().toISOString(), files });
+          this.sendToClient(ws, { type: "export_result", payload: { exportType, data: json, fileCount: files.length } });
+        } catch (err: any) {
+          this.sendToClient(ws, { type: "error", payload: { message: `导出失败: ${err.message}` } });
+        }
         break;
       }
 
@@ -1217,8 +1833,14 @@ export class CoreWSServer {
           name: g.config.name,
           members: g.config.members,
           topic: g.config.topic,
+          status: g.config.status || 'active',
         }))
       : [];
+
+    log.info("getState: %d agents, %d groups (registry=%s, groupManager=%s)",
+      agents.length, groups.length,
+      this.agentRegistry ? "set" : "null",
+      this.groupManager ? "set" : "null");
 
     return {
       agents,
@@ -1238,7 +1860,7 @@ export class CoreWSServer {
 /** 按 "a.b.c" 路径设置嵌套对象值 */
 /** Extract @mentions from content */
 function extractMentions(content: string): string[] {
-  const matches = content.match(/@([\w-]+)/g);
+  const matches = content.match(/@([\w一-鿿][\w一-鿿-]{2,})/g);
   return matches ? [...new Set(matches.map(m => m.slice(1)))] : [];
 }
 
@@ -1250,6 +1872,16 @@ function parseCurrentMd(raw: string): unknown[] {
   /** 将内部消息格式转换为前端 LogMessage 格式 */
   function toFrontendMsg(obj: Record<string, unknown>): Record<string, unknown> {
     const fromAgentId = obj.fromAgentId as string | undefined;
+    const direction = obj.direction as string | undefined;
+    // Preserve direction/senderId if already in frontend format, otherwise infer
+    if (direction) {
+      return {
+        direction,
+        content: obj.content,
+        timestamp: obj.timestamp,
+        senderId: obj.senderId || obj.senderName || fromAgentId,
+      };
+    }
     return {
       direction: fromAgentId === "user" ? "in" : "out",
       content: obj.content,
@@ -1265,7 +1897,7 @@ function parseCurrentMd(raw: string): unknown[] {
       const data = JSON.parse(jsonMatch[1]);
       if (data.messages && Array.isArray(data.messages)) {
         return data.messages.map((m: Record<string, unknown>) =>
-          m.senderId ? m : toFrontendMsg(m),
+          m.direction ? m : toFrontendMsg(m),
         );
       }
     } catch { /* fall through */ }
@@ -1285,15 +1917,20 @@ function parseCurrentMd(raw: string): unknown[] {
   return messages;
 }
 
-/** 按 "a.b.c" 路径设置嵌套对象值 */
+/** 按 "a.b.c" 路径设置嵌套对象值（防止原型污染） */
 function setNestedValue(obj: Record<string, unknown>, cfgPath: string, value: unknown): void {
   const keys = cfgPath.split(".");
   let current: Record<string, unknown> = obj;
   for (let i = 0; i < keys.length - 1; i++) {
-    if (!(keys[i] in current) || typeof current[keys[i]] !== "object") {
-      current[keys[i]] = {};
+    const key = keys[i];
+    // 防止原型污染
+    if (key === "__proto__" || key === "constructor" || key === "prototype") return;
+    if (!(key in current) || typeof current[key] !== "object") {
+      current[key] = {};
     }
-    current = current[keys[i]] as Record<string, unknown>;
+    current = current[key] as Record<string, unknown>;
   }
-  current[keys[keys.length - 1]] = value;
+  const lastKey = keys[keys.length - 1];
+  if (lastKey === "__proto__" || lastKey === "constructor" || lastKey === "prototype") return;
+  current[lastKey] = value;
 }

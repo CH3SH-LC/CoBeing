@@ -2,7 +2,7 @@
 import path from "node:path";
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 import { TodoStore } from "./store.js";
-import type { TodoScope } from "./types.js";
+import type { TodoItem, TodoScope } from "./types.js";
 import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("todo-tools");
@@ -13,7 +13,7 @@ export function makeTodoAddTool(
 ): Tool {
   return {
     name: "todo-add",
-    description: "创建定时 TODO。到达触发时间后系统会以 TODOboard 身份唤醒你执行任务。",
+    description: "创建定时 TODO。到达触发时间后系统会以 TODOboard 身份唤醒你执行任务。支持父子任务和依赖管理。",
     parameters: {
       type: "object",
       properties: {
@@ -24,6 +24,12 @@ export function makeTodoAddTool(
         scope: { type: "string", description: "agent 或 group（默认 agent）" },
         groupId: { type: "string", description: "群组级时必填" },
         targetAgentId: { type: "string", description: "群组级时指派的目标 agent" },
+        parentId: { type: "string", description: "父任务 ID（可选，子任务追踪用）" },
+        dependsOn: {
+          type: "array",
+          items: { type: "string" },
+          description: "依赖的上游任务 ID 列表（可选，上游完成后当前任务才会开始）",
+        },
         onComplete: {
           type: "object",
           description: "完成后的动作链（可选）",
@@ -48,6 +54,8 @@ export function makeTodoAddTool(
         createdBy: context.agentId || "unknown",
         agentId: scope === "agent" ? context.agentId : undefined,
         targetAgentId: scope === "group" ? params.targetAgentId as string : undefined,
+        parentId: params.parentId as string | undefined,
+        dependsOn: params.dependsOn as string[] | undefined,
         onComplete: params.onComplete as any,
       });
 
@@ -83,9 +91,13 @@ export function makeTodoListTool(
       const items = store.list(params.status as any);
       if (items.length === 0) return { toolCallId: "", content: "没有 TODO" };
 
-      const lines = items.map(i =>
-        `- [${i.status}] ${i.title} (ID: ${i.id})\n  触发: ${i.triggerAt}\n  内容: ${i.description}`
-      );
+      const lines = items.map(i => {
+        let line = `- [${i.status}] ${i.title} (ID: ${i.id})\n  触发: ${i.triggerAt}\n  内容: ${i.description}`;
+        if (i.parentId) line += `\n  父任务: ${i.parentId}`;
+        if (i.dependsOn?.length) line += `\n  依赖: ${i.dependsOn.join(", ")}`;
+        if (i.targetAgentId) line += `\n  负责人: ${i.targetAgentId}`;
+        return line;
+      });
       return { toolCallId: "", content: `TODO 列表 (${items.length} 条):\n\n${lines.join("\n\n")}` };
     },
   };
@@ -166,6 +178,64 @@ export function makeTodoRemoveTool(
   };
 }
 
+// ---- todo-review ----
+
+export function makeTodoReviewTool(
+  agentDataRoot: string,
+  groupStoreGetter?: (groupId: string) => TodoStore | undefined,
+): Tool {
+  return {
+    name: "todo-review",
+    description: "验收 TODO 交付物。群主或关联 Agent 检查子任务完成后调用，可批准通过或打回重做。",
+    parameters: {
+      type: "object",
+      properties: {
+        todoId: { type: "string", description: "TODO ID" },
+        scope: { type: "string", description: "agent 或 group" },
+        groupId: { type: "string", description: "群组级时必填" },
+        decision: {
+          type: "string",
+          description: "验收决定: approve（通过）或 rework（打回重做）",
+          enum: ["approve", "rework"],
+        },
+        feedback: { type: "string", description: "验收意见或打回原因" },
+      },
+      required: ["todoId", "scope", "decision"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const scope = params.scope as TodoScope;
+      const store = resolveStore(scope, params.groupId as string, agentDataRoot, context, groupStoreGetter);
+      if (!store) return { toolCallId: "", content: "无法确定 TODO 存储", isError: true };
+
+      const item = store.get(params.todoId as string);
+      if (!item) return { toolCallId: "", content: `未找到 TODO: ${params.todoId}`, isError: true };
+
+      const decision = params.decision as string;
+      const feedback = params.feedback as string | undefined;
+
+      if (decision === "approve") {
+        store.complete(params.todoId as string);
+        log.info("TODO review approved: %s (%s)", item.id, item.title);
+        return {
+          toolCallId: "",
+          content: `✅ 已通过 TODO "${item.title}"${feedback ? `\n意见: ${feedback}` : ""}`,
+        };
+      }
+
+      if (decision === "rework") {
+        store.updateStatus(params.todoId as string, "pending");
+        log.info("TODO review rework: %s (%s)", item.id, item.title);
+        return {
+          toolCallId: "",
+          content: `🔄 TODO "${item.title}" 已打回重做${feedback ? `\n原因: ${feedback}` : ""}`,
+        };
+      }
+
+      return { toolCallId: "", content: `未知决定: ${decision}`, isError: true };
+    },
+  };
+}
+
 // ---- Helper ----
 
 function resolveStore(
@@ -181,4 +251,137 @@ function resolveStore(
   }
   const agentId = context.agentId || "unknown";
   return new TodoStore(path.join(agentDataRoot, "agents", agentId));
+}
+
+// ---- Batch tools ----
+
+export function makeTodoBatchCompleteTool(
+  agentDataRoot: string,
+  groupStoreGetter?: (groupId: string) => TodoStore | undefined,
+): Tool {
+  return {
+    name: "todo-batch-complete",
+    description: "批量完成 TODO。传入多个 TODO ID 一次完成。",
+    parameters: {
+      type: "object",
+      properties: {
+        todoIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "要完成的 TODO ID 列表",
+        },
+        scope: { type: "string", description: "agent 或 group" },
+        groupId: { type: "string", description: "群组级时必填" },
+      },
+      required: ["todoIds", "scope"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const scope = params.scope as TodoScope;
+      const store = resolveStore(scope, params.groupId as string, agentDataRoot, context, groupStoreGetter);
+      if (!store) return { toolCallId: "", content: "无法确定 TODO 存储", isError: true };
+
+      const ids = params.todoIds as string[];
+      const result = store.batchComplete(ids);
+      let msg = `批量完成: ${result.completed} 条成功`;
+      if (result.failed.length > 0) {
+        msg += `, ${result.failed.length} 条失败`;
+        for (const f of result.failed) {
+          msg += `\n- ${f.id}: ${f.reason}`;
+        }
+      }
+      return { toolCallId: "", content: msg };
+    },
+  };
+}
+
+export function makeTodoBatchRemoveTool(
+  agentDataRoot: string,
+  groupStoreGetter?: (groupId: string) => TodoStore | undefined,
+): Tool {
+  return {
+    name: "todo-batch-remove",
+    description: "批量删除 TODO。传入多个 TODO ID 一次删除。",
+    parameters: {
+      type: "object",
+      properties: {
+        todoIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "要删除的 TODO ID 列表",
+        },
+        scope: { type: "string", description: "agent 或 group" },
+        groupId: { type: "string", description: "群组级时必填" },
+      },
+      required: ["todoIds", "scope"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const scope = params.scope as TodoScope;
+      const store = resolveStore(scope, params.groupId as string, agentDataRoot, context, groupStoreGetter);
+      if (!store) return { toolCallId: "", content: "无法确定 TODO 存储", isError: true };
+
+      const ids = params.todoIds as string[];
+      const result = store.batchRemove(ids);
+      let msg = `批量删除: ${result.removed} 条成功`;
+      if (result.failed.length > 0) {
+        msg += `, ${result.failed.length} 条失败`;
+        for (const f of result.failed) {
+          msg += `\n- ${f.id}: ${f.reason}`;
+        }
+      }
+      return { toolCallId: "", content: msg };
+    },
+  };
+}
+
+export function makeTodoBatchUpdateTool(
+  agentDataRoot: string,
+  groupStoreGetter?: (groupId: string) => TodoStore | undefined,
+): Tool {
+  return {
+    name: "todo-batch-update",
+    description: "批量更新 TODO。支持批量重新分配负责人或修改状态。",
+    parameters: {
+      type: "object",
+      properties: {
+        todoIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "要更新的 TODO ID 列表",
+        },
+        scope: { type: "string", description: "agent 或 group" },
+        groupId: { type: "string", description: "群组级时必填" },
+        targetAgentId: { type: "string", description: "新的负责人 ID（批量重新分配）" },
+        status: {
+          type: "string",
+          description: "新状态",
+          enum: ["pending", "in-progress", "review", "completed"],
+        },
+      },
+      required: ["todoIds", "scope"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const scope = params.scope as TodoScope;
+      const store = resolveStore(scope, params.groupId as string, agentDataRoot, context, groupStoreGetter);
+      if (!store) return { toolCallId: "", content: "无法确定 TODO 存储", isError: true };
+
+      const ids = params.todoIds as string[];
+      const updates: { targetAgentId?: string; status?: TodoItem["status"] } = {};
+      if (params.targetAgentId) updates.targetAgentId = params.targetAgentId as string;
+      if (params.status) updates.status = params.status as TodoItem["status"];
+
+      if (!updates.targetAgentId && !updates.status) {
+        return { toolCallId: "", content: "请指定 targetAgentId 或 status", isError: true };
+      }
+
+      const result = store.batchUpdate(ids, updates);
+      let msg = `批量更新: ${result.updated} 条成功`;
+      if (result.failed.length > 0) {
+        msg += `, ${result.failed.length} 条失败`;
+        for (const f of result.failed) {
+          msg += `\n- ${f.id}: ${f.reason}`;
+        }
+      }
+      return { toolCallId: "", content: msg };
+    },
+  };
 }
