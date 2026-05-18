@@ -2,6 +2,56 @@
 
 ## 2026-05-18
 
+### 新增：前端日志事件 — 后端 WS 广播审核事件 + 前端 useWebSocket 处理
+
+**变更原因**：群组消息审核系统的日志需要在前端日志面板中显示。审核过程中的三个事件（pending/passed/failed_override）需要通过 WS 广播到前端。
+
+**修改文件**：
+- Modify: `packages/core/src/api/ws-server.ts` — 导入 ReviewLogEvent 类型，新增 emitReviewLog 方法，使用 broadcast 广播 review_log 事件
+- Modify: `gui-v2/src/hooks/useWebSocket.ts` — 新增 review_log 消息分支，将审核事件映射为活动日志条目（⏳等待审核/✅审核通过/⛔审核拦截），显示 Agent 名称、群组名称、轮次和原因
+
+**可访问性**：
+- Agent: 无变更，仅影响 WS 广播层
+- 群组: 审核事件自动通过 WS 广播到前端日志面板
+- 前端: useWebSocket hook 适配完毕，审核事件通过 emitActivity 出现在活动日志面板
+
+**验证**: pnpm build pass (6/6 packages), gui-v2 build pass
+
+## 2026-05-18
+
+### 新增：审核反馈经验自动注入
+
+**变更原因**：当 Review Agent 判定消息不合格时，自动将审核反馈写入 Agent 的 MEMORY.md 作为经验沉淀，使 Agent 后续唤醒时能从历史审核意见中学习。
+
+**修改文件**：
+- Add: `packages/core/src/group/review-experience.ts` — injectReviewExperience 函数，将审核反馈格式化为标准条目后追加到 Agent 的 MEMORY.md
+- Modify: `packages/core/src/agent/paths.ts` — AgentFiles 新增 appendMemoryIndex 方法
+- Modify: `packages/core/src/tools/group-tools.ts` — 在审核不通过的两个分支（可重试 / 轮次耗尽）中调用 injectReviewExperience，并导入该函数
+
+**可访问性**：
+- Agent: 经验注入自动在审核流程中完成，Agent 层面无感；后续唤醒时 MEMORY.md 中会携带历史审核反馈
+- 群组: 经验注入自动集成在审核拦截路径中
+- 前端: 无前端变更
+
+**验证**: pnpm build pass (6/6 packages)
+
+## 2026-05-18
+
+### 新增：group-send 审核拦截
+
+**变更原因**：在 group-send 工具的消息发送路径中增加 reviewPipeline 前置审核。Agent 发送消息到群组时将先经过 Reviewer Agent 审核，审核通过才发布，不通过则返回反馈给 Agent 修正重试，轮次耗尽后强制发布。
+
+**修改文件**：
+- Modify: `packages/core/src/tools/group-tools.ts` — makeGroupSendTool 新增可选 getAgent 回调参数；execute 方法在 group.postMessage() 前插入 reviewPipeline 审核拦截逻辑；新增 Agent / AgentGetter 类型导入
+- Modify: `packages/core/src/agent/agent.ts` — injectGroupTools 中传入 Agent 实例引用给 makeGroupSendTool
+
+**可访问性**：
+- Agent: group-send 工具所有 Agent 均可使用，审核在内部自动进行，Agent 层面无感
+- 群组: 审核拦截自动集成在群组消息发送路径中
+- 前端: 无前端变更（Task 7 会添加日志事件支持）
+
+**验证**: pnpm build pass (6/6 packages)
+
 ### 新增：群组自动创建/销毁 Reviewer Agent
 
 **变更原因**：每个群组创建时自动创建一个 Reviewer Agent，群组销毁时自动销毁，实现群组消息审核系统的 Agent 生命周期管理。
