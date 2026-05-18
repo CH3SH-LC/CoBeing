@@ -11,6 +11,8 @@ export interface Message {
   content: string;
   toolCallId?: string;
   toolCalls?: ToolCall[];
+  /** DeepSeek 思考模式的 reasoning_content */
+  reasoningContent?: string;
 }
 
 export interface ToolCall {
@@ -37,7 +39,7 @@ export interface ToolResult {
   isError?: boolean;
 }
 
-export type ModelTag = "coding" | "reasoning" | "fast" | "vision" | "flagship" | "long-context";
+export type ModelTag = "coding" | "reasoning" | "fast" | "vision" | "flagship" | "long-context" | "agent";
 
 export interface ModelInfo {
   id: string;
@@ -68,12 +70,16 @@ export interface ChatParams {
   thinkingEnabled?: boolean;
   /** 思考强度："high" 或 "max" */
   reasoningEffort?: "high" | "max";
+  /** 取消信号 — 传入后可中断正在进行的 LLM 流式调用 */
+  abortSignal?: AbortSignal;
 }
 
 export interface ChatChunk {
-  type: "content" | "tool_call" | "reasoning" | "done";
+  type: "content" | "tool_call" | "reasoning" | "done" | "usage";
   content?: string;
   toolCall?: ToolCall;
+  /** usage 事件携带的 token 统计 */
+  usage?: TokenUsage;
 }
 
 // ============================================================
@@ -136,6 +142,10 @@ export interface AgentResponse {
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  /** 缓存命中 tokens（DeepSeek 等支持前缀缓存的 provider） */
+  cacheHitTokens?: number;
+  /** 缓存未命中 tokens */
+  cacheMissTokens?: number;
 }
 
 // ============================================================
@@ -277,6 +287,8 @@ export interface MCPResource {
   mimeType?: string;
 }
 
+import { ReviewerConfig } from './review.js';
+
 // ============================================================
 // Group 相关类型
 // ============================================================
@@ -287,6 +299,8 @@ export interface GroupConfig {
   members: string[];
   owner?: string;          // 群主 Agent ID（可选，未指定时由 Butler 充当）
   topic?: string;
+  status?: 'active' | 'completed' | 'archived';
+  reviewer?: ReviewerConfig;
 }
 
 export interface GroupMessage {
@@ -310,4 +324,23 @@ export interface GroupStatusInfo {
   name: string;
   members: string[];
   messageCount: number;
+  status?: 'active' | 'completed' | 'archived';
+}
+
+// ============================================================
+// 本地过滤层类型
+// ============================================================
+
+export interface FilterResult {
+  shouldWake: boolean;
+  reason: string;
+  summary?: string;
+  priority: "high" | "normal" | "low";
+}
+
+export interface LocalModelConfig {
+  enabled: boolean;
+  path: string;
+  contextSize?: number;
+  filterDebounceMs?: number;
 }
