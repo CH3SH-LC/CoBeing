@@ -2,6 +2,17 @@
 
 ## 2026-05-18
 
+### 新增：群组自动创建/销毁 Reviewer Agent
+
+**变更原因**：每个群组创建时自动创建一个 Reviewer Agent，群组销毁时自动销毁，实现群组消息审核系统的 Agent 生命周期管理。
+
+**修改文件**：
+- Modify: `packages/shared/src/types.ts` — AgentConfig 新增 isReviewer 标记
+- Modify: `packages/core/src/group/manager.ts` — GroupManager 新增 createReviewerAgent 私有方法；create() 中自动创建 Reviewer；delete()/archiveGroup() 中自动销毁；restoreGroups()/restoreGroup() 中自动恢复
+- Modify: `packages/core/src/runtime.ts` — 传递 provider 解析函数给 GroupManager，使其能创建 Reviewer Agent
+
+**验证**: pnpm build pass (6/6 packages)
+
 ### 新增：审核管道核心逻辑（review-pipeline）
 
 **变更原因**：实现群组消息审核系统的核心审核管道。审核管道负责组装审核输入（Agent 工作轨迹、群组上下文、工作区文档）、调用 Reviewer Agent 的一次性审核调用、返回审核结果。
