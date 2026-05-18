@@ -2,6 +2,7 @@
  * Agent 核心 — 单个 Agent 的完整定义和运行时
  */
 import path from "node:path";
+import fs from "node:fs";
 import type { AgentConfig, AgentResponse, AgentStatus } from "@cobeing/shared";
 import type { LLMProvider } from "@cobeing/providers";
 import type { ChannelAdapter } from "@cobeing/channels";
@@ -16,9 +17,10 @@ import { editFileTool } from "../tools/edit-file.js";
 import { globTool } from "../tools/glob.js";
 import { grepTool } from "../tools/grep.js";
 import { webFetchTool } from "../tools/web-fetch.js";
-import { agentMessageTool } from "../tools/agent-message.js";
 import { MCPManager } from "../mcp/manager.js";
 import type { SkillRepository } from "../skills/repository.js";
+import { makeAgentMessageTool } from "../tools/agent-message.js";
+import type { AgentRegistry } from "./registry.js";
 import { makeSkillExecuteTool, makeSkillListTool, makeSkillCreateTool } from "../tools/skill-tools.js";
 import { SubAgentSpawner } from "./spawner.js";
 import { AgentPaths, AgentFiles } from "./paths.js";
@@ -29,11 +31,29 @@ import { ExperienceWriter } from "../memory/experience.js";
 import { MemoryStore } from "../memory/memory-store.js";
 import { makeMemoryTool } from "../memory/memory-tool.js";
 import { AgentEventBus } from "./event-bus.js";
-import { makeTodoAddTool, makeTodoListTool, makeTodoCompleteTool, makeTodoRemoveTool } from "../todo/tools.js";
+import { makeTodoAddTool, makeTodoListTool, makeTodoCompleteTool, makeTodoRemoveTool, makeTodoReviewTool, makeTodoBatchCompleteTool, makeTodoBatchRemoveTool, makeTodoBatchUpdateTool } from "../todo/tools.js";
 import { currentTimeTool } from "../todo/time-tool.js";
-import { buildSystemPromptFromFiles } from "../conversation/prompt-builder.js";
+import { makeVoteCreateTool, makeVoteCastTool, makeVoteResultTool } from "../vote/tools.js";
+import { buildSystemPromptFromFiles, buildCacheablePrompt } from "../conversation/prompt-builder.js";
 import { makeGroupMemorySearchTool } from "../tools/group-memory-search.js";
+import { makeExperienceReflectTool } from "../tools/experience-reflect.js";
+import type { ObservabilityDB } from "../observability/observability-db.js";
+import { makeSummarizePhaseTool } from "../tools/summarize-phase.js";
+import { WakeSession } from "./wake-session.js";
+import { makeGroupMembersTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool, makeTalkCloseTool, makeGroupSendTool, makeGroupUpdateProgressTool, makeGroupExperienceAddTool, makeGroupExperienceSummarizeTool } from "../tools/group-tools.js";
 import { createLogger } from "@cobeing/shared";
+
+/** run() 的选项 — 支持群组隔离 */
+export interface RunOptions {
+  /** 群组 ID — 存在时创建隔离的 ConversationLoop */
+  groupId?: string;
+  /** 群组协作上下文 — 直接传入，不使用 Agent 的 _groupContext 字段 */
+  groupContext?: string;
+  /** 覆盖工作目录（群组上下文时传入 group.effectiveWorkspace） */
+  workingDir?: string;
+  /** 事件回调 */
+  events?: ConversationLoopEvents;
+}
 
 /** 所有内置工具映射 */
 const BUILTIN_TOOLS: Record<string, import("@cobeing/shared").Tool> = {
@@ -44,7 +64,6 @@ const BUILTIN_TOOLS: Record<string, import("@cobeing/shared").Tool> = {
   "glob": globTool,
   "grep": grepTool,
   "web-fetch": webFetchTool,
-  "agent-message": agentMessageTool,
 };
 
 export class Agent {
@@ -57,7 +76,10 @@ export class Agent {
   protected conversationLoop: ConversationLoop;
   protected toolRegistry: ToolRegistry;
   protected _pendingToolNames: string[] = [];
+  protected _toolExecutor: ToolExecutor;
   private mcpManager: MCPManager;
+  private _allProviders: Map<string, LLMProvider> = new Map();
+  private observabilityDB?: ObservabilityDB;
 
   /** 注册额外工具（供子类或 runtime 扩展） */
   registerTool(tool: import("@cobeing/shared").Tool): void {
@@ -68,6 +90,19 @@ export class Agent {
   private _status: AgentStatus = "idle";
   private _groupContext?: string;
   private logger: ReturnType<typeof createLogger>;
+
+  /** 绑定的外部工作目录（null 则使用默认 workspace） */
+  private _boundWorkspace: string | null = null;
+  /** 当前执行的取消控制器（stop() 时触发 abort） */
+  private _abortController: AbortController | null = null;
+
+  /** 唤醒周期轨迹记录器（群组审核用） */
+  wakeSession?: WakeSession;
+
+  /** 冻结的共享前缀 — 所有 Agent 完全相同，确保跨 Agent 缓存命中 */
+  private _sharedPrefix: string = "";
+  /** 冻结的 Agent 特有前缀 — Agent 生命周期内只构建一次，确保跨请求前缀一致 */
+  private _agentPrefix: string = "";
 
   /** 设置群组协作上下文（WakeSystem 唤醒前调用） */
   setGroupContext(ctx: string): void {
@@ -82,6 +117,45 @@ export class Agent {
   /** 获取当前群组协作上下文 */
   get groupContext(): string | undefined {
     return this._groupContext;
+  }
+
+  /** 有效工作目录：绑定路径优先，否则默认 workspace */
+  get effectiveWorkspace(): string {
+    return this._boundWorkspace ?? this.paths.workspaceDir;
+  }
+
+  /** 获取当前绑定路径（null 表示未绑定） */
+  get boundWorkspace(): string | null {
+    return this._boundWorkspace;
+  }
+
+  /** 绑定到外部工作目录（核心文件保留在原位置） */
+  setBoundWorkspace(dir: string | null): void {
+    if (dir) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    this._boundWorkspace = dir;
+    this.rebuildExecutor();
+    this.logger.info("Bound workspace: %s", dir ?? "(cleared)");
+  }
+
+  /** 重建 ToolExecutor 和 ConversationLoop（workspace 变更时） */
+  private rebuildExecutor(): void {
+    const permission = new PermissionEnforcer(
+      this.config.permissions ?? { mode: "workspace-write" },
+      this.config.toolsConfig,
+      this.effectiveWorkspace,
+    );
+    this._toolExecutor = new ToolExecutor(
+      this.toolRegistry,
+      permission,
+      undefined,
+      this.config.sandbox,
+      this._sandbox ?? undefined,
+      undefined,
+      this.name,
+    );
+    this.conversationLoop = this.createLoop(this._toolExecutor, undefined, undefined, this.config.model);
   }
 
   // Agent 文件系统
@@ -146,13 +220,36 @@ export class Agent {
     // 注册 memory 工具
     this.toolRegistry.register(makeMemoryTool(this.memoryStore));
 
+    // 注册经验总结工具（所有 agent 无条件可用）
+    this.toolRegistry.register(makeExperienceReflectTool(
+      this.paths.experiencePath,
+      this.paths.soulPath,
+      this.paths.toolsPath,
+    ));
+
     // 注册 TODO 工具
     const todoDataRoot = path.dirname(path.dirname(this.paths.directory));
     this.toolRegistry.register(makeTodoAddTool(todoDataRoot, undefined));
     this.toolRegistry.register(makeTodoListTool(todoDataRoot, undefined));
-    this.toolRegistry.register(makeTodoCompleteTool(todoDataRoot, undefined));
+    this.toolRegistry.register(makeTodoCompleteTool(todoDataRoot, undefined, (groupId) => {
+      const groupManager = (globalThis as any).__cobeingGroupManager;
+      return groupManager?.getScanner?.(groupId);
+    }));
     this.toolRegistry.register(makeTodoRemoveTool(todoDataRoot, undefined));
+    this.toolRegistry.register(makeTodoReviewTool(todoDataRoot, undefined));
+    // 批量操作工具
+    this.toolRegistry.register(makeTodoBatchCompleteTool(todoDataRoot, undefined));
+    this.toolRegistry.register(makeTodoBatchRemoveTool(todoDataRoot, undefined));
+    this.toolRegistry.register(makeTodoBatchUpdateTool(todoDataRoot, undefined));
     this.toolRegistry.register(currentTimeTool);
+
+    // 注册投票工具（需要全局 VoteStore）
+    const voteStore = () => (globalThis as any).__cobeingVoteStore;
+    if (voteStore()) {
+      this.toolRegistry.register(makeVoteCreateTool(voteStore));
+      this.toolRegistry.register(makeVoteCastTool(voteStore));
+      this.toolRegistry.register(makeVoteResultTool(voteStore));
+    }
 
     // 群组记忆搜索工具
     this.toolRegistry.register(makeGroupMemorySearchTool(
@@ -162,8 +259,11 @@ export class Agent {
       }
     ));
 
+    // 阶段总结工具（群组上下文中使用）
+    this.toolRegistry.register(makeSummarizePhaseTool());
+
     const permission = new PermissionEnforcer(
-      mergedConfig.permissions ?? { mode: "ask" },
+      mergedConfig.permissions ?? { mode: "workspace-write" },
       mergedConfig.toolsConfig,
       workingDir,
     );
@@ -183,7 +283,10 @@ export class Agent {
       undefined,
       mergedConfig.sandbox,
       this._sandbox ?? undefined,
+      undefined, // observabilityDB set later via setObservabilityDB
+      this.name,
     );
+    this._toolExecutor = toolExecutor;
 
     // MCP 管理器
     this.mcpManager = new MCPManager();
@@ -192,6 +295,14 @@ export class Agent {
     const requestedSkills = mergedConfig.skills as string[] | undefined;
 
     this.conversationLoop = this.createLoop(toolExecutor, undefined, undefined, mergedConfig.model);
+
+    // 构建并冻结前缀（缓存优化：共享前缀跨 Agent 一致，Agent 前缀跨请求一致）
+    const { sharedPrefix, agentPrefix } = buildCacheablePrompt(
+      this.files,
+      { name: this.name, role: this.config.role, systemPrompt: this.config.systemPrompt },
+    );
+    this._sharedPrefix = sharedPrefix;
+    this._agentPrefix = agentPrefix;
   }
 
   private createLoop(
@@ -212,21 +323,92 @@ export class Agent {
       toolExecutor,
       agentId: this.id,
       sessionId: sessionId ?? "default",
-      workingDir: this.paths.workspaceDir,
+      workingDir: this.effectiveWorkspace,
       maxToolRounds: this.config.maxToolRounds,
+      fallbackProviders: this.buildFallbackList(),
+      observabilityDB: this.observabilityDB,
       promptBuilder: systemPrompt
         ? undefined  // 固定 prompt 的场景（如 butler），不用回调
         : () => {
-            const base = buildSystemPromptFromFiles(
+            // 三层架构：共享前缀（跨 Agent 缓存） + Agent 前缀（跨请求缓存） + 动态 volatile
+            const { volatile } = buildCacheablePrompt(
               this.files,
               { name: this.name, role: this.config.role, systemPrompt: this.config.systemPrompt },
-              undefined,  // 不传 memoryStore，走文件读取路径，实现实时更新
+              undefined,
+              this._groupContext,
             );
-            return this._groupContext
-              ? `${base}\n\n${this._groupContext}`
-              : base;
+            const parts = [this._sharedPrefix, this._agentPrefix];
+            if (volatile) parts.push(volatile);
+            return parts.join("\n\n");
           },
     });
+  }
+
+  /** 为群组创建隔离的 ConversationLoop — groupContext 通过 snapshot 对象引用，每次 promptBuilder 调用时读取最新值 */
+  private createGroupLoop(toolExecutor: ToolExecutor, groupId: string, snapshot: { context?: string }, workingDir?: string): ConversationLoop {
+    return new ConversationLoop({
+      agentConfig: {
+        name: this.name,
+        role: this.config.role,
+        systemPrompt: this.config.systemPrompt,
+        model: this.config.model,
+      },
+      provider: this.provider,
+      tools: this.toolRegistry.listDefinitions(),
+      toolExecutor,
+      agentId: this.id,
+      sessionId: `group:${groupId}`,
+      workingDir: workingDir ?? this.effectiveWorkspace,
+      maxToolRounds: this.config.maxToolRounds,
+      fallbackProviders: this.buildFallbackList(),
+      promptBuilder: () => {
+        const { volatile } = buildCacheablePrompt(
+          this.files,
+          { name: this.name, role: this.config.role, systemPrompt: this.config.systemPrompt },
+          undefined,
+          snapshot.context, // 读取 snapshot 对象的最新值，而非闭包捕获的旧值
+        );
+        const parts = [this._sharedPrefix, this._agentPrefix];
+        if (volatile) parts.push(volatile);
+        return parts.join("\n\n");
+      },
+    });
+  }
+
+  /** 群组上下文快照 — 按 groupId 存储最新值，promptBuilder 闭包读取此引用 */
+  private _groupContextSnapshots = new Map<string, { context?: string }>();
+
+  /** 获取或创建群组隔离的 ConversationLoop */
+  private getGroupLoop(groupId: string, groupContext?: string, workingDir?: string): ConversationLoop {
+    const key = `group:${groupId}`;
+    // 更新快照（无论 loop 是否已存在，确保 promptBuilder 读到最新值）
+    const snapshot = this._groupContextSnapshots.get(key) || { context: undefined };
+    snapshot.context = groupContext;
+    this._groupContextSnapshots.set(key, snapshot);
+
+    let loop = this.sessionLoops.get(key);
+    if (!loop) {
+      const effectiveWd = workingDir ?? this.effectiveWorkspace;
+      const permission = new PermissionEnforcer(
+        this.config.permissions ?? { mode: "workspace-write" },
+        this.config.toolsConfig,
+        effectiveWd,
+      );
+      const toolExecutor = new ToolExecutor(
+        this.toolRegistry,
+        permission,
+        undefined,
+        this.config.sandbox,
+        this._sandbox ?? undefined,
+        this.observabilityDB,
+        this.name,
+      );
+      loop = this.createGroupLoop(toolExecutor, groupId, snapshot, effectiveWd);
+      this.sessionLoops.set(key, loop);
+    }
+    // Always clear history for group calls — context is rebuilt each time by WakeSystem
+    loop.clearHistory();
+    return loop;
   }
 
   /** 注入 SkillRepository，注册 3 个统一工具 */
@@ -236,23 +418,89 @@ export class Agent {
     this.toolRegistry.register(makeSkillListTool(repo, allowedSkills));
     this.toolRegistry.register(makeSkillCreateTool(repo));
 
-    // 重建 conversation loop 以包含新工具
-    const perm = new PermissionEnforcer(
-      this.config.permissions ?? { mode: "ask" },
-      this.config.toolsConfig,
-      this.paths.workspaceDir,
-    );
-    const executor = new ToolExecutor(
-      this.toolRegistry,
-      perm,
-      undefined,
-      this.config.sandbox,
-      this._sandbox ?? undefined,
-    );
-    this.conversationLoop = this.createLoop(executor);
+    // 重建 conversation loop 以包含新工具（复用已有 _toolExecutor）
+    this.conversationLoop = this.createLoop(this._toolExecutor);
 
     this.logger.info("SkillRepository injected: %d skills available (filter: %s)",
       repo.size, allowedSkills?.join(",") ?? "all");
+  }
+
+  /** 注入群组通信工具（group-members / talk-create / talk-send / talk-read / group-send / group-update-progress / group-experience-add / group-experience-summarize） */
+  injectGroupTools(getGroup: (groupId: string) => import("../group/group.js").Group | undefined): void {
+    // 避免重复注册
+    const existing = this.toolRegistry.listDefinitions().map(t => t.function.name);
+    if (!existing.includes("group-members")) {
+      this.toolRegistry.register(makeGroupMembersTool(getGroup, (id) => id));
+    }
+    if (!existing.includes("talk-create")) {
+      this.toolRegistry.register(makeTalkCreateTool(getGroup));
+    }
+    if (!existing.includes("talk-send")) {
+      this.toolRegistry.register(makeTalkSendTool(getGroup));
+    }
+    if (!existing.includes("talk-read")) {
+      this.toolRegistry.register(makeTalkReadTool(getGroup));
+    }
+    if (!existing.includes("talk-close")) {
+      this.toolRegistry.register(makeTalkCloseTool(getGroup));
+    }
+    if (!existing.includes("group-send")) {
+      this.toolRegistry.register(makeGroupSendTool(getGroup));
+    }
+    if (!existing.includes("group-update-progress")) {
+      this.toolRegistry.register(makeGroupUpdateProgressTool(getGroup));
+    }
+    if (!existing.includes("group-experience-add")) {
+      this.toolRegistry.register(makeGroupExperienceAddTool(getGroup));
+    }
+    if (!existing.includes("group-experience-summarize")) {
+      this.toolRegistry.register(makeGroupExperienceSummarizeTool(getGroup));
+    }
+
+    // 重建 conversation loop 以包含新工具（复用已有 _toolExecutor）
+    this.conversationLoop = this.createLoop(this._toolExecutor);
+
+    this.logger.info("Group tools injected");
+  }
+
+  /** 注入 agent-message 工具（需要 registry 引用，避免模块级单例） */
+  injectAgentMessageTool(registry: AgentRegistry): void {
+    this.toolRegistry.register(makeAgentMessageTool(registry));
+    // 重建 conversation loop 以包含新工具
+    this.conversationLoop = this.createLoop(this._toolExecutor);
+    this.logger.info("Agent-message tool injected");
+  }
+
+  /** Set all available providers for fallback degradation */
+  setAllProviders(providers: Map<string, LLMProvider>): void {
+    this._allProviders = providers;
+    // Rebuilt via rebuildLoop or the next createLoop call
+  }
+
+  /** Set the shared observability database */
+  setObservabilityDB(db: ObservabilityDB): void {
+    this.observabilityDB = db;
+    if (this._toolExecutor) {
+      (this._toolExecutor as any).observabilityDB = db;
+    }
+    // Update existing loops (created before setObservabilityDB was called)
+    (this.conversationLoop as any).observabilityDB = db;
+    for (const loop of this.sessionLoops.values()) {
+      (loop as any).observabilityDB = db;
+    }
+  }
+
+  private buildFallbackList(): LLMProvider[] {
+    const result: LLMProvider[] = [];
+    for (const [id, prov] of this._allProviders) {
+      if (id !== this.config.provider) result.push(prov);
+    }
+    return result;
+  }
+
+  /** 重建 conversation loop（在外部注册工具后调用） */
+  rebuildLoop(): void {
+    this.conversationLoop = this.createLoop(this._toolExecutor);
   }
 
   /** 绑定 channel */
@@ -272,14 +520,15 @@ export class Agent {
   /** 处理收到的消息，返回回复内容（用于 WS 广播） */
   async handleIncomingMessage(msg: { channelId: string; senderId: string; senderName: string; content: string; metadata?: Record<string, unknown> }): Promise<string> {
     if (this._status !== "idle") {
-      this.logger.debug("Busy, queuing message from %s", msg.senderId);
+      this.logger.warn("Refusing concurrent handleIncomingMessage — already running (from %s)", msg.senderId);
+      return "[系统] Agent 正在处理上一个请求，请稍后再试";
     }
 
     const sessionKey = `${msg.channelId}:${msg.senderId}`;
     let loop = this.sessionLoops.get(sessionKey);
     if (!loop) {
       const permission = new PermissionEnforcer(
-        this.config.permissions ?? { mode: "ask" },
+        this.config.permissions ?? { mode: "workspace-write" },
         this.config.toolsConfig,
         this.paths.workspaceDir,
       );
@@ -289,15 +538,17 @@ export class Agent {
         undefined,
         this.config.sandbox,
         this._sandbox ?? undefined,
+        this.observabilityDB,
+        this.name,
       );
       loop = this.createLoop(toolExecutor, sessionKey);
       this.sessionLoops.set(sessionKey, loop);
     }
 
     this._status = "running";
+    this._abortController = new AbortController();
 
     try {
-      // 保存用户消息
       await this.memoryWriter.append({
         session: sessionKey,
         role: "user",
@@ -305,12 +556,10 @@ export class Agent {
       });
 
       const events: ConversationLoopEvents = {
-        onToken: (_token) => {
-          // 流式 token 推送到 GUI（后续接入）
-        },
+        onToken: (_token) => {},
       };
 
-      const response = await loop.run(msg.content, events);
+      const response = await loop.run(msg.content, events, this._abortController.signal);
 
       // 保存助手回复
       await this.memoryWriter.append({
@@ -336,35 +585,70 @@ export class Agent {
       this.logger.error("Error handling message: %s", err);
       return "";
     } finally {
+      this._abortController = null;
       this._status = "idle";
     }
   }
 
-  /** 直接运行（非 channel 输入，用于测试/GUI） */
-  async run(input: string, events?: ConversationLoopEvents): Promise<AgentResponse> {
+  /** 直接运行（非 channel 输入，用于测试/GUI/群组唤醒） */
+  async run(input: string, optionsOrEvents?: RunOptions | ConversationLoopEvents): Promise<AgentResponse> {
+    // 确保 MemoryStore 已初始化
+    await this.memoryStore.ready();
+
+    // 兼容旧签名 run(input, events)
+    const options: RunOptions = optionsOrEvents && "groupId" in optionsOrEvents
+      ? optionsOrEvents
+      : { events: optionsOrEvents as ConversationLoopEvents | undefined };
+
+    const isGroup = !!options.groupId;
+    const sessionKey = isGroup ? `group:${options.groupId}` : "main";
+
+    // 防并发：Agent 已在运行中则拒绝（WakeSystem 已抑制重复唤醒，此为兜底）
+    if (this._status === "running") {
+      this.logger.warn("Refusing concurrent run() — already running (input: %s)", input.slice(0, 80));
+      return { content: "[已停止] Agent 正在处理上一个请求，请稍后再试", usage: { inputTokens: 0, outputTokens: 0 } };
+    }
+
     this._status = "running";
+    this._abortController = new AbortController();
     try {
-      // 保存用户消息
       this.memoryStore.appendHistory({
-        session: "main",
+        session: sessionKey,
         role: "user",
         content: input,
       });
 
-      const response = await this.conversationLoop.run(input, events);
+      const loop = isGroup
+        ? this.getGroupLoop(options.groupId!, options.groupContext, options.workingDir)
+        : this.conversationLoop;
+
+      // 群组模式下初始化唤醒轨迹记录器
+      if (isGroup) {
+        if (!this.wakeSession) {
+          this.wakeSession = new WakeSession();
+        } else {
+          this.wakeSession.reset();
+        }
+        loop.wakeSession = this.wakeSession;
+      }
+
+      const response = await loop.run(input, options.events, this._abortController.signal);
 
       // 保存助手回复
       this.memoryStore.appendHistory({
-        session: "main",
+        session: sessionKey,
         role: "assistant",
         content: response.content,
       });
 
-      // 后台反思（不阻塞返回，Phase 8.4: 传入完整历史 + 条件触发）
-      this.reflectInBackground(input, response.content);
+      // 后台反思（不阻塞返回，仅非群组调用时触发）
+      if (!isGroup) {
+        this.reflectInBackground(input, response.content);
+      }
 
       return response;
     } finally {
+      this._abortController = null;
       this._status = "idle";
     }
   }
@@ -383,7 +667,7 @@ export class Agent {
           return;
         }
 
-        await this.memoryStore.reflectFromHistory(task, history, this.provider);
+        await this.memoryStore.reflectFromHistory(task, history, this.provider, this.config.model);
       } catch {
         // 反思失败不影响主流程
       }
@@ -392,6 +676,16 @@ export class Agent {
 
   getStatus(): AgentStatus {
     return this._status;
+  }
+
+  /** 停止当前正在执行的任务 */
+  stop(): void {
+    if (this._abortController) {
+      this._abortController.abort();
+      this._abortController = null;
+      this._status = "idle";
+      this.logger.info("Agent execution stopped");
+    }
   }
 
   /** 获取沙箱实例（用于群组挂载等） */
@@ -406,16 +700,8 @@ export class Agent {
     for (const tool of this.mcpManager.getTools()) {
       this.toolRegistry.register(tool);
     }
-    // 更新 conversation loop 的 tool definitions
-    this.conversationLoop = this.createLoop(
-      new ToolExecutor(
-        this.toolRegistry,
-        new PermissionEnforcer(this.config.permissions ?? { mode: "ask" }, this.config.toolsConfig, this.paths.workspaceDir),
-        undefined,
-        this.config.sandbox,
-        this._sandbox ?? undefined,
-      ),
-    );
+    // 更新 conversation loop 的 tool definitions（复用已有 _toolExecutor）
+    this.conversationLoop = this.createLoop(this._toolExecutor);
     this.logger.info("MCP server '%s' connected, tools registered", id);
   }
 
@@ -447,6 +733,16 @@ export class Agent {
         this.logger.error("Failed to handle spontaneous message: %s", err);
       }
     });
+  }
+
+  /** 清除指定群组的对话循环历史（用于错误恢复） */
+  clearGroupLoop(groupId: string): void {
+    const key = `group:${groupId}`;
+    const loop = this.sessionLoops.get(key);
+    if (loop) {
+      loop.clearHistory();
+      this.logger.info("Cleared group loop history for group: %s", groupId);
+    }
   }
 
   /** 关闭资源 */
