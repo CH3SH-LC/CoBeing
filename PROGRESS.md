@@ -2,6 +2,18 @@
 
 ## 2026-05-18
 
+### 新增：审核管道核心逻辑（review-pipeline）
+
+**变更原因**：实现群组消息审核系统的核心审核管道。审核管道负责组装审核输入（Agent 工作轨迹、群组上下文、工作区文档）、调用 Reviewer Agent 的一次性审核调用、返回审核结果。
+
+**修改文件**：
+- Create: `packages/core/src/group/review-pipeline.ts` — reviewPipeline 函数，组装 ReviewInput 并调用 reviewer.reviewOnce
+- Modify: `packages/core/src/agent/agent.ts` — 添加 reviewOnce 方法（无状态 LLM 调用）、buildReviewPrompt、parseReviewResult 私有方法
+- Modify: `packages/core/src/group/group.ts` — 添加 reviewerAgent 属性、getRecentMessages 方法、getMentionsFor 方法
+- Modify: `STRUCTURE.md` — 添加 review-pipeline.ts 条目
+
+**验证**: pnpm build pass (6/6 packages)
+
 ### 新增：WakeSession 唤醒周期轨迹记录
 
 **变更原因**：群组消息审核系统中，Reviewer 需要审查 Agent 在本次唤醒周期内的全部工作轨迹（思考过程、工具调用及结果、最终回复），需要实现轨迹记录器。

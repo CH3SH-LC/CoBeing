@@ -13,10 +13,13 @@ import type { AgentRegistry } from "../agent/registry.js";
 import { AgentPaths, AgentFiles } from "../agent/paths.js";
 import { GroupWorkspace } from "./workspace.js";
 import { GroupContextV2, type GroupMessageV2 } from "./group-context-v2.js";
+import { ContainerPool } from "../tools/sandbox/container-pool.js";
 import { WakeSystem } from "./wake-system.js";
 import { CurrentMd } from "./current-md.js";
 import { GroupAgentMemory } from "./agent-memory.js";
+import { GroupDB } from "./group-db.js";
 import path from "node:path";
+import fs from "node:fs";
 import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("group");
@@ -28,18 +31,50 @@ export class Group {
   readonly ctxV2: GroupContextV2;
   readonly wakeSystem: WakeSystem;
   readonly currentMd: CurrentMd;
+  readonly groupDb: GroupDB;
 
   private registry: AgentRegistry;
   private owner?: Agent;
   private _dataRoot: string;
   private agentMemories = new Map<string, GroupAgentMemory>();
+
+  /** 绑定的外部工作目录（null 则使用默认群组 workspace） */
+  private _boundWorkspace: string | null = null;
+
+  /** 默认工作区目录 */
+  get workspaceDir(): string {
+    return path.join(this._dataRoot, "groups", this.config.id, "workspace");
+  }
+
+  /** 有效工作目录：绑定路径优先，否则默认 workspace */
+  get effectiveWorkspace(): string {
+    return this._boundWorkspace ?? this.workspaceDir;
+  }
+
+  /** 获取当前绑定路径（null 表示未绑定） */
+  get boundWorkspace(): string | null {
+    return this._boundWorkspace;
+  }
+
+  /** 绑定到外部工作目录 */
+  setBoundWorkspace(dir: string | null): void {
+    if (dir) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    this._boundWorkspace = dir;
+    log.info("[%s] Bound workspace: %s", this.id, dir ?? "(cleared)");
+  }
   private maxCurrentMessages: number;
   /** Optional GroupManager reference for context persistence */
   private _groupManager?: import("./manager.js").GroupManager;
 
+  /** 审核 Agent — 负责审查成员消息后再发送 */
+  reviewerAgent?: Agent;
+
   constructor(config: GroupConfig, registry: AgentRegistry, dataRoot: string = "data") {
     this.id = config.id;
     this.config = config;
+    if (!this.config.status) (this.config as any).status = 'active';
     this.registry = registry;
     this._dataRoot = dataRoot;
 
@@ -49,7 +84,8 @@ export class Group {
     // 创建记忆系统
     const memoryDir = path.join(dataRoot, "groups", config.id, "memory");
     this.currentMd = new CurrentMd(memoryDir);
-    this.maxCurrentMessages = (globalThis as any).__cobeingConfig?.core?.groupMemory?.maxCurrentMessages ?? 100;
+    this.groupDb = new GroupDB(config.id, memoryDir);
+    this.maxCurrentMessages = (globalThis as any).__cobeingConfig?.core?.groupMemory?.maxCurrentMessages ?? 200;
 
     // 创建唤醒系统（注入记忆依赖 + 群主 ID）
     this.wakeSystem = new WakeSystem(
@@ -61,6 +97,8 @@ export class Group {
         getAgentMemory: (agentId) => this.getAgentMemory(agentId),
         getGroupMembers: () => this.config.members,
         maxCurrentMessages: this.maxCurrentMessages,
+        getGroup: () => this,
+        resolveMention: (mention) => this.resolveMention(mention),
       },
     );
 
@@ -69,6 +107,11 @@ export class Group {
     const memberNames = config.members.map(id => this.resolveAgentName(id));
     this.workspace = new GroupWorkspace(config.id, config.name, dataRoot);
     this.workspace.initialize(memberNames, ownerName);
+
+    // 确保群组 workspace/ 目录存在
+    try {
+      fs.mkdirSync(this.workspaceDir, { recursive: true });
+    } catch { /* ignore */ }
 
     // 为初始成员挂载群组目录
     for (const memberId of config.members) {
@@ -88,14 +131,41 @@ export class Group {
     return agent?.name || agentId;
   }
 
+  /** 解析 @mention：先按 ID 匹配，再按名称匹配（不区分大小写） */
+  private resolveMention(mention: string): string | undefined {
+    // 1. 精确 ID 匹配
+    if (this.registry.get(mention)) return mention;
+
+    // 2. 按名称匹配（不区分大小写，支持空格转连字符）
+    const normalized = mention.toLowerCase().replace(/\s+/g, "-");
+    for (const agent of this.registry.list()) {
+      const nameNorm = agent.name.toLowerCase().replace(/\s+/g, "-");
+      if (nameNorm === normalized || agent.name.toLowerCase() === mention.toLowerCase()) {
+        return agent.id;
+      }
+    }
+
+    // 诊断：列出所有注册的 agent
+    const allAgents = this.registry.list().map(a => `${a.name}(id=${a.id})`).join(", ");
+    log.info("[%s] resolveMention('%s') failed. Registered agents: [%s]", this.id, mention, allAgents);
+    return undefined;
+  }
+
   // ---- 用户/群主入口 ----
 
   /**
    * 用户或群主发消息到 main 频道（触发唤醒起点）
    */
   postMessage(fromAgentId: string, content: string): GroupMessageV2 {
+    if (this.config.status === 'archived') {
+      throw new Error(`群组 ${this.config.name} 已归档，无法发送消息`);
+    }
+    if (this.config.status === 'completed') {
+      throw new Error(`群组 ${this.config.name} 已完成，无法发送消息。如需继续请先恢复为活跃状态`);
+    }
     const msg = this.ctxV2.append(fromAgentId, content, "main");
     this.persistMessage(msg, "main");
+    this.writeToGroupDb(msg, "main");
     return msg;
   }
 
@@ -112,6 +182,7 @@ export class Group {
   postToTalk(talkId: string, fromAgentId: string, content: string): GroupMessageV2 {
     const msg = this.ctxV2.append(fromAgentId, content, talkId);
     this.persistMessage(msg, talkId);
+    this.writeToGroupDb(msg, talkId);
     return msg;
   }
 
@@ -125,6 +196,7 @@ export class Group {
       : `[Talk ${talkId} 结论]`;
     const msg = this.ctxV2.append(fromAgentId, `${header}\n\n${summary}`, "main");
     this.persistMessage(msg, "main");
+    this.writeToGroupDb(msg, "main");
     return msg;
   }
 
@@ -137,7 +209,52 @@ export class Group {
 
   /** 注入本地过滤引擎到 WakeSystem */
   setLocalFilter(filter: import("./local-filter.js").LocalFilterEngine): void {
+    this._localFilter = filter;
     this.wakeSystem.setLocalFilter(filter);
+  }
+
+  /** 群组级自定义筛选 prompt（null 表示使用默认） */
+  private _screenerPrompt: string | null = null;
+  private _localFilter: import("./local-filter.js").LocalFilterEngine | null = null;
+
+  get screenerPrompt(): string | null {
+    return this._screenerPrompt;
+  }
+
+  setScreenerPrompt(prompt: string | null): void {
+    this._screenerPrompt = prompt;
+  }
+
+  /** 注入 Agent 响应回调到 WakeSystem（用于广播到前端） */
+  setOnAgentResponse(cb: (groupId: string, agentId: string, content: string, tag: string) => void): void {
+    this.wakeSystem.setOnAgentResponse(cb);
+  }
+
+  setOnAgentEvent(cb: import("./wake-system.js").WakeSystemConfig["onAgentEvent"]): void {
+    this.wakeSystem.setOnAgentEvent(cb);
+  }
+
+  setOnQueueChange(cb: import("./wake-system.js").WakeSystemConfig["onQueueChange"]): void {
+    this.wakeSystem.setOnQueueChange(cb);
+  }
+
+  /** 获取当前唤醒队列的快照（含正在处理中的 Agent） */
+  getWakeQueue(): ReturnType<WakeSystem["getQueue"]> {
+    return this.wakeSystem.getQueue();
+  }
+
+  pauseWakeSystem(): void { this.wakeSystem.pause(); }
+  resumeWakeSystem(): void { this.wakeSystem.resume(); }
+  clearWakeQueue(): void { this.wakeSystem.clearQueue(); }
+
+  /** 设置 Agent 活跃状态 */
+  setAgentStatus(agentId: string, status: "idle" | "processing"): void {
+    this.ctxV2.setAgentStatus(agentId, status);
+  }
+
+  /** 获取所有 Agent 活跃状态 */
+  getActiveStatuses(): import("./group-context-v2.js").AgentActiveStatus[] {
+    return this.ctxV2.getActiveStatuses();
   }
 
   // ---- 兼容旧 API ----
@@ -220,8 +337,23 @@ export class Group {
     }));
   }
 
+  /** 获取最近 N 条群组消息（用于审核上下文） */
+  getRecentMessages(count: number): GroupMessageV2[] {
+    const all = this.ctxV2.getMessages()
+    return all.slice(-count)
+  }
+
+  /** 获取 @ 指定 Agent 的消息（用于审核上下文） */
+  getMentionsFor(agentId: string): GroupMessageV2[] {
+    return this.ctxV2.getMessages().filter(msg =>
+      msg.mentions.includes(agentId) || msg.mentions.includes("all")
+    )
+  }
+
   injectMessage(fromAgentId: string, content: string): void {
-    this.ctxV2.append(fromAgentId, content, "main");
+    const msg = this.ctxV2.append(fromAgentId, content, "main");
+    this.persistMessage(msg, "main");
+    this.writeToGroupDb(msg, "main");
   }
 
   getOwner(): Agent | undefined {
@@ -249,17 +381,33 @@ export class Group {
         );
         log.info("[%s] BOOTSTRAP injected for %s in group context", this.id, agentId);
       }
+
+      // 同步 MEMBERS.md
+      this.workspace.writeMembers(
+        this.config.members.map(id => this.resolveAgentName(id)),
+        this.resolveAgentName(this.config.owner),
+      );
     }
   }
 
   removeMember(agentId: string): void {
     this.unmountGroupForAgent(agentId);
     this.config.members = this.config.members.filter(id => id !== agentId);
+
+    // 同步 MEMBERS.md
+    this.workspace.writeMembers(
+      this.config.members.map(id => this.resolveAgentName(id)),
+      this.resolveAgentName(this.config.owner),
+    );
   }
 
   /** 将群组 workspace 挂载到 agent 的沙箱容器 */
   private async mountGroupForAgent(agentId: string): Promise<void> {
     try {
+      // Docker 不可用时跳过挂载
+      const dockerOk = await ContainerPool.checkDockerAvailable();
+      if (!dockerOk) return;
+
       const agent = this.registry.get(agentId);
       const sandboxRunner = (agent as any)?.sandboxRunner;
       if (sandboxRunner) {
@@ -275,6 +423,10 @@ export class Group {
   /** 从 agent 的沙箱容器卸载群组 workspace */
   private async unmountGroupForAgent(agentId: string): Promise<void> {
     try {
+      // Docker 不可用时跳过卸载
+      const dockerOk = await ContainerPool.checkDockerAvailable();
+      if (!dockerOk) return;
+
       const agent = this.registry.get(agentId);
       const sandboxRunner = (agent as any)?.sandboxRunner;
       if (sandboxRunner) {
@@ -297,7 +449,7 @@ export class Group {
     return mem;
   }
 
-  /** 获取所有成员的画像摘要（姓名 + JOB 摘要） */
+  /** 获取所有成员的画像摘要（姓名 + JOB + SOUL） */
   getMemberProfiles(): import("../conversation/prompt-builder.js").MemberProfile[] {
     const profiles: import("../conversation/prompt-builder.js").MemberProfile[] = [];
     for (const memberId of this.config.members) {
@@ -313,15 +465,26 @@ export class Group {
         if (nameMatch) name = nameMatch[1].trim();
       }
 
-      // 从 JOB.md 提取专注领域
+      // 从 JOB.md 提取专注领域 + 能力
       const job = agentFiles.readJob();
       let role = "成员";
+      let capabilities = "";
       if (job) {
         const roleMatch = job.match(/##\s*专注领域\s*\n+([^\n#]+)/);
         if (roleMatch) role = roleMatch[1].trim();
+        const capMatch = job.match(/##\s*(?:核心能力|技能|擅长|能力)\s*\n+([\s\S]*?)(?=\n##|$)/);
+        if (capMatch) capabilities = capMatch[1].trim().slice(0, 200);
       }
 
-      profiles.push({ id: memberId, name, role });
+      // 从 SOUL.md 提取性格摘要
+      const soul = agentFiles.readSoul();
+      let personality = "";
+      if (soul) {
+        // 取前 200 字符作为性格摘要
+        personality = soul.replace(/^#[^\n]*\n*/gm, "").trim().slice(0, 200);
+      }
+
+      profiles.push({ id: memberId, name, role, capabilities: capabilities || undefined, personality: personality || undefined });
     }
     return profiles;
   }
@@ -329,6 +492,40 @@ export class Group {
   /** Set GroupManager reference for context persistence */
   setGroupManager(mgr: import("./manager.js").GroupManager): void {
     this._groupManager = mgr;
+  }
+
+  /** Compute which agents can see a message based on its tag */
+  computeVisibility(tag: string): string[] {
+    if (tag === "main" || tag === "system") {
+      return [...this.config.members];
+    }
+    // talk message — only talk members visible
+    const talk = this.ctxV2.getTalk(tag);
+    return talk ? talk.members : [];
+  }
+
+  /** Write a message to GroupDB with computed visibility and sync to agent DBs */
+  private writeToGroupDb(msg: GroupMessageV2, tag: string): void {
+    this.groupDb.insertMessage(
+      msg.id, tag, msg.fromAgentId, msg.content, msg.timestamp,
+      this.computeVisibility(tag),
+    );
+    this.syncToAgentDbs(msg, tag);
+  }
+
+  /** Sync a message to all visible agent DBs */
+  private syncToAgentDbs(msg: GroupMessageV2, tag: string): void {
+    const visibleTo = this.computeVisibility(tag);
+    for (const agentId of visibleTo) {
+      const mem = this.getAgentMemory(agentId);
+      mem.syncMessages([{
+        msgId: msg.id,
+        tag: msg.tag,
+        fromAgentId: msg.fromAgentId,
+        content: msg.content,
+        timestamp: msg.timestamp,
+      }]);
+    }
   }
 
   /** Persist a message to context.jsonl */
@@ -340,5 +537,21 @@ export class Group {
       tag,
       timestamp: msg.timestamp,
     });
+  }
+
+  /** 释放 SQLite 等资源（测试清理时使用） */
+  setStatus(status: 'active' | 'completed' | 'archived'): void {
+    (this.config as any).status = status;
+  }
+
+  dispose(): void {
+    this.wakeSystem?.pause();
+    this.wakeSystem?.clearQueue();
+    // Close all per-agent SQLite databases before closing the main GroupDB
+    for (const [, mem] of this.agentMemories) {
+      try { mem.close(); } catch { /* ignore */ }
+    }
+    this.agentMemories.clear();
+    try { this.groupDb.close(); } catch { /* ignore */ }
   }
 }

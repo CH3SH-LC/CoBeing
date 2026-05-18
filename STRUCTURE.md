@@ -1,6 +1,6 @@
 # CoBeing 项目结构
 
-> 最后更新：2026-05-18 | Phase 0-9 完成 + 三层记忆架构 | 281 测试用例（全部通过）
+> 最后更新：2026-05-18 | Phase 0-9 完成 + 三层记忆架构 + 审核管道 | 281 测试用例（全部通过）
 
 ---
 
@@ -159,7 +159,8 @@ packages/
         │   ├── filter-prompt.ts         #     过滤层 prompt 模板
         │   ├── host-tools.ts            #     群主专属工具（6 个 host-* 工具）
         │   ├── agent-memory.ts          #     AgentMemory 群组内 Agent 记忆管理
-        │   └── current-md.ts            #     CurrentMD 对话快照持久化
+        │   ├── current-md.ts            #     CurrentMD 对话快照持久化
+        │   └── review-pipeline.ts       #     ReviewPipeline 审核管道核心逻辑
         │
         ├── tools/                       #   工具系统
         │   ├── registry.ts              #     ToolRegistry 工具注册
