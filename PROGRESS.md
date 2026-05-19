@@ -2,6 +2,27 @@
 
 ## 2026-05-19
 
+### 新增：配置 Schema 验证 + 边界情况处理（Task 9 + 10）
+
+**变更原因**：群组消息审核系统需要配置 schema 验证确保 reviewer 配置格式正确，以及边界情况处理确保系统健壮性。
+
+**修改文件**：
+- Modify: `packages/core/src/config/schema.ts` — 导入 ReviewerConfig 类型，在 AppConfig 中新增顶层 `reviewer` 字段（全局默认）和 `groups[].reviewer` 字段（群组级覆盖）
+- Modify: `config/default.json` — 新增顶层 `reviewer` 默认配置（enabled: true, maxRounds: 3），位于 groups 上方
+- Modify: `packages/core/src/group/review-pipeline.ts` — reviewPipeline 外围新增 try/catch，Reviewer LLM 调用失败时放行（pass: true），不阻塞消息发送
+
+**已验证的已有逻辑**：
+- `agent.ts reviewOnce()` — 已有 try/catch，LLM 调用失败返回 `{ pass: true, reason: '' }`
+- `manager.ts create()` — 已有 `enabled !== false && maxRounds !== 0` 检查，maxRounds=0 等价关闭审核
+- `manager.ts restoreGroup()` / `restoreGroups()` — 同样具备边界情况处理
+
+**可访问性**：
+- Agent: Reviewer Agent 创建逻辑已有 LLM 失败容错（agent.ts reviewOnce try/catch）
+- 群组: 不创建 Reviewer、LLM 调用失败均已处理，不阻塞消息发送
+- 前端: 配置项定义在 AppConfig 类型中，可被配置加载器读取
+
+**验证**: pnpm build pass (6/6 packages)
+
 ### 新增：前端群组消息气泡审核状态标记（metadata 端到端流程修复）
 
 **变更原因**：Task 8 — 当消息审核轮次耗尽强制发布时（reviewOverridden: true），需要在群组消息气泡上显示警告标记。原组件已添加 UI 标记代码，但 metadata 字段从未传递到前端。

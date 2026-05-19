@@ -445,7 +445,7 @@ export class Agent {
       this.toolRegistry.register(makeTalkCloseTool(getGroup));
     }
     if (!existing.includes("group-send")) {
-      this.toolRegistry.register(makeGroupSendTool(getGroup));
+      this.toolRegistry.register(makeGroupSendTool(getGroup, () => this));
     }
     if (!existing.includes("group-update-progress")) {
       this.toolRegistry.register(makeGroupUpdateProgressTool(getGroup));

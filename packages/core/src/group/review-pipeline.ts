@@ -48,7 +48,13 @@ export async function reviewPipeline(
     groupProgressMd: progressMd,
   }
 
-  const reviewResult = await reviewer.reviewOnce(input)
+  let reviewResult: ReviewResult
+  try {
+    reviewResult = await reviewer.reviewOnce(input)
+  } catch (err: any) {
+    // Reviewer LLM 调用失败时不阻塞消息发送
+    reviewResult = { pass: true, reason: '' }
+  }
   const retryCount = ctx.reviewRetryCount + 1
 
   return { result: reviewResult, retryCount }

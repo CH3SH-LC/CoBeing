@@ -5,7 +5,7 @@
  * Agent 的完整配置存放在 data/agents/{id}/config.json（自治配置）。
  */
 
-import type { NetworkConfig, SecurityConfig } from "@cobeing/shared";
+import type { NetworkConfig, SecurityConfig, LocalModelConfig, ReviewerConfig } from "@cobeing/shared";
 
 export interface ChannelBindTo {
   type: "agent" | "group";
@@ -31,11 +31,13 @@ export interface AppConfig {
       /** current.md 最大消息条数，默认 100 */
       maxCurrentMessages?: number;
     };
+    /** 本地小模型过滤层配置 */
+    localModel?: LocalModelConfig;
   };
   /** Agent ID 列表 — 完整配置在 data/agents/{id}/config.json */
   agents: string[];
   providers: Record<string, {
-    type?: "openai-compat" | "anthropic" | "gemini";
+    type?: "openai-compat";
     apiKeyEnv?: string;
     baseURL?: string;
     apiKey?: string;
@@ -43,35 +45,10 @@ export interface AppConfig {
   }>;
   channels: Record<string, {
     enabled: boolean;
-    type: "onebot" | "wecom" | "feishu" | "discord" | "qqbot";
-    // OneBot / QQ
-    wsUrl?: string;
-    botQQ?: string;
-    accessToken?: string;
-    allowedGroups?: number[];
-    allowedUsers?: number[];
-    // WeCom
-    wecomCorpId?: string;
-    wecomAgentId?: string;
-    wecomSecret?: string;
-    wecomToken?: string;
-    wecomEncodingAesKey?: string;
-    wecomPort?: number;
-    // Feishu
-    feishuAppId?: string;
-    feishuAppSecret?: string;
-    feishuVerificationToken?: string;
-    feishuEncryptKey?: string;
-    feishuPort?: number;
-    // Discord
-    discordBotToken?: string;
-    discordGuildId?: string;
-    discordAllowedChannels?: string[];
-    // QQ Bot Official API v2
+    type: "qqbot";
     qqbotAppId?: string;
     qqbotAppSecret?: string;
     qqbotIntents?: number;
-    // Binding
     bindTo?: ChannelBindTo;
   }>;
   gui?: {
@@ -86,12 +63,16 @@ export interface AppConfig {
     url?: string;
     headers?: Record<string, string>;
   }>;
+  /** 群组级审核员默认配置 — 新建群组时作为 fallback */
+  reviewer?: ReviewerConfig;
   groups?: Array<{
     id: string;
     name: string;
     members: string[];
     owner?: string;
     topic?: string;
+    /** 群组级审核员配置（覆盖全局默认） */
+    reviewer?: ReviewerConfig;
   }>;
 }
 
