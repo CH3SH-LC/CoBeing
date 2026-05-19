@@ -2,6 +2,40 @@
 
 ## 2026-05-19
 
+### 大更新：模块化并行工作流系统
+
+**变更原因**：群组协作需要支持并行工作、阶段驱动、接口依赖联动和模块化意识。
+
+**设计文档**: `docs/superpowers/specs/2026-05-19-modular-workflow-design.md`
+**实施计划**: `docs/superpowers/plans/2026-05-19-modular-workflow-plan.md`
+
+**核心变更**：
+
+1. **WakeSystem 并行入队**: enqueueMention 允许 processing 中的 Agent 重新入队，其他 Agent 或 Host 可以在 Agent 工作时 @mention 它
+2. **PLAN.md 重写**: 阶段驱动（含模块依赖表、阶段计划、自检、用户审核截断），删除预计时间
+3. **PROGRESS.md 重写**: 时间优先工作日志（日期→时间→@谁+做了什么）。新增 appendProgressEntry 方法
+4. **TODOboard 三种触发**: time（定时）/ 0time（扫描即触发）/ condition（目标 Agent 发言→检查条件）
+5. **模板更新**: SOUL.md 协作方式、AGENTS.md 模块化规则、prompt-builder Host 模块化段
+
+**修改文件（13个）**:
+- Modify: `wake-system.ts` — processing Agent 重新入队
+- Modify: `workspace.ts` — writePlan/writeProgress 模板重写 + appendProgressEntry
+- Modify: `todo/types.ts` — TodoItem 新增 triggerMode/condition/groupId；status 新增 expired
+- Modify: `todo/store.ts` — 新增 getZeroTimeTodos/getConditionTodos
+- Modify: `todo/group-scanner.ts` — 0time 扫描+重建 / condition 触发 / formatConditionTriggerMessage
+- Modify: `todo/tools.ts` — todo-add 支持 triggerMode/conditionType/targetAgents/check/onFail
+- Modify: `host-tools.ts` — host-decompose-task 默认 0time，SubTask 扩展新字段
+- Modify: `group.ts` — 新增 _onMessage 回调和 setOnMessage，postMessage 触发 condition 扫描
+- Modify: `manager.ts` — 新增 setOnMessage 方法
+- Modify: `ws-server.ts` — 集成 condition TODO 扫描回调
+- Modify: `prompt-builder.ts` — 模块化协作提示 + Host 模块化工作流段
+- Modify: `SOUL.md` — 新增协作方式段
+- Modify: `AGENTS.md` — 新增模块化工作规则段
+
+**验证**: pnpm build 6pkgs pass, pnpm test 282 pass
+
+---
+
 ### 新增：群组模块化接口系统（INTERFACE.md）
 
 **变更原因**：多智能体协作中，不同 Agent 产出之间联系弱，缺乏结构化接口文档。新增 INTERFACE.md 作为群组级接口登记表。
