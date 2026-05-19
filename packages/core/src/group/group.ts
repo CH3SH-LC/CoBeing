@@ -395,6 +395,9 @@ export class Group {
         this.config.members.map(id => this.resolveAgentName(id)),
         this.resolveAgentName(this.config.owner),
       );
+
+      // 在 INTERFACE.md 中追加新成员的章节
+      this.workspace.appendInterfaceSection(this.resolveAgentName(agentId));
     }
   }
 

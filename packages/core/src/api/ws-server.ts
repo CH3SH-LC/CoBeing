@@ -326,6 +326,7 @@ export class CoreWSServer {
                 plan: workspace.plan,
                 progress: workspace.progress,
                 experienceSummary,
+                interface: workspace.interface,
               },
               todos,
               group.config.owner,

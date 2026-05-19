@@ -8,7 +8,7 @@
  * - PROGRESS.md: 当前进度
  * - PLAN.md: 任务分工和计划
  */
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "@cobeing/shared";
 
@@ -23,6 +23,7 @@ export interface GroupWorkspacePaths {
   plan: string;
   conversations: string;
   experience: string;
+  interface: string;
 }
 
 export class GroupWorkspace {
@@ -44,6 +45,7 @@ export class GroupWorkspace {
       plan: join(workspaceRoot, "PLAN.md"),
       conversations: join(workspaceRoot, "conversations"),
       experience: join(workspaceRoot, "EXPERIENCE.md"),
+      interface: join(workspaceRoot, "INTERFACE.md"),
     };
   }
 
@@ -63,6 +65,7 @@ export class GroupWorkspace {
     if (!existsSync(this.paths.progress)) this.writeProgress("");
     if (!existsSync(this.paths.plan)) this.writePlan("");
     if (!existsSync(this.paths.experience)) this.writeExperience();
+    if (!existsSync(this.paths.interface)) this.writeInterface('', members);
 
     logger.info(`[Group:${this.groupId}] Workspace initialized at ${this.paths.root}`);
   }
@@ -274,6 +277,32 @@ _记录哪些协作方式效果好_
   }
 
   /**
+   * 写入 INTERFACE.md
+   */
+  writeInterface(content: string = '', memberNames?: string[]): void {
+    const template = content
+      || '# 群组接口\n\n' + (memberNames?.length ? memberNames.map(n => `## ${n}\n`).join('\n') : '');
+    writeFileSync(this.paths.interface, template, "utf-8");
+  }
+
+  /**
+   * 读取 INTERFACE.md
+   */
+  readInterface(): string | null {
+    if (!existsSync(this.paths.interface)) return null;
+    return readFileSync(this.paths.interface, "utf-8");
+  }
+
+  /**
+   * 追加 INTERFACE.md 章节（幂等）
+   */
+  appendInterfaceSection(agentName: string): void {
+    const current = this.readInterface() || '# 群组接口\n';
+    if (current.includes(`## ${agentName}`)) return;
+    appendFileSync(this.paths.interface, `\n## ${agentName}\n`, "utf-8");
+  }
+
+  /**
    * 读取 EXPERIENCE.md 摘要（最近的内容，截取前 500 字）
    */
   readExperienceSummary(): string | null {
@@ -369,6 +398,33 @@ _记录哪些协作方式效果好_
     this.writePlan(newPlan);
   }
 
+  /** 泛型写文件（限 structure / plan / task / interface） */
+  writeFile(name: string, content: string): void {
+    const paths: Record<string, string> = {
+      structure: this.paths.structure,
+      plan: this.paths.plan,
+      task: this.paths.task,
+      interface: this.paths.interface,
+    };
+    const filePath = paths[name];
+    if (!filePath) throw new Error(`Unknown workspace file: ${name}`);
+    writeFileSync(filePath, content, "utf-8");
+    logger.info(`[Group:${this.groupId}] Wrote ${name}`);
+  }
+
+  /** 泛型读文件（限 structure / plan / task / interface） */
+  readFile(name: string): string | null {
+    const paths: Record<string, string> = {
+      structure: this.paths.structure,
+      plan: this.paths.plan,
+      task: this.paths.task,
+      interface: this.paths.interface,
+    };
+    const filePath = paths[name];
+    if (!filePath || !existsSync(filePath)) return null;
+    return readFileSync(filePath, "utf-8");
+  }
+
   /**
    * 获取工作空间摘要
    */
@@ -379,6 +435,7 @@ _记录哪些协作方式效果好_
     plan: string | null;
     structure: string | null;
     experience: string | null;
+    interface: string | null;
   } {
     return {
       members: this.readMembers(),
@@ -387,6 +444,7 @@ _记录哪些协作方式效果好_
       plan: this.readPlan(),
       structure: this.readStructure(),
       experience: this.readExperience(),
+      interface: this.readInterface(),
     };
   }
 }
