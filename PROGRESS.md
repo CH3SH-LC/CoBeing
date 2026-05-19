@@ -1,5 +1,28 @@
 # CoBeing 开发进度记录
 
+## 2026-05-19
+
+### 新增：前端群组消息气泡审核状态标记（metadata 端到端流程修复）
+
+**变更原因**：Task 8 — 当消息审核轮次耗尽强制发布时（reviewOverridden: true），需要在群组消息气泡上显示警告标记。原组件已添加 UI 标记代码，但 metadata 字段从未传递到前端。
+
+**根因分析**：Group.postMessage 在 ctxV2 中存储了 metadata（含 reviewOverridden），但 WebSocket 广播 group_message 时未包含 metadata 字段，LogMessage 类型也无 metadata 字段，导致前端永远读不到。
+
+**修改文件**：
+- Modify: `packages/core/src/group/group.ts` — 添加 `_onMessageBroadcast` 回调和 `setOnMessageBroadcast` 方法；`postMessage` 中调用回调传递 metadata
+- Modify: `packages/core/src/group/manager.ts` — 添加 `_onMessageBroadcast` 字段，`setOnMessageBroadcast` 传播到所有群组；新创建和恢复群组也传播
+- Modify: `packages/core/src/api/ws-server.ts` — `setOnMessageBroadcast` 回调广播 `group_message` 包含 metadata；现有两处 `group_message` 广播也增加 `metadata: undefined`
+- Modify: `gui-v2/src/lib/types.ts` — `LogMessage` 类型增加 `metadata?: Record<string, unknown>`
+- Modify: `gui-v2/src/hooks/useWebSocket.ts` — `group_message` 处理器将 metadata 传入 `addMessage`
+- Modify: `gui-v2/src/components/chat/GroupMessageBubble.tsx` — 将 `(msg as any).metadata` 改为类型安全的 `msg.metadata`
+
+**可访问性**：
+- Agent: 无变更，仅前端视觉展示
+- 群组: reviewOverridden 标记通过 WS group_message 广播到前端，气泡自动显示标记
+- 前端: GroupMessageBubble 使用 `msg.metadata?.reviewOverridden` 安全读取
+
+**验证**: pnpm build pass, gui-v2 build pass
+
 ## 2026-05-18
 
 ### 新增：前端日志事件 — 后端 WS 广播审核事件 + 前端 useWebSocket 处理

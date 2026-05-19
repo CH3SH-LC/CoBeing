@@ -299,7 +299,7 @@ export function useWebSocket(url = "ws://localhost:18765") {
         }
 
         case "group_message": {
-          const gm = msg.payload as { groupId: string; fromAgentId: string; content: string; mentions: string[]; timestamp: number };
+          const gm = msg.payload as { groupId: string; fromAgentId: string; content: string; mentions: string[]; timestamp: number; metadata?: Record<string, unknown> };
           // Mark user message as done when group agent responds
           if (gm.groupId) updateMsgStatus(gm.groupId, "done");
           const agents = useAgentsStore.getState().agents;
@@ -317,6 +317,7 @@ export function useWebSocket(url = "ws://localhost:18765") {
             content: gm.content,
             timestamp: gm.timestamp,
             senderId: gm.fromAgentId,
+            metadata: gm.metadata,
           }, gm.groupId);
           break;
         }

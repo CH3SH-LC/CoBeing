@@ -29,6 +29,7 @@ export class GroupManager {
   private _onAgentResponse?: (groupId: string, agentId: string, content: string, tag: string) => void;
   private _onAgentEvent?: import("./wake-system.js").WakeSystemConfig["onAgentEvent"];
   private _onQueueChange?: import("./wake-system.js").WakeSystemConfig["onQueueChange"];
+  private _onMessageBroadcast?: (groupId: string, msg: import("./group-context-v2.js").GroupMessageV2) => void;
 
   constructor(
     private registry: AgentRegistry,
@@ -62,6 +63,9 @@ export class GroupManager {
     }
     if (this._onQueueChange) {
       group.setOnQueueChange(this._onQueueChange);
+    }
+    if (this._onMessageBroadcast) {
+      group.setOnMessageBroadcast(this._onMessageBroadcast);
     }
 
     // 创建 Reviewer Agent（如果启用）
@@ -150,6 +154,14 @@ export class GroupManager {
     this._onQueueChange = cb;
     for (const group of this.groups.values()) {
       group.setOnQueueChange(cb);
+    }
+  }
+
+  /** 设置消息广播回调（自动应用到所有群组） */
+  setOnMessageBroadcast(cb: (groupId: string, msg: import("./group-context-v2.js").GroupMessageV2) => void): void {
+    this._onMessageBroadcast = cb;
+    for (const group of this.groups.values()) {
+      group.setOnMessageBroadcast(cb);
     }
   }
 
@@ -525,6 +537,9 @@ export class GroupManager {
         }
         if (this._onQueueChange) {
           group.setOnQueueChange(this._onQueueChange);
+        }
+        if (this._onMessageBroadcast) {
+          group.setOnMessageBroadcast(this._onMessageBroadcast);
         }
 
         // 恢复 Reviewer Agent（如果启用）

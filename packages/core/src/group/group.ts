@@ -156,16 +156,17 @@ export class Group {
   /**
    * 用户或群主发消息到 main 频道（触发唤醒起点）
    */
-  postMessage(fromAgentId: string, content: string): GroupMessageV2 {
+  postMessage(fromAgentId: string, content: string, metadata?: Record<string, unknown>): GroupMessageV2 {
     if (this.config.status === 'archived') {
       throw new Error(`群组 ${this.config.name} 已归档，无法发送消息`);
     }
     if (this.config.status === 'completed') {
       throw new Error(`群组 ${this.config.name} 已完成，无法发送消息。如需继续请先恢复为活跃状态`);
     }
-    const msg = this.ctxV2.append(fromAgentId, content, "main");
+    const msg = this.ctxV2.append(fromAgentId, content, "main", metadata);
     this.persistMessage(msg, "main");
     this.writeToGroupDb(msg, "main");
+    this._onMessageBroadcast?.(this.id, msg);
     return msg;
   }
 
@@ -228,6 +229,13 @@ export class Group {
   /** 注入 Agent 响应回调到 WakeSystem（用于广播到前端） */
   setOnAgentResponse(cb: (groupId: string, agentId: string, content: string, tag: string) => void): void {
     this.wakeSystem.setOnAgentResponse(cb);
+  }
+
+  /** 消息广播回调 — postMessage 时通知 WS server */
+  private _onMessageBroadcast?: (groupId: string, msg: GroupMessageV2) => void;
+
+  setOnMessageBroadcast(cb: (groupId: string, msg: GroupMessageV2) => void): void {
+    this._onMessageBroadcast = cb;
   }
 
   setOnAgentEvent(cb: import("./wake-system.js").WakeSystemConfig["onAgentEvent"]): void {

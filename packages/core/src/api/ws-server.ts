@@ -86,6 +86,7 @@ export class CoreWSServer {
           content,
           mentions: extractMentions(content),
           timestamp: Date.now(),
+          metadata: undefined,
         },
       });
     });
@@ -109,6 +110,21 @@ export class CoreWSServer {
       this.broadcast({
         type: "wake_queue_update",
         payload: { groupId, queue: queueData.queue, processing: queueData.processing, processingAgents: queueData.processingAgents, timestamp: Date.now() },
+      });
+    });
+
+    // 设置消息广播回调 — postMessage 时广播 metadata（reviewOverridden 等）
+    gm.setOnMessageBroadcast((groupId, msg) => {
+      this.broadcast({
+        type: "group_message",
+        payload: {
+          groupId,
+          fromAgentId: msg.fromAgentId,
+          content: msg.content,
+          mentions: msg.mentions,
+          timestamp: msg.timestamp,
+          metadata: msg.metadata,
+        },
       });
     });
   }
@@ -442,6 +458,7 @@ export class CoreWSServer {
                 content: response.content,
                 mentions: extractMentions(response.content),
                 timestamp: Date.now(),
+                metadata: undefined,
               },
             });
           }
