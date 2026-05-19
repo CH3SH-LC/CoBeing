@@ -2,6 +2,52 @@
 
 ## 2026-05-19
 
+### 大更新：群组消息审核系统（审核 Agent 管道）
+
+**变更原因**：智能体在群组中可能未实际工作就汇报进度（偷懒/画饼）、工作方法不符合要求。引入群组级审核系统，每条发往群组的消息需经 Reviewer Agent 审查通过后方可发布。
+
+**设计文档**: `docs/superpowers/specs/2026-05-18-group-message-review-design.md`
+**实施计划**: `docs/superpowers/plans/2026-05-18-group-message-review-plan.md`
+
+**核心流程**：
+- Agent → group-send 工具 → [审核管道拦截] → Reviewer 审查 → 通过发布 / 不通过返回反馈
+- 不通过时在同一唤醒周期内迭代修正（默认最多 3 轮）
+- 轮次耗尽后强制发布，带 ⚠️ 标记
+- 审核反馈自动写入 Agent 的 MEMORY.md 作为经验
+
+**新增文件**：
+- Create: `packages/shared/src/review.ts` — 审核相关类型（ReviewerConfig, AgentTrace, ReviewInput, ReviewResult, ReviewLogEvent）
+- Create: `packages/core/src/agent/wake-session.ts` — WakeSession 轨迹记录器（thinking + toolCalls + finalMessage）
+- Create: `packages/core/src/group/review-pipeline.ts` — 审核管道核心（组装 ReviewInput → 调用 Reviewer → 返回结果）
+- Create: `packages/core/src/group/review-experience.ts` — 审核反馈自动经验注入
+
+**修改文件**：
+- Modify: `packages/shared/src/types.ts` — GroupConfig 新增 reviewer 字段；AgentConfig 新增 isReviewer 标记
+- Modify: `packages/shared/src/index.ts` — 导出 review 模块
+- Modify: `packages/core/src/agent/agent.ts` — 集成 WakeSession；新增 reviewOnce/buildReviewPrompt/parseReviewResult 方法
+- Modify: `packages/core/src/agent/wake-session.ts` — WakeSession 类
+- Modify: `packages/core/src/conversation/conversation-loop.ts` — 记录 thinking 和 toolCall 到 wakeSession
+- Modify: `packages/core/src/group/group.ts` — 新增 reviewerAgent 引用、getRecentMessages/getMentionsFor、_onMessageBroadcast 回调
+- Modify: `packages/core/src/group/manager.ts` — create/delete/archive/restore 自动管理 Reviewer Agent 生命周期
+- Modify: `packages/core/src/agent/paths.ts` — AgentFiles 新增 appendMemoryIndex 方法
+- Modify: `packages/core/src/tools/group-tools.ts` — group-send 增加审核拦截（动态 import 避免循环依赖）
+- Modify: `packages/core/src/api/ws-server.ts` — 新增 emitReviewLog 广播；group_message 传递 metadata
+- Modify: `packages/core/src/config/schema.ts` — AppConfig 和 groups[] 新增 reviewer 配置验证
+- Modify: `packages/core/src/runtime.ts` — 传递 provider 给 GroupManager
+- Modify: `config/default.json` — 新增 reviewer 默认配置（enabled: true, maxRounds: 3）
+- Modify: `gui-v2/src/hooks/useWebSocket.ts` — 处理 review_log 事件 + group_message metadata
+- Modify: `gui-v2/src/lib/types.ts` — LogMessage 新增 metadata 字段
+- Modify: `gui-v2/src/components/chat/GroupMessageBubble.tsx` — 显示 ⚠️ 审核覆盖标记
+
+**验证**: pnpm build 6pkgs pass, pnpm test 282 pass, gui-v2 build pass
+
+**Agent 可访问性**：
+- 审核功能通过 group-send 工具自动生效，无需 Agent 主动配置
+- Reviewer Agent 标记 isReviewer=true，WakeSystem 自动跳过其 @mention 唤醒
+- 审核开关通过群组 config.json 的 reviewer.enabled 控制
+
+
+
 ### 新增：配置 Schema 验证 + 边界情况处理（Task 9 + 10）
 
 **变更原因**：群组消息审核系统需要配置 schema 验证确保 reviewer 配置格式正确，以及边界情况处理确保系统健壮性。
