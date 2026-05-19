@@ -1,40 +1,59 @@
 /**
- * 群组通信工具 — group-speak, talk-create, talk-send, talk-read
+ * 群组通信工具 — talk-create, talk-send, talk-read, group-members
  * Phase 8.3: 使用 GroupContextV2 替代旧 GroupContext
  */
-import type { Tool, ToolContext, ToolResult } from "@myagents/shared";
+import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 import type { Group } from "../group/group.js";
+import type { Agent } from "../agent/agent.js";
+import { createLogger } from "@cobeing/shared";
+import { injectReviewExperience } from "../group/review-experience.js";
+
+const log = createLogger("group-tools");
 
 type GroupGetter = (groupId: string) => Group | undefined;
+type AgentGetter = (agentId: string) => Agent | undefined;
 
-// ---- group-speak ----
+// ---- group-members ----
 
-export function makeGroupSpeakTool(getGroup: GroupGetter): Tool {
+export function makeGroupMembersTool(getGroup: GroupGetter, agentNameResolver?: (id: string) => string): Tool {
   return {
-    name: "group-speak",
-    description: "在群组 main 频道发言（所有人可见）。用 @agent-id 提及特定 Agent，@all 提及所有人。",
+    name: "group-members",
+    description: "查看群组内所有成员（包括 user 和所有 Agent）。返回成员 ID、名称和角色。",
     parameters: {
       type: "object",
       properties: {
         groupId: { type: "string", description: "群组 ID" },
-        message: { type: "string", description: "发言内容。可用 @agent-id 提及。" },
       },
-      required: ["groupId", "message"],
+      required: ["groupId"],
     },
-    async execute(params, context: ToolContext): Promise<ToolResult> {
+    async execute(params, _context: ToolContext): Promise<ToolResult> {
       const groupId = params.groupId as string;
-      const message = params.message as string;
       const group = getGroup(groupId);
 
       if (!group) {
         return { toolCallId: "", content: `未找到群组: ${groupId}`, isError: true };
       }
 
-      group.postMessage(context.agentId, message);
+      const resolve = agentNameResolver ?? ((id: string) => id);
+      const members = [
+        { id: "user", name: "用户", role: "用户" },
+        ...group.config.members.map(id => ({
+          id,
+          name: resolve(id),
+          role: "成员",
+        })),
+      ];
 
+      // 标记群主
+      if (group.config.owner) {
+        const owner = members.find(m => m.id === group.config.owner);
+        if (owner) owner.role = "群主";
+      }
+
+      const lines = members.map(m => `- ${m.name} (${m.id}) [${m.role}]`);
       return {
         toolCallId: "",
-        content: `已在 ${groupId} main 频道发言。`,
+        content: `群组 ${group.config.name} 成员列表:\n${lines.join("\n")}`,
       };
     },
   };
@@ -163,6 +182,267 @@ export function makeTalkReadTool(getGroup: GroupGetter): Tool {
         toolCallId: "",
         content: formatted || "(暂无消息)",
       };
+    },
+  };
+}
+
+// ---- talk-close ----
+
+export function makeTalkCloseTool(getGroup: GroupGetter): Tool {
+  return {
+    name: "talk-close",
+    description: "关闭私有讨论。自动生成讨论摘要并发回 main 频道，供群组所有成员知晓讨论结果。",
+    parameters: {
+      type: "object",
+      properties: {
+        groupId: { type: "string", description: "群组 ID" },
+        talkId: { type: "string", description: "讨论 ID" },
+        conclusion: { type: "string", description: "讨论结论或产出摘要" },
+      },
+      required: ["groupId", "talkId", "conclusion"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const groupId = params.groupId as string;
+      const talkId = params.talkId as string;
+      const group = getGroup(groupId);
+
+      if (!group) {
+        return { toolCallId: "", content: `未找到群组: ${groupId}`, isError: true };
+      }
+
+      const talk = group.ctxV2.getTalk(talkId);
+      if (!talk) {
+        return { toolCallId: "", content: `未找到讨论: ${talkId}`, isError: true };
+      }
+
+      // 获取讨论消息摘要
+      const msgs = group.ctxV2.getMessages().filter(m => m.tag === talkId);
+      const participantIds = [...new Set(msgs.map(m => m.fromAgentId))];
+      const topic = talk.topic || talkId;
+
+      // 向 main 频道发送结构化讨论总结
+      const summary = JSON.stringify({
+        type: "talk_summary",
+        talkId,
+        topic,
+        participants: participantIds,
+        conclusion: params.conclusion as string,
+        messageCount: msgs.length,
+        closedBy: context.agentId,
+        closedAt: new Date().toISOString(),
+      });
+
+      group.postMessage("system", summary);
+
+      log.info("[%s] Talk %s closed by %s, summary posted to main", groupId, talkId, context.agentId);
+      return {
+        toolCallId: "",
+        content: `讨论 "${topic}" 已关闭，摘要已发布到 main 频道。`,
+      };
+    },
+  };
+}
+
+// ---- group-send ----
+
+export function makeGroupSendTool(getGroup: GroupGetter, getAgent?: AgentGetter): Tool {
+  return {
+    name: "group-send",
+    description: "主动向群组 main 频道发送消息。用于主动求助、进度同步、阻塞上报等需要主动发起对话的场景。如果需要特定成员回应，使用 mention 参数 @对方。",
+    parameters: {
+      type: "object",
+      properties: {
+        groupId: { type: "string", description: "群组 ID" },
+        message: { type: "string", description: "消息内容" },
+        mention: { type: "string", description: "@mention 的目标（可选），如 @butler 或 @group-owner" },
+        context: { type: "string", description: "发送原因说明（仅日志记录，不进入消息内容）" },
+      },
+      required: ["groupId", "message"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const group = getGroup(params.groupId as string);
+      if (!group) return { toolCallId: "", content: `未找到群组: ${params.groupId}`, isError: true };
+
+      const mention = params.mention as string | undefined;
+      const msg = mention
+        ? `${mention} ${params.message}`
+        : (params.message as string);
+
+      // === 审核拦截：消息发送前经过 reviewPipeline 检查 ===
+      if (getAgent && group.reviewerAgent) {
+        const agent = getAgent(context.agentId);
+        if (agent && typeof (agent as any).reviewOnce === "function") {
+          const { reviewPipeline } = await import("../group/review-pipeline.js");
+          const ws = (globalThis as any).__cobeingWSServer;
+
+          const reviewCtx = {
+            agentId: context.agentId,
+            groupId: group.id,
+            reviewRetryCount: (context as any).reviewRetryCount ?? 0,
+          };
+
+          // 通知前端审核开始
+          ws?.emitReviewLog({ type: 'review_pending', agentId: context.agentId, groupId: group.id });
+
+          const { result, retryCount } = await reviewPipeline(group, agent, msg, reviewCtx);
+          (context as any).reviewRetryCount = retryCount;
+
+          if (result.pass) {
+            // 审核通过 → 正常发布
+            group.postMessage(context.agentId, msg);
+            log.info("[%s] %s message passed review", params.groupId, context.agentId);
+            ws?.emitReviewLog({ type: 'review_passed', agentId: context.agentId, groupId: group.id });
+            return { toolCallId: "", content: "消息已发送到群组。" };
+          }
+
+          const maxRounds = group.config.reviewer?.maxRounds ?? 3;
+          if (retryCount < maxRounds) {
+            // 未通过但可重试 — 注入经验
+            await injectReviewExperience(agent, group, result.reason, false).catch(() => {});
+            log.info("[%s] %s message rejected by review (attempt %d/%d)", params.groupId, context.agentId, retryCount, maxRounds);
+            return {
+              toolCallId: "",
+              content: `【审核未通过】原因：${result.reason}。请根据反馈修正后重新发送消息。还可重试 ${maxRounds - retryCount} 次。`,
+            };
+          }
+
+          // 轮次耗尽 → 强制发布，并注入经验
+          await injectReviewExperience(agent, group, result.reason, true).catch(() => {});
+          group.postMessage(context.agentId, msg, { reviewOverridden: true });
+          log.warn("[%s] %s message force-published after %d review rounds exhausted. Final reason: %s", params.groupId, context.agentId, retryCount, result.reason);
+          ws?.emitReviewLog({ type: 'review_failed_override', agentId: context.agentId, groupId: group.id, rounds: retryCount, reason: result.reason });
+          return {
+            toolCallId: "",
+            content: `消息已强制发送（经 ${retryCount} 轮审核未通过）。最终审核意见：${result.reason}。`,
+          };
+        }
+      }
+
+      // 审核关闭或 Agent 不支持审核 → 直接发布
+      group.postMessage(context.agentId, msg);
+      log.info("[%s] %s sent proactive message via group-send", params.groupId, context.agentId);
+
+      return { toolCallId: "", content: "消息已发送到群组。" };
+    },
+  };
+}
+
+// ---- group-update-progress ----
+
+export function makeGroupUpdateProgressTool(getGroup: GroupGetter): Tool {
+  return {
+    name: "group-update-progress",
+    description: "主动更新群组 PROGRESS.md 中的进度记录。完成阶段性工作后调用，让群组了解最新进展。",
+    parameters: {
+      type: "object",
+      properties: {
+        groupId: { type: "string", description: "群组 ID" },
+        summary: { type: "string", description: "已完成工作的描述" },
+        completedItems: {
+          type: "array",
+          items: { type: "string" },
+          description: "完成的具体事项列表（可选）",
+        },
+      },
+      required: ["groupId", "summary"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const group = getGroup(params.groupId as string);
+      if (!group) return { toolCallId: "", content: `未找到群组: ${params.groupId}`, isError: true };
+
+      const summary = params.summary as string;
+      const items = params.completedItems as string[] | undefined;
+
+      let content = `${context.agentId}: ${summary}`;
+      if (items && items.length > 0) {
+        content += "\n\n完成事项:\n" + items.map(i => `- [x] ${i}`).join("\n");
+      }
+
+      group.workspace.appendProgress(context.agentId, content);
+      group.postMessage(context.agentId, `## 进度更新\n\n${content}`);
+      log.info("[%s] %s updated progress via group-update-progress", params.groupId, context.agentId);
+
+      return { toolCallId: "", content: "进度已更新。" };
+    },
+  };
+}
+
+// ---- group-experience-add ----
+
+export function makeGroupExperienceAddTool(getGroup: GroupGetter): Tool {
+  return {
+    name: "group-experience-add",
+    description: "将协作过程中的关键决策、学到的教训或有效的协作模式写入群组 EXPERIENCE.md，供其他成员参考。",
+    parameters: {
+      type: "object",
+      properties: {
+        groupId: { type: "string", description: "群组 ID" },
+        section: {
+          type: "string",
+          description: "写入的章节: 关键决策 / 协作教训 / 有效模式",
+          enum: ["关键决策", "协作教训", "有效模式"],
+        },
+        entry: { type: "string", description: "经验内容" },
+      },
+      required: ["groupId", "section", "entry"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const group = getGroup(params.groupId as string);
+      if (!group) return { toolCallId: "", content: `未找到群组: ${params.groupId}`, isError: true };
+
+      group.workspace.appendExperience(
+        params.section as "关键决策" | "协作教训" | "有效模式",
+        `[${context.agentId}] ${params.entry}`,
+      );
+      log.info("[%s] %s added experience to %s", params.groupId, context.agentId, params.section);
+      return { toolCallId: "", content: `已记录到群组经验「${params.section}」。` };
+    },
+  };
+}
+
+// ---- group-experience-summarize ----
+
+export function makeGroupExperienceSummarizeTool(getGroup: GroupGetter): Tool {
+  return {
+    name: "group-experience-summarize",
+    description: "触发群组协作总结，将 EXPERIENCE.md 中的经验整理后发到 main 频道供全员参考。",
+    parameters: {
+      type: "object",
+      properties: {
+        groupId: { type: "string", description: "群组 ID" },
+      },
+      required: ["groupId"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const group = getGroup(params.groupId as string);
+      if (!group) return { toolCallId: "", content: `未找到群组: ${params.groupId}`, isError: true };
+
+      const experience = group.workspace.readExperience();
+      if (!experience || experience.trim().length === 0) {
+        return { toolCallId: "", content: "群组 EXPERIENCE.md 暂无内容。" };
+      }
+
+      // 提取各章节内容
+      const sections = ["关键决策", "协作教训", "有效模式"];
+      const summary: string[] = ["## 群组协作经验总结\n"];
+      for (const sec of sections) {
+        const regex = new RegExp(`## ${sec}[\\s\\S]*?(?=\\n## |$)`, "m");
+        const match = experience.match(regex);
+        if (match) {
+          const lines = match[0].split("\n").filter(l => l.startsWith("- "));
+          if (lines.length > 0) {
+            summary.push(`### ${sec}\n${lines.slice(-10).join("\n")}\n`);
+          }
+        }
+      }
+
+      if (summary.length <= 1) {
+        return { toolCallId: "", content: "群组经验中暂无条目。" };
+      }
+
+      group.postMessage(context.agentId, summary.join("\n"));
+      log.info("[%s] Experience summarized by %s", params.groupId, context.agentId);
+      return { toolCallId: "", content: "经验总结已发送到群组。" };
     },
   };
 }

@@ -442,6 +442,7 @@ export class GroupManager {
       owner: group.config.owner,
       topic: group.config.topic,
       status: group.config.status || 'active',
+      reviewer: group.config.reviewer,
     };
     fs.writeFileSync(configPath, JSON.stringify(data, null, 2) + "\n", "utf-8");
   }
