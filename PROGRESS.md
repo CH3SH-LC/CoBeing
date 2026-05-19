@@ -2,6 +2,15 @@
 
 ## 2026-05-19
 
+### 审计修复：saveGroup 持久化 + emitReviewLog 回调
+
+**问题 1**：`GroupManager.saveGroup()` 写 config.json 时漏掉 `reviewer` 字段 → 自定义配置无法持久化
+**问题 2**：`group-tools.ts` 审核逻辑中未调用 `emitReviewLog` → 前端审核日志事件永不触发
+**修改文件**：`manager.ts`（saveGroup 增加 reviewer）、`group-tools.ts`（三个审核分支加入 emitReviewLog）
+**验证**: pnpm build pass, pnpm test 282 pass
+
+---
+
 ### 大更新：群组消息审核系统（审核 Agent 管道）
 
 **变更原因**：智能体在群组中可能未实际工作就汇报进度（偷懒/画饼）、工作方法不符合要求。引入群组级审核系统，每条发往群组的消息需经 Reviewer Agent 审查通过后方可发布。
