@@ -2,6 +2,32 @@
 
 ## 2026-05-19
 
+### 新增：群组模块化接口系统（INTERFACE.md）
+
+**变更原因**：多智能体协作中，不同 Agent 产出之间联系弱，缺乏结构化接口文档。新增 INTERFACE.md 作为群组级接口登记表。
+
+**设计文档**: `docs/superpowers/specs/2026-05-19-group-interface-md-design.md`
+**实施计划**: `docs/superpowers/plans/2026-05-19-group-interface-md-plan.md`
+
+**核心机制**：
+- 每个群组自动创建 INTERFACE.md，初始含所有成员的空 `##` 章节
+- 新增成员时自动追加章节（删除成员不删章节，保留遗留接口）
+- Agent 群组唤醒时 INTERFACE.md 自动注入到上下文（紧跟 PROGRESS 之后）
+- BOOTSTRAP 新增行为提醒 6-7：读 INTERFACE.md + 更新自己章节
+- 接口格式：`- 位置/标识 — 关键参数 — 具体用途`（每行一个可直接操作的接口条目）
+
+**修改文件**：
+- Modify: `packages/core/src/group/workspace.ts` — 新增 readInterface / writeInterface / appendInterfaceSection；interface 路径加入 GroupWorkspacePaths；initialize 自动创建；getSummary / readFile / writeFile 增加 interface 支持
+- Modify: `packages/core/src/group/group.ts` — addMember 末尾调用 appendInterfaceSection
+- Modify: `packages/core/src/conversation/prompt-builder.ts` — GroupWorkspaceData 新增 interface 字段；GROUP_CONTEXT 新增"群组接口"段
+- Modify: `packages/core/src/group/wake-system.ts` — 传递 interface 到 buildGroupCollaborationContext
+- Modify: `packages/core/src/api/ws-server.ts` — 同上
+- Modify: `config/templates/BOOTSTRAP.md` — 行为提醒新增第 6、7 条
+
+**验证**: pnpm build 6pkgs pass, pnpm test 282 pass
+
+---
+
 ### 审计修复：saveGroup 持久化 + emitReviewLog 回调
 
 **问题 1**：`GroupManager.saveGroup()` 写 config.json 时漏掉 `reviewer` 字段 → 自定义配置无法持久化
