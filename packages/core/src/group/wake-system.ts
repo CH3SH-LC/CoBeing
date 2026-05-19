@@ -356,6 +356,9 @@ export class WakeSystem {
     }
 
     log.info("[%s] Tick: waking %s (%d remaining in queue)", this.ctx.groupId, entry.targetAgentId, this.wakeQueue.length);
+
+    // Mark processing BEFORE async ops to prevent race condition on re-enqueue
+    this._processingAgents.add(entry.targetAgentId);
     this._broadcastQueue();
 
     // Fire and forget — don't wait for completion, next tick handles next agent
@@ -530,8 +533,6 @@ export class WakeSystem {
       }
 
       // 5. 唤醒 Agent（群组隔离：使用独立的 ConversationLoop，上下文已包含三层架构）
-      this._processingAgents.add(entry.targetAgentId);
-      this._broadcastQueue();
       const response = await agent.run(enrichedContext, {
         groupId: this.ctx.groupId,
         workingDir: this.getGroup?.()?.effectiveWorkspace,

@@ -199,7 +199,7 @@ ${task || "待添加任务描述..."}
     if (afterDate.includes(timeHeader)) {
       const tIdx = afterDate.indexOf(timeHeader);
       const lineBreak = afterDate.indexOf('\n', tIdx);
-      const insertPoint = dateIdx + dateHeader.length + lineBreak + 1;
+      const insertPoint = dateIdx + dateHeader.length + (lineBreak >= 0 ? lineBreak : afterDate.length) + 1;
       content = content.slice(0, insertPoint) +
         `- @${agentName}: ${entry}\n` +
         content.slice(insertPoint);

@@ -30,6 +30,7 @@ export class GroupManager {
   private _onAgentEvent?: import("./wake-system.js").WakeSystemConfig["onAgentEvent"];
   private _onQueueChange?: import("./wake-system.js").WakeSystemConfig["onQueueChange"];
   private _onMessageBroadcast?: (groupId: string, msg: import("./group-context-v2.js").GroupMessageV2) => void;
+  private _onMessage?: (groupId: string, fromAgentId: string) => void;
 
   constructor(
     private registry: AgentRegistry,
@@ -66,6 +67,9 @@ export class GroupManager {
     }
     if (this._onMessageBroadcast) {
       group.setOnMessageBroadcast(this._onMessageBroadcast);
+    }
+    if (this._onMessage) {
+      group.setOnMessage(this._onMessage);
     }
 
     // 创建 Reviewer Agent（如果启用）
@@ -165,8 +169,9 @@ export class GroupManager {
     }
   }
 
-  /** 设置消息回调（condition TODO 扫描用） */
+  /** 设置消息回调（condition TODO 扫描用，自动应用到所有群组） */
   setOnMessage(cb: (groupId: string, fromAgentId: string) => void): void {
+    this._onMessage = cb;
     for (const group of this.groups.values()) {
       group.setOnMessage(cb);
     }
@@ -373,6 +378,8 @@ export class GroupManager {
     if (this._onAgentResponse) group.setOnAgentResponse(this._onAgentResponse);
     if (this._onAgentEvent) group.setOnAgentEvent(this._onAgentEvent);
     if (this._onQueueChange) group.setOnQueueChange(this._onQueueChange);
+    if (this._onMessageBroadcast) group.setOnMessageBroadcast(this._onMessageBroadcast);
+    if (this._onMessage) group.setOnMessage(this._onMessage);
 
     // 恢复 Reviewer Agent（如果启用）
     const rCfg = config.reviewer ?? { enabled: true, maxRounds: 3 };
@@ -548,6 +555,9 @@ export class GroupManager {
         }
         if (this._onMessageBroadcast) {
           group.setOnMessageBroadcast(this._onMessageBroadcast);
+        }
+        if (this._onMessage) {
+          group.setOnMessage(this._onMessage);
         }
 
         // 恢复 Reviewer Agent（如果启用）

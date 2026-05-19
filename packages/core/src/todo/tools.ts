@@ -59,6 +59,18 @@ export function makeTodoAddTool(
       if (!store) return { toolCallId: "", content: "无法确定 TODO 存储", isError: true };
 
       const triggerMode = (params.triggerMode as string) || "time";
+
+      // 验证必填参数
+      if (triggerMode === "time" && !params.triggerAt) {
+        return { toolCallId: "", content: "triggerMode=time 时必须提供 triggerAt", isError: true };
+      }
+      if (triggerMode === "condition" && !params.conditionType) {
+        return { toolCallId: "", content: "triggerMode=condition 时必须提供 conditionType", isError: true };
+      }
+      if (triggerMode === "condition" && (!params.targetAgents || (params.targetAgents as string[]).length === 0)) {
+        return { toolCallId: "", content: "triggerMode=condition 时必须提供 targetAgents（至少一个监视 Agent）", isError: true };
+      }
+
       const todoInput: Omit<TodoItem, "id" | "createdAt" | "status"> = {
         title: params.title as string,
         description: params.description as string,

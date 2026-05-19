@@ -117,7 +117,7 @@ export class GroupTodoScanner {
   /** 当 Agent 在群组中发言时调用 — 检查 condition TODO */
   async checkConditionTodos(speakerAgentId: string): Promise<void> {
     const conditionTodos = this.store.getConditionTodos()
-      .filter(t => t.condition?.targetAgents.includes(speakerAgentId));
+      .filter(t => t.condition?.targetAgents?.includes(speakerAgentId));
 
     for (const todo of conditionTodos) {
       try {
