@@ -159,73 +159,85 @@ ${task || "待添加任务描述..."}
    * 写入 PROGRESS.md
    */
   writeProgress(_progress: string): void {
-    const content = `# ${this.groupName} - 当前进度
+    const now = new Date().toISOString();
+    const dateStr = now.slice(0, 10);
+    const timeStr = now.slice(11, 16);
+    const content = `# ${this.groupName} - 工作日志
 
-> 本文档记录项目进展和完成情况
+> 记录谁在什么时候做了什么、产出了什么。追踪总进度见 PLAN.md。
 
-## 整体进度
+## ${dateStr}
 
-- **当前阶段**: 初始化
-- **完成度**: 0%
-- **最后更新**: ${new Date().toISOString()}
+### ${timeStr}
+- 初始化工作日志
 
-## 各成员进度
-
-### 群主
-- [ ] 初始化项目
-- [ ] 分配任务
-
-### 成员
-- [ ] 待分配
-
-## 重要里程碑
-
-- [ ] 项目启动
-- [ ] 第一个版本完成
-- [ ] 测试通过
-- [ ] 发布上线
-
-## 阻塞问题
-
-- 无
-
-## 更新日志
-
-- ${new Date().toISOString()} - 初始化进度文档
 `;
 
     writeFileSync(this.paths.progress, content, "utf-8");
   }
 
   /**
+   * 追加 PROGRESS 日志条目
+   */
+  appendProgressEntry(agentName: string, entry: string): void {
+    const now = new Date();
+    const dateKey = now.toISOString().slice(0, 10);
+    const timeKey = now.toISOString().slice(11, 16);
+
+    let content = this.readProgress();
+    if (!content) { this.writeProgress(''); content = this.readProgress()!; }
+
+    const dateHeader = `## ${dateKey}`;
+    if (!content.includes(dateHeader)) {
+      content = content.trimEnd() + `\n\n${dateHeader}\n`;
+    }
+
+    const dateIdx = content.indexOf(dateHeader);
+    const afterDate = content.slice(dateIdx + dateHeader.length);
+
+    const timeHeader = `### ${timeKey}`;
+    if (afterDate.includes(timeHeader)) {
+      const tIdx = afterDate.indexOf(timeHeader);
+      const lineBreak = afterDate.indexOf('\n', tIdx);
+      const insertPoint = dateIdx + dateHeader.length + lineBreak + 1;
+      content = content.slice(0, insertPoint) +
+        `- @${agentName}: ${entry}\n` +
+        content.slice(insertPoint);
+    } else {
+      content = content.slice(0, dateIdx + dateHeader.length) +
+        `\n\n${timeHeader}\n- @${agentName}: ${entry}` +
+        afterDate;
+    }
+
+    writeFileSync(this.paths.progress, content, 'utf-8');
+  }
+
+  /**
    * 写入 PLAN.md
    */
   writePlan(plan: string): void {
-    const content = `# ${this.groupName} - 任务分工和计划
+    const content = `# ${this.groupName} - 执行计划
 
-> 本文档记录任务分工、时间计划和执行策略
+## 模块依赖
 
-## 任务分解
+> 各模块间的接口依赖关系（详见 INTERFACE.md）
 
-${plan || "### 待添加任务分解..."}
+${plan || "（Host 调查后填写依赖关系）"}
 
-## 时间计划
+## 阶段计划
 
-| 阶段 | 任务 | 负责人 | 预计时间 | 状态 |
-|------|------|--------|----------|------|
-| 初始化 | 项目启动 | 群主 | 1天 | 待开始 |
+${plan ? '' : "（Host 调查后填充阶段计划。每个阶段含具体任务和 @负责人，阶段最后两个任务固定：检查接口依赖 + 用户审核）"}
 
 ## 执行策略
 
-1. **沟通机制**: 每日同步，及时汇报问题
-2. **协作方式**: 群主协调，成员执行
-3. **质量控制**: 代码审查，测试验证
+1. **并行原则**: 同阶段无依赖的任务可同时 @mention 唤醒多个 Agent
+2. **接口优先**: 先定义接口 → 再各自实现 → 最后联调检查
+3. **动态调整**: 根据实际进展随时更新本计划，阶段数量可增减
 
 ## 风险预案
 
-- **人员变动**: 提前记录项目知识，减少依赖
-- **技术难题**: 群主组织讨论，共同解决
-- **进度延迟**: 及时调整计划，优先保证核心功能
+- **接口不匹配**: 及时同步 INTERFACE.md，Host 协调
+- **人员阻塞**: 依赖项未就位时，先做其他可并行的工作
 
 ## 更新日志
 

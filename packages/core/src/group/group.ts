@@ -167,6 +167,8 @@ export class Group {
     this.persistMessage(msg, "main");
     this.writeToGroupDb(msg, "main");
     this._onMessageBroadcast?.(this.id, msg);
+    // 触发 condition TODO 扫描（检查是否有 condition TODO 监控该发言 Agent）
+    this._onMessage?.(this.id, fromAgentId);
     return msg;
   }
 
@@ -236,6 +238,13 @@ export class Group {
 
   setOnMessageBroadcast(cb: (groupId: string, msg: GroupMessageV2) => void): void {
     this._onMessageBroadcast = cb;
+  }
+
+  /** 消息回调 — postMessage 时触发 condition TODO 扫描 */
+  private _onMessage?: (groupId: string, fromAgentId: string) => void;
+
+  setOnMessage(cb: (groupId: string, fromAgentId: string) => void): void {
+    this._onMessage = cb;
   }
 
   setOnAgentEvent(cb: import("./wake-system.js").WakeSystemConfig["onAgentEvent"]): void {

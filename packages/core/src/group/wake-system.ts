@@ -174,11 +174,8 @@ export class WakeSystem {
       return;
     }
 
-    // 检查是否正在处理中（防止并发 run() 清空 history）
-    if (this._processingAgents.has(targetAgentId)) {
-      log.info("[%s] Agent '%s' is currently processing, skipping re-enqueue", this.ctx.groupId, targetAgentId);
-      return;
-    }
+    // Agent 正在处理中也允许入队（排到队尾，本轮完成后可被再次唤醒）
+    // _tickQueue 的 processing 过滤会防止并发执行
 
     // 新增到队列
     log.info("[%s] Enqueue mention: %s (trigger: %s)", this.ctx.groupId, targetAgentId, triggerMsgId);

@@ -165,6 +165,13 @@ export class GroupManager {
     }
   }
 
+  /** 设置消息回调（condition TODO 扫描用） */
+  setOnMessage(cb: (groupId: string, fromAgentId: string) => void): void {
+    for (const group of this.groups.values()) {
+      group.setOnMessage(cb);
+    }
+  }
+
   /**
    * 创建群组的 Reviewer Agent
    * 在群组创建时自动调用，群组销毁时自动清理

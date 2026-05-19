@@ -127,6 +127,12 @@ export class CoreWSServer {
         },
       });
     });
+
+    // 设置 condition TODO 扫描回调 — Agent 发言时触发 condition 检查
+    gm.setOnMessage((groupId, fromAgentId) => {
+      const scanner = gm.getScanner(groupId);
+      scanner?.checkConditionTodos(fromAgentId).catch(() => {});
+    });
   }
 
   /** 注入 ChannelRouter */
