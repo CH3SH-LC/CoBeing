@@ -2,6 +2,18 @@
 
 ## 2026-05-19
 
+### 审计修复：模块化工作流 — 竞态 + _onMessage 接线 + 参数校验
+
+**问题 1 (HIGH)**: `wake-system.ts` 中 `_processingAgents.add()` 在 `executeWake` 的 async 操作后才执行，存在竞态 → 移至 `_tickQueue` 同步位置
+**问题 2 (HIGH)**: `manager.ts` 中 `_onMessage` 字段缺失，`setOnMessage` 不存储回调，`create/restore` 不接线 → 补充字段+存储+全部创建/恢复路径
+**问题 3 (MED)**: `tools.ts` 中 triggerMode=time 缺 triggerAt 或 condition 缺 conditionType → 新增校验返回 error
+**问题 4 (LOW)**: `workspace.ts` 中 appendProgressEntry 的 indexOf('\n') 边界 -1 → fallback
+**问题 5 (LOW)**: `group-scanner.ts` 中 corrupt condition todo 可抛 TypeError → 双重 optional chain
+**修改文件**: `wake-system.ts` / `manager.ts` / `tools.ts` / `workspace.ts` / `group-scanner.ts`
+**验证**: pnpm build 6pkgs pass, pnpm test 282 pass
+
+---
+
 ### 大更新：模块化并行工作流系统
 
 **变更原因**：群组协作需要支持并行工作、阶段驱动、接口依赖联动和模块化意识。
