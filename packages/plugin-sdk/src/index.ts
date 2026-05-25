@@ -7,3 +7,4 @@ export {
   type MemoryBackendPlugin,
   type PluginManifest,
 } from "./types.js";
+export { PluginLoader } from "./loader.js";
