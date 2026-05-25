@@ -178,7 +178,7 @@ export function buildSystemPromptFromFiles(files: AgentFiles, config: PromptConf
 
 /** 缓存友好的 prompt 结构 */
 export interface CacheablePrompt {
-  /** 共享前缀 — 所有 Agent 完全相同（AGENTS.md），跨 Agent 缓存命中 */
+  /** 共享前缀 — 所有 Agent 完全相同（STATIC 层 + AGENTS.md），跨 Agent 缓存命中 */
   sharedPrefix: string;
   /** Agent 特有前缀 — Agent 生命周期内只构建一次（SOUL + CHARACTER + ROLE_PLAY + JOB + BOOTSTRAP + systemPrompt） */
   agentPrefix: string;
@@ -189,10 +189,10 @@ export interface CacheablePrompt {
 /**
  * 构建缓存友好的 system prompt（三区架构）
  *
- * 前缀顺序（缓存命中从左到右递减）：
- * 1. AGENTS.md（所有 Agent 相同） — 最大化跨 Agent 前缀缓存命中
- * 2. SOUL → CHARACTER → ROLE_PLAY → JOB → BOOTSTRAP → systemPrompt（Agent 内冻结）
- * 3. 记忆快照 + 群组上下文（每次动态）
+ * 三层架构：
+ * 1. STATIC — buildStaticLayer() + AGENTS.md（所有 Agent 相同，跨 Agent 缓存命中）
+ * 2. AGENT-SPECIFIC — SOUL → CHARACTER → ROLE_PLAY → JOB → BOOTSTRAP → systemPrompt（Agent 内冻结）
+ * 3. VOLATILE — 记忆快照 + 群组上下文（每次动态）
  */
 export function buildCacheablePrompt(
   files: AgentFiles,
@@ -200,8 +200,11 @@ export function buildCacheablePrompt(
   memoryStore?: MemoryStore,
   groupContext?: string,
 ): CacheablePrompt {
-  // 共享前缀：AGENTS.md（所有 Agent 使用相同模板 → 跨 Agent 缓存命中）
-  const sharedPrefix = files.readAgents() || "";
+  // 共享前缀：STATIC 层 + AGENTS.md（所有 Agent 相同 → 跨 Agent 缓存命中）
+  const agentsMd = files.readAgents();
+  const sharedPrefix = agentsMd
+    ? buildStaticLayer() + "\n\n" + agentsMd
+    : buildStaticLayer();
 
   // Agent 特有前缀（每个 Agent 不同，但在 Agent 生命周期内不变）
   const agentParts: string[] = [];
