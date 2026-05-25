@@ -11,6 +11,7 @@
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "@cobeing/shared";
+import { maintainExperienceSummarySync } from "../conversation/prompt-builder.js";
 
 const logger = createLogger("group:workspace");
 
@@ -422,15 +423,27 @@ _记录哪些协作方式效果好_
     let content = this.readExperience() || "";
     const sectionHeader = `## ${section}`;
     const idx = content.indexOf(sectionHeader);
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const line = `\n- [${timestamp}] ${entry}`;
+
     if (idx >= 0) {
       const afterHeader = idx + sectionHeader.length;
       const nextSection = content.indexOf("\n## ", afterHeader);
       const insertPoint = nextSection >= 0 ? nextSection : content.length;
-      const timestamp = new Date().toISOString().slice(0, 10);
-      const line = `\n- [${timestamp}] ${entry}`;
       content = content.slice(0, insertPoint) + line + content.slice(insertPoint);
+    } else {
+      // Section header not found, append to end
+      content += `\n${sectionHeader}${line}`;
     }
     writeFileSync(this.paths.experience, content, "utf-8");
+
+    // 维护概要区
+    const summaryLine = `- [${timestamp}] [${section}] ${entry.slice(0, 80)}`;
+    const full = this.readExperience() || "";
+    const updated = maintainExperienceSummarySync(full, summaryLine);
+    if (updated !== full) {
+      writeFileSync(this.paths.experience, updated, "utf-8");
+    }
   }
 
   /**
