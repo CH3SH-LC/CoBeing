@@ -13,6 +13,7 @@ import type { CurrentMd } from "./current-md.js";
 import type { GroupAgentMemory } from "./agent-memory.js";
 import path from "node:path";
 import { createLogger } from "@cobeing/shared";
+import { runJudgmentAgent } from "../agent/tool-agent/judgment.js";
 
 const log = createLogger("wake-system");
 
@@ -65,6 +66,9 @@ export class WakeSystem {
 
   private getGroup: (() => import("./group.js").Group | undefined) | null;
 
+  private _judgmentModel: string;
+  private _judgmentProvider?: import("@cobeing/providers").LLMProvider;
+
   constructor(
     ctx: GroupContextV2,
     getAgent: (id: string) => Agent | undefined,
@@ -92,6 +96,9 @@ export class WakeSystem {
     this.getGroupMembers = deps?.getGroupMembers ?? null;
     this.maxCurrentMessages = deps?.maxCurrentMessages ?? 200;
     this.getGroup = deps?.getGroup ?? null;
+
+    this._judgmentModel = (globalThis as any).__cobeingConfig?.judgmentModel ?? "deepseek-chat";
+    this._judgmentProvider = (globalThis as any).__cobeingGetProvider?.("deepseek");
 
     // 订阅新消息
     ctx.onMessage((msg) => this.handleNewMessage(msg));
@@ -133,7 +140,13 @@ export class WakeSystem {
         continue;
       }
       if (resolvedId === msg.fromAgentId) continue; // 不唤醒发送者自己
-      this.enqueueMention(resolvedId, msg.id, msg.tag, msg.content, `@${mention}`);
+
+      if (resolvedId === this.ownerId) {
+        // Route through judgment — suppresses unnecessary host wakeups
+        this.enqueueMentionWithJudgment(resolvedId, msg.id, msg.tag, msg.content, `@${mention}`, msg.fromAgentId);
+      } else {
+        this.enqueueMention(resolvedId, msg.id, msg.tag, msg.content, `@${mention}`);
+      }
     }
 
     // 本地过滤：判断是否唤醒群主
@@ -189,6 +202,61 @@ export class WakeSystem {
     this._broadcastQueue();
   }
 
+  /**
+   * 带 Judgment 的群主唤醒 — 判断是否需要真的唤醒群主
+   * 仅当 @ 了群主、不是显式 @host、且 judgment provider 就绪时运行判断
+   */
+  private async enqueueMentionWithJudgment(
+    targetAgentId: string,
+    triggerMsgId: string,
+    triggerTag: string,
+    triggerContent: string,
+    mentionText?: string,
+    fromAgentId?: string,
+  ): Promise<void> {
+    const isOwner = targetAgentId === this.ownerId;
+    const isExplicitHostMention = mentionText === "@host" || mentionText === `@${this.ownerId}`;
+    const provider = this._judgmentProvider || (globalThis as any).__cobeingGetProvider?.("deepseek");
+
+    if (isOwner && !isExplicitHostMention && provider) {
+      const host = this.getAgent(targetAgentId);
+      const fromAgent = fromAgentId ? this.getAgent(fromAgentId) : undefined;
+      if (host) {
+        try {
+          const recentMsgs = this.currentMd
+            ? this.currentMd.getRecent(10)
+            : [];
+          const result = await runJudgmentAgent(
+            {
+              targetMessage: triggerContent,
+              fromAgentId: fromAgentId || triggerTag || "unknown",
+              fromAgentName: fromAgent?.name ?? fromAgentId ?? "unknown",
+              recentMessages: recentMsgs.map((m) => `[${m.fromAgentId || m.tag || "?"}]: ${m.content}`),
+              hostName: host.name,
+              groupName: this.ctx.groupId,
+            },
+            provider,
+            this._judgmentModel,
+            targetAgentId,
+            host.effectiveWorkspace,
+          );
+
+          if (!result.wake_host) {
+            log.info("[%s] Judgment: NOT waking host — %s", this.ctx.groupId, result.reason);
+            return;
+          }
+          log.info("[%s] Judgment: waking host (urgency=%s) — %s", this.ctx.groupId, result.urgency, result.reason);
+        } catch (err) {
+          log.warn("[%s] Judgment failed, defaulting to wake: %s", this.ctx.groupId, err);
+        }
+      }
+    }
+
+    // Fall through to normal enqueue
+    this.enqueueMention(targetAgentId, triggerMsgId, triggerTag, triggerContent, mentionText);
+    this.processQueue();
+  }
+
   /** 手动触发唤醒（用户消息或 screener 建议） */
   wakeAgent(agentId: string, tag: string = "main", triggerContent?: string): void {
     const agent = this.getAgent(agentId);
@@ -218,6 +286,11 @@ export class WakeSystem {
   /** 注入本地过滤引擎 */
   setLocalFilter(filter: import("./local-filter.js").LocalFilterEngine): void {
     this.localFilter = filter;
+  }
+
+  /** 注入 Judgment Tool Agent 的 LLM provider */
+  setJudgmentProvider(provider: import("@cobeing/providers").LLMProvider): void {
+    this._judgmentProvider = provider;
   }
 
   /** 注入 Agent 响应回调 */

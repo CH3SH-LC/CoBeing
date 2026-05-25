@@ -78,6 +78,7 @@
     "enabled": true,
     "maxRounds": 3
   },
+  "judgmentModel": "deepseek-chat",
   "groups": [],
   "mcpServers": {
     "qqbot": {
