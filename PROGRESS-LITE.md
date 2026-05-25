@@ -7,8 +7,10 @@
 
 ## 2026-05-25
 
+- [Change] System Prompt 三层架构 Step 5：新增 buildStaticLayer（6 测试）和 GROUP_MECHANICS_NOTICE（2 测试）测试，更新 3 个已有测试排序断言，修复过时文件头注释
 - [Change] System Prompt 三层架构 Step 3：buildStaticLayer() 集成到 buildSystemPromptFromFiles 头部，所有后续节编号 +1
 - [Change] System Prompt 三层架构 Step 2：buildStaticLayer() 集成到 buildCacheablePrompt sharedPrefix，共享前缀由纯 AGENTS.md 升级为 STATIC 层 + AGENTS.md
+- [Change] System Prompt 三层架构 Step 4：GROUP_MECHANICS_NOTICE 注入 createGroupLoop，群组 Agent 在 sharedPrefix 和 agentPrefix 之间获得群组机制说明
 - [New Feature] System Prompt 三层架构 Step 1：新增 buildStaticLayer() 和 GROUP_MECHANICS_NOTICE 到 prompt-builder.ts
 - [Debug] 全项目五领域审计修复：C1 __cobeingObsDb 未赋值 / H1 符号链接逃逸 / H2 iptables 白名单无效 / H3 安全扫描扩展到消息路径 / M2 bind_workspace 路径校验 / M5 readonly 权限模式 / M6 sandbox_action start / M7 缺失 WS 事件处理器 / M8 WakeQueueSection getWsClient / M9 ObservabilityDB.close WAL
 - [Change] 文档系统审计修复：后端能力清单 Provider 数/包数/测试数 / 测试清单重写 / 待办标记已完成 / STRUCTURE.md 陈旧条目清理 + 缺失文件补全

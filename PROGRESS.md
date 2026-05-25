@@ -2,6 +2,28 @@
 
 ## 2026-05-25
 
+### System Prompt 三层架构 Step 4：GROUP_MECHANICS_NOTICE 注入到 createGroupLoop
+
+**变更原因**：Step 1 定义了 `GROUP_MECHANICS_NOTICE` 常量，Step 4 将其接入 agent.ts 的群组 loop。群组 Agent 在 `_sharedPrefix` 和 `_agentPrefix` 之间注入群组机制说明，非群组 Agent 不注入。
+
+**修改文件**：
+- `packages/core/src/agent/agent.ts` — import 新增 `GROUP_MECHANICS_NOTICE`；`createGroupLoop` 的 promptBuilder 中 parts 数组从 `[_sharedPrefix, _agentPrefix]` 改为 `[_sharedPrefix, GROUP_MECHANICS_NOTICE, _agentPrefix]`；`createLoop`（非群组）保持不变
+
+### System Prompt 三层架构 Step 1：新增 buildStaticLayer() + GROUP_MECHANICS_NOTICE
+
+**变更原因**：参照 claw-code 的 SystemPromptBuilder 五层结构，为 CoBeing 新增所有 Agent 共享的静态行为约束层（身份声明/系统机制/行为约束/执行安全/说话方式）和群组环境机制说明常量。
+
+**修改文件**：
+- `packages/core/src/conversation/prompt-builder.ts` — 新增 `buildStaticLayer()` 纯函数（5 节硬编码常量）和 `GROUP_MECHANICS_NOTICE` 导出常量
+
+### System Prompt 三层架构 Step 5：测试更新 + 排序断言修复
+
+**变更原因**：Steps 1-4 完成了系统提示重组（新增 STATIC 层/GROUP_MECHANICS_NOTICE），Step 5 更新测试文件以验证新架构。
+
+**修改文件**：
+- `packages/core/src/conversation/prompt-builder.test.ts` — 新增 `buildStaticLayer`（6 测试）和 `GROUP_MECHANICS_NOTICE`（2 测试）describe 块；3 个已有测试更新排序断言以反映新 STATIC → AGENTS → SOUL 顺序；import 更新以包含新导出
+- `packages/core/src/conversation/prompt-builder.ts` — 修复过时的文件头注释（前缀顺序缺少 STATIC 层）
+
 ### System Prompt 三层架构 Step 3：buildStaticLayer 集成到 buildSystemPromptFromFiles
 
 **变更原因**：Step 1-2 添加了 `buildStaticLayer()` 并集成到 `buildCacheablePrompt()`，但 `buildSystemPromptFromFiles()`（非缓存路径，供 `conversation-loop.ts` 使用）尚未包含静态层。Step 3 将其注入为该函数的首个 prompt 组件，确保所有路径都包含 5-section 行为规则层。
