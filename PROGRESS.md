@@ -1,5 +1,201 @@
 # CoBeing 开发进度记录
 
+## 2026-05-25
+
+### System Prompt 三层架构 Step 3：buildStaticLayer 集成到 buildSystemPromptFromFiles
+
+**变更原因**：Step 1-2 添加了 `buildStaticLayer()` 并集成到 `buildCacheablePrompt()`，但 `buildSystemPromptFromFiles()`（非缓存路径，供 `conversation-loop.ts` 使用）尚未包含静态层。Step 3 将其注入为该函数的首个 prompt 组件，确保所有路径都包含 5-section 行为规则层。
+
+**修改文件**：
+- `packages/core/src/conversation/prompt-builder.ts` — `buildSystemPromptFromFiles` 开头新增 `parts.push(buildStaticLayer())`；所有后续节编号注释 +1（1→2, 2→3, ..., 7-10→8-11）
+
+### System Prompt 三层架构 Step 2：buildStaticLayer 集成到 buildCacheablePrompt
+
+**变更原因**：Step 1 添加了 `buildStaticLayer()` 纯函数但未集成。Step 2 将其接入 `buildCacheablePrompt()` 的 `sharedPrefix`，确保所有 Agent 的共享前缀包含 5-section 行为规则层，实现真正的跨 Agent 缓存命中。
+
+**修改文件**：
+- `packages/core/src/conversation/prompt-builder.ts` — `sharedPrefix` 构造从纯 `AGENTS.md` 改为 `buildStaticLayer() + AGENTS.md`；`CacheablePrompt.sharedPrefix` 和 `buildCacheablePrompt` 的 JSDoc 同步更新
+
+### 审计修复：全项目五领域交叉审查（17 项修复）
+
+**变更原因**：启动 5 个并行审查 Agent（安全/架构/文档/可访问性/前端）对项目进行全方位审计，发现 1 致命 + 7 高危 + 15 中危问题。本轮修复了所有可操作的代码和文档问题。
+
+**代码修复（10 项）**：
+
+1. **[CRITICAL] `__cobeingObsDb` 从未赋值** — `runtime.ts` 中 `ObservabilityDB` 创建后未暴露到 `globalThis`，导致 `get_agent_timeline` WS 处理器永远返回"未初始化"。修复：`runtime.ts:91` 新增 `(globalThis as any).__cobeingObsDb = this.observabilityDB`；`stop()` 中新增清理
+2. **[HIGH] 符号链接攻击绕过工作区限制** — `permission.ts` 的 `isWithinWorkingDir` 用 `path.resolve()` 不解析符号链接。修复：新增 `fs.realpathSync()` 解析存在路径的符号链接后再检查边界
+3. **[HIGH] iptables 白名单完全无效** — `container-pool.ts` 的 `applyWhitelistRules` 在容器内执行 `docker exec containerId sh -c "iptables..."`，但 `DOCKER-USER` 是宿主机链。修复：改为在宿主机上直接 `spawn("iptables", ...)` 执行规则
+4. **[HIGH] 安全扫描仅限记忆写入** — `security-scan.ts` 的 `scanContent()` 只在 `memory-store.ts` 调用。修复：在 `ws-server.ts` 的 `send_message` 处理器和 `agent-message.ts` 的 `execute` 方法中新增安全扫描
+5. **[MEDIUM] `bind_workspace` 可绑定任意系统路径** — 修复：新增双重校验（仅限 dataRoot 内 + 禁止直接绑定 Agent 数据目录）
+6. **[MEDIUM] `readonly` 权限模式无效** — 无 toolConfig 时所有工具回退 `{ allowed: true }`。修复：在 `permission.ts` 中新增 read-only 模式显式拒绝写操作
+7. **[MEDIUM] `sandbox_action` 缺少 "start" case** — 修复：新增 `case "start"` 分支
+8. **[MEDIUM] `ObservabilityDB.close()` 缺少 WAL checkpoint** — 修复：参照其他 SQLite close 模式，新增 `wal_checkpoint(TRUNCATE)` + `journal_mode = DELETE`
+9. **[MEDIUM] 前端缺少 5 个 WS 事件处理器** — `workspace_bound`/`channel_bound`/`channel_unbound`/`skill_created`/`sandbox_action_result` 均未处理。修复：`useWebSocket.ts` 新增 5 个 case，均带 emitActivity 日志
+10. **[MEDIUM] WakeQueueSection 独立 getWsClient() 访问不存在全局变量** — 修复：改为模块级 `_wsClient` 引用 + `setWakeQueueWsClient` 导出
+
+**文档修复（7 项）**：
+- `docs/项目信息/后端能力清单.md` — Provider 11→7 家、packages 4→5、tests 281→282
+- `docs/项目信息/测试清单.md` — 21 files/152 tests → 36 files/282 tests
+- `docs/项目信息/待办.md` — 标记 10 个已完成功能（P2.1 搜索/时间线/导出/刷新、P2.2 看板/批量/提醒/截断、P2.3 元技能体系、P2.4 talk回流/screener统计/健康面板）
+- `STRUCTURE.md` — 删除 start-gui.bat、更新 6 个主题名、修正 qq-client.ts 位置（office→qqbot）、新增 office-engine.ts、删除不存在的 data/models/、新增 registry.json+observability/、新增缺失的 gui-v2 组件文件、tests 281→282
+
+**修改文件（17 个）**：
+- Modify: `packages/core/src/runtime.ts` — C1: __cobeingObsDb 赋值+清理
+- Modify: `packages/core/src/tools/permission.ts` — H1: realpath 符号链接防御 + M5: read-only 拒绝写
+- Modify: `packages/core/src/tools/sandbox/container-pool.ts` — H2: 宿主机 iptables
+- Modify: `packages/core/src/tools/agent-message.ts` — H3: 安全扫描
+- Modify: `packages/core/src/observability/observability-db.ts` — M9: WAL checkpoint
+- Modify: `packages/core/src/api/ws-server.ts` — H3: send_message 扫描 + M2: bind_workspace 校验 + M6: sandbox start
+- Modify: `gui-v2/src/hooks/useWebSocket.ts` — M7: 5 个 WS 事件处理器
+- Modify: `gui-v2/src/components/settings/WakeQueueSection.tsx` — M8: getWsClient 修复
+- Modify: `docs/项目信息/后端能力清单.md` — H5+M14
+- Modify: `docs/项目信息/测试清单.md` — H6+M15
+- Modify: `docs/项目信息/待办.md` — H7
+- Modify: `STRUCTURE.md` — M13
+
+**验证**: pnpm build 6pkgs pass, pnpm test 282 pass
+
+---
+
+### 修复：start.bat 端口检查卡死 + `echo.` 语法错误 + 代码块内 `echo (..)` 解析冲突
+
+**问题 1**：运行 `start.bat` 后卡在 `[INFO] Checking for existing CoBeing process on port 18765...` 不再继续。
+
+**问题 2**（后果）：修复问题 1 后，脚本能通过端口检查但于 `此时不应有 .。` 语法错误退出。
+
+**问题 3**（根因）：修复 echo. 错误后，脚本仍然失败，根因是 CMD 的块解析器在括号代码块内会统计 `echo` 行中的 `(` 和 `)` 为代码块边界。`else` 代码块中 `echo [INFO] Using pre-built packages (dist/ found, skipping build).` 的 `)` 被误读为 `else` 块的闭合括号，导致其后的 `echo/` 出现在块外、`else` 块的真正 `)` 变为孤儿括号，触发 `此时不应有 .。` 错误。
+
+**根因分析**：
+1. 原 `kill-cobeing-port.ps1` 使用 `netstat -ano`（无 `-p TCP`），列出全部协议（TCP/UDP/TCPv6/UDPv6），在连接数多的系统上可能很慢
+2. 脚本无超时机制 — 若 `netstat` 因网络堆栈问题挂起，则永久阻塞
+3. 无进程占用端口时脚本无任何输出，用户无法判断是否已完成
+4. 即使端口空闲也会启动 PowerShell（冷启动延迟 2-5 秒），使端口空闲的常见情况也变慢
+5. **Windows 11 CMD 中 `echo.` 会查找名为 `echo` 的文件** → 查找失败抛 `此时不应有 .。` 语法错误（10 处 `echo.` → `echo/` 替换）
+6. **CMD 块解析器将 `echo` 行内的 `()` 视为代码块边界** — 这是所有测试函数中一致复现的根本原因
+
+**修改文件**：
+- Modify: `start.bat` — 新增 `netstat -ano -p TCP | findstr` 快速预检查，仅端口被占用时才调用 PowerShell；端口空闲时直接跳过；全部 `echo.` 替换为 `echo/`（Windows 11 CMD 兼容性）；全部 `::` 注释替换为 `REM`（防御性）；移除 `else` 块内 echo 消息中的 `(` `)` 括号避免 CMD 块解析冲突
+- Modify: `scripts/kill-cobeing-port.ps1` — `netstat` 加 `-p TCP` 限定 TCP 协议；新增 `Start-Job` + `Wait-Job -Timeout 15` 15 秒超时机制；新增"No process found"/"Port is now free"/超时警告等诊断输出；`Stop-Process` 加 try/catch；`$procId` 空值检查；最终端口状态确认
+
+**修改内容摘要**：
+1. **start.bat 预检查**：`netstat -ano -p TCP > tmp && findstr /C:":%PORT% " tmp` 临时文件方式替代管道，避免 CMD 管道生成子进程可能导致的解析问题
+2. **kill-cobeing-port.ps1 超时保护**：netstat 调用包装在后台 Job 中，`Wait-Job -Timeout 15` 保证最多 15 秒后继续
+3. **诊断输出**：每个分支都有 `Write-Host` 输出，用户可明确看到脚本执行到哪一步
+4. **错误处理**：`Stop-Process` 包在 try/catch 中，防止权限不足导致脚本崩溃
+5. **`echo.` → `echo/`**：Windows 11 CMD 中 `echo.` 会在当前目录查找名为 `echo` 的文件，10 处全部替换为 `echo/`
+6. **`::` → `REM`**：`::` 是标签的语法糖，并非正式注释语法，10 处全部替换为 `REM`
+7. **代码块内 echo 消息移除 `()`**：`Using pre-built packages (dist/ found, skipping build).` → `Using pre-built packages - dist/ found, skipping build.` — CMD 块解析器将 `echo` 行内的 `)` 误算为块闭合，导致后续 `)` 成为孤儿括号
+
+---
+
+
+### 修复：start.bat 端口清理脚本 PowerShell 变量冲突
+
+**问题描述**：`scripts/kill-cobeing-port.ps1` 使用 `$pid` 作为变量名，但 `$pid` 是 PowerShell 内置只读自动变量（当前进程 ID）。每次执行时报 `SessionStateUnauthorizedAccessException: VariableNotWritable`，导致端口清理静默失败，旧进程残留占用端口 18765，后续启动失败（EADDRINUSE）。
+
+**根因分析**：PowerShell 中 `$pid` 是自动变量，不可写入。脚本中 `$pid = $parts[-1]` 触发了只读变量写入错误，整个 kill 逻辑被跳过。
+
+**修改文件**：
+- Modify: `scripts/kill-cobeing-port.ps1` — 两处 `$pid` 变量重命名为 `$procId`，避免与 PowerShell 内置自动变量冲突
+
+---
+
+## 2026-05-21
+
+### 修复：start.bat 无法正常运行 — 两项根因
+
+**问题 1 — Reviewer Agent 孤儿清理导致原生崩溃**：
+
+**问题描述**：运行 `start.bat` 后 `pnpm dev` 进程崩溃，退出码 `3221226505`（0xC0000409，Windows STATUS_STACK_BUFFER_OVERRUN）。日志显示 `cleanupOrphanDirectories` 试图删除 Reviewer Agent 目录，`rmDirRecursive` 失败（ENOTEMPTY），随后进程原生崩溃。
+
+**根因分析**：
+1. `GroupManager.createReviewerAgent()` 创建 Reviewer Agent 时未写入 `config.json`，也未调用 `addAgentToRegistry()` 将其加入持久化 `registry.json`
+2. 启动序列中 `cleanupOrphanDirectories()` 发现 Reviewer Agent 目录不在 registry 中且无 `config.json` → 判定为孤儿 → 调用 `rmDirRecursive()` 删除
+3. 此时 Reviewer Agent 的 `memory.db` 仍被 better-sqlite3 持有，`rmDirRecursive` 中的 rename/delete 操作与原生 addon 的文件访问冲突 → 触发 STATUS_STACK_BUFFER_OVERRUN 崩溃
+4. 这是一个**每次启动都发生**的自我维持损坏循环
+
+**修改文件**：
+- Modify: `packages/core/src/group/manager.ts` — `createReviewerAgent()` 新增 `agent.files.writeConfig()` 持久化 config.json + `addAgentToRegistry()` 注册到 master registry；`delete()` 中销毁 Reviewer 时新增 `agent.dispose()` + `removeAgentFromRegistry()` + `rmDirRecursive()` 完整清理
+- Modify: `packages/shared/src/master-registry.ts` — `cleanupOrphanDirectories()` 新增防御：无 config.json 但含 Agent 典型文件（CHARACTER.md / JOB.md / memory.db）的目录改为"收养"（生成最小 config.json + 加入 registry），而非直接删除
+
+**问题 2 — start.bat 端口占用清理不彻底**：
+
+**问题描述**：上次运行的 CoBeing 进程（或崩溃残留）占用端口 18765，`start.bat` 的 `taskkill` 无法清理，导致后续启动因 `EADDRINUSE` 失败。
+
+**根因分析**：
+1. `taskkill /F` 缺 `/T` 标志 — 仅杀父进程，子进程（tsx/node）残留并继续占用端口
+2. 无二次验证 — kill 后不检查端口是否真正释放
+3. `%~dp0` 包含尾部反斜杠（如 `D:\agent-codes\CoBeing\`），在 GUI 模式的嵌套引号 `cmd /k "cd /d "%ROOT%" && ..."` 中可能被误解析
+
+**修改文件**：
+- Modify: `start.bat` — taskkill 增加 `/T` 标志（杀进程树）；新增 double-check 循环（kill → 等待 → 再扫描 → 仍有则再 kill）；去除 `%ROOT%` 的尾部反斜杠
+
+---
+
+## 2026-05-20
+
+### 架构整理：文件夹结构重组 + 架构优化
+
+**变更原因**：全项目审计发现 5 个空目录、28 个残留 dist 文件、agent↔group 编译期循环依赖、butler 模块分裂、ws-server.ts 上帝文件（83KB）、根目录临时文件、docs/ 重复内容、陈旧 cobeing/ 目录等结构问题。用户要求高度模块化。
+
+**Phase 1 — 清理**:
+- Delete: `packages/core/src/{groups,permissions,sandbox,session,subagents}/` — 5 个空目录
+- Delete: `temporary.txt`(102KB), `package.json.tmp`, `.npmrc.tmp`, `Local.lnk` — 根目录临时文件
+- Delete: `cobeing/` — 陈旧目录（Dockerfile 已在 sandbox/）
+- Delete: `data/groups/g1/`, `g2/` — 幽灵群组残留
+- Delete: `docs/参考/` — 与 config/templates/ 重复的 7 个文件
+- Delete: `docs/临时skill/` — 与 skills/ 重叠的 11 个 SKILL.md
+- Delete: `docs/待办.md` — 保留 `docs/待办新.md` 作为唯一
+- Delete: `packages/channels/dist/{discord,feishu,wecom}/` + `qq/{onebot-client,qq-channel}.*` — 16 个残留编译产物
+- Delete: `packages/providers/dist/{anthropic,gemini}/` + `catalogs/{grok,openai,siliconflow}.*` — 12 个残留编译产物
+- Modify: `providers/package.json` — 移除未使用的 `@anthropic-ai/sdk` 依赖
+- Modify: `scripts/build-sandbox.sh` — 修复 Dockerfile 路径 `cobeing/sandbox/` → `sandbox/`
+
+**Phase 2 — 消除循环依赖**:
+- Modify: `agent/butler.ts:13` — `import { GroupManager }` → `import type { GroupManager }`
+- Modify: `group/review-experience.ts:1` — `import { Agent }` → `import type { Agent }`
+- Modify: `group/review-pipeline.ts:2` — `import { Agent }` → `import type { Agent }`
+- `butler.test.ts` 保留值导入（测试需要 `new GroupManager()`）
+
+**Phase 3 — 统一 butler 模块**:
+- Move: `butler/registry.ts` → `agent/butler-registry.ts`
+- Move: `butler/registry.test.ts` → `agent/butler-registry.test.ts`
+- Modify: `ws-server.ts`, `butler.ts`, `index.ts`, `integration.test.ts`, `runtime.ts`, `workflow/engine.ts` — 更新 6 处导入路径
+- Delete: `butler/` 目录
+
+**Phase 4 — ws-server.ts 模块化**:
+- Organize: `ws-server.ts` switch 语句按功能分区（State & Monitoring / Message Routing / Configuration / Agent Lifecycle / Group Lifecycle）
+- Create: `api/handlers/` 目录（预留模块化 handler 文件）
+
+**已删除清单汇总**：5 空目录 + 4 临时文件 + 1 陈旧目录 + 2 幽灵群组 + 3 docs 重复项 + 28 残留 dist 文件 + 1 旧 butler 目录 = **44 项清理**
+
+**验证**: pnpm build 6pkgs pass, pnpm test 281 pass (1 flaky: Windows SQLite EBUSY)
+
+---
+
+### 新增：群组模板系统
+
+**变更原因**：Agent 创建时从 `config/templates/` 读取模板文件，但群组创建时 7 个工作空间文件内容全部硬编码在 `workspace.ts` 中，无法独立编辑和定制。参照 Agent 模板系统，为群组建立对等的模板文件系统。
+
+**新增文件**：
+- Create: `config/templates/groups/MEMBERS.md` — 成员列表模板
+- Create: `config/templates/groups/STRUCTURE.md` — 项目结构模板
+- Create: `config/templates/groups/TASK.md` — 任务描述模板
+- Create: `config/templates/groups/PROGRESS.md` — 工作日志模板
+- Create: `config/templates/groups/PLAN.md` — 执行计划模板
+- Create: `config/templates/groups/EXPERIENCE.md` — 协作经验模板
+- Create: `config/templates/groups/INTERFACE.md` — 群组接口模板
+
+**修改文件**：
+- Modify: `packages/core/src/group/workspace.ts` — 新增 `resolveTemplate` 静态方法 + `GROUPS_TEMPLATES_DIR` 常量；7 个 write 方法重构为"模板优先 + 硬编码兜底"
+- Modify: `STRUCTURE.md` — `config/templates/` 区块新增 `groups/` 子目录；`data/groups/` 区块补全 EXPERIENCE.md / INTERFACE.md
+
+**设计**：7 个模板文件支持 `{{groupName}}`、`{{groupId}}`、`{{ownerName}}`、`{{memberList}}`、`{{datetime}}`、`{{date}}`、`{{time}}` 等占位符。模板文件不存在时自动回退到原有硬编码逻辑，零破坏。
+
+**验证**: pnpm build 6pkgs pass, pnpm test 282 pass
+
+---
+
 ## 2026-05-19
 
 ### 审计修复：模块化工作流 — 竞态 + _onMessage 接线 + 参数校验
