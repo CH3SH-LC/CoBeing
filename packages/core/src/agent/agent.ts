@@ -49,6 +49,8 @@ export interface RunOptions {
   groupId?: string;
   /** 群组协作上下文 — 直接传入，不使用 Agent 的 _groupContext 字段 */
   groupContext?: string;
+  /** GUIDE.md 群组规则内容 — 注入到群组 promptBuilder 的 volatile 层 */
+  guideContent?: string;
   /** 覆盖工作目录（群组上下文时传入 group.effectiveWorkspace） */
   workingDir?: string;
   /** 事件回调 */
@@ -345,7 +347,7 @@ export class Agent {
   }
 
   /** 为群组创建隔离的 ConversationLoop — groupContext 通过 snapshot 对象引用，每次 promptBuilder 调用时读取最新值 */
-  private createGroupLoop(toolExecutor: ToolExecutor, groupId: string, snapshot: { context?: string }, workingDir?: string): ConversationLoop {
+  private createGroupLoop(toolExecutor: ToolExecutor, groupId: string, snapshot: { context?: string; guideContent?: string }, workingDir?: string): ConversationLoop {
     return new ConversationLoop({
       agentConfig: {
         name: this.name,
@@ -362,11 +364,19 @@ export class Agent {
       maxToolRounds: this.config.maxToolRounds,
       fallbackProviders: this.buildFallbackList(),
       promptBuilder: () => {
+        // 组装群组 volatile：GUIDE.md 规则优先，再拼接协作上下文
+        let groupCtx = "";
+        if (snapshot.guideContent) {
+          groupCtx = "## 群组规则 (GUIDE.md)\n\n" + snapshot.guideContent.slice(0, 4000) + "\n\n";
+        }
+        if (snapshot.context) {
+          groupCtx += snapshot.context;
+        }
         const { volatile } = buildCacheablePrompt(
           this.files,
           { name: this.name, role: this.config.role, systemPrompt: this.config.systemPrompt },
           undefined,
-          snapshot.context, // 读取 snapshot 对象的最新值，而非闭包捕获的旧值
+          groupCtx || undefined,
         );
         const parts = [this._sharedPrefix, GROUP_MECHANICS_NOTICE, this._agentPrefix];
         if (volatile) parts.push(volatile);
@@ -376,14 +386,15 @@ export class Agent {
   }
 
   /** 群组上下文快照 — 按 groupId 存储最新值，promptBuilder 闭包读取此引用 */
-  private _groupContextSnapshots = new Map<string, { context?: string }>();
+  private _groupContextSnapshots = new Map<string, { context?: string; guideContent?: string }>();
 
   /** 获取或创建群组隔离的 ConversationLoop */
-  private getGroupLoop(groupId: string, groupContext?: string, workingDir?: string): ConversationLoop {
+  private getGroupLoop(groupId: string, groupContext?: string, guideContent?: string, workingDir?: string): ConversationLoop {
     const key = `group:${groupId}`;
     // 更新快照（无论 loop 是否已存在，确保 promptBuilder 读到最新值）
     const snapshot = this._groupContextSnapshots.get(key) || { context: undefined };
     snapshot.context = groupContext;
+    snapshot.guideContent = guideContent;
     this._groupContextSnapshots.set(key, snapshot);
 
     let loop = this.sessionLoops.get(key);
@@ -619,7 +630,7 @@ export class Agent {
       });
 
       const loop = isGroup
-        ? this.getGroupLoop(options.groupId!, options.groupContext, options.workingDir)
+        ? this.getGroupLoop(options.groupId!, options.groupContext, options.guideContent, options.workingDir)
         : this.conversationLoop;
 
       // 群组模式下初始化唤醒轨迹记录器

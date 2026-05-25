@@ -535,6 +535,7 @@ export class WakeSystem {
       // 5. 唤醒 Agent（群组隔离：使用独立的 ConversationLoop，上下文已包含三层架构）
       const response = await agent.run(enrichedContext, {
         groupId: this.ctx.groupId,
+        guideContent: this.getGroup?.()?.workspace.readGuide() ?? undefined,
         workingDir: this.getGroup?.()?.effectiveWorkspace,
       });
 
@@ -631,6 +632,7 @@ export class WakeSystem {
         const retryContext = entry.triggerContents.join("\n\n");
         const response = await agent.run(retryContext, {
           groupId: this.ctx.groupId,
+          guideContent: this.getGroup?.()?.workspace.readGuide() ?? undefined,
           workingDir: this.getGroup?.()?.effectiveWorkspace,
         });
 

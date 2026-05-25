@@ -11,13 +11,14 @@ import { AgentPaths, AgentFiles } from "../agent/paths.js";
 import type { AgentRegistry } from "../agent/registry.js";
 import type { GroupManager } from "../group/manager.js";
 import type { ChannelRouter } from "../group/router.js";
-import { ButlerRegistry } from "../butler/registry.js";
+import { ButlerRegistry } from "../agent/butler-registry.js";
 import { SkillRepository } from "../skills/repository.js";
 import type { AgentConfig, ReviewLogEvent } from "@cobeing/shared";
 import { encrypt, decrypt } from "../config/secret-store.js";
 import { SubAgentSpawner } from "../agent/spawner.js";
 import { rmDirRecursive, addAgentToRegistry, removeAgentFromRegistry, addGroupToRegistry, removeGroupFromRegistry, updateGroupMembers } from "@cobeing/shared";
 import type { LLMProvider } from "@cobeing/providers";
+import { scanContent } from "../memory/security-scan.js";
 import { TodoStore } from "../todo/store.js";
 import { DockerSandbox } from "../tools/sandbox/docker-sandbox.js";
 
@@ -262,6 +263,10 @@ export class CoreWSServer {
 
   private async handleMessage(ws: WebSocket, msg: WSMessage): Promise<void> {
     switch (msg.type) {
+      // ═══════════════════════════════════════════════════════════
+      // State & Monitoring
+      // ═══════════════════════════════════════════════════════════
+
       case "get_state":
         this.sendToClient(ws, { type: "state", payload: this.getState() });
         break;
@@ -287,8 +292,19 @@ export class CoreWSServer {
         break;
       }
 
+      // ═══════════════════════════════════════════════════════════
+      // Message Routing & Chat Persistence
+      // ═══════════════════════════════════════════════════════════
+
       case "send_message": {
         const { agentId, content } = msg.payload as { agentId: string; content: string };
+        // 安全扫描：检测用户消息中的注入/劫持威胁
+        const scan = scanContent(content);
+        if (!scan.safe) {
+          log.warn("Security scan blocked message to %s: %s", agentId, scan.threat);
+          this.sendToClient(ws, { type: "error", payload: { message: `消息被安全策略拦截（检测到: ${scan.threat}）` } });
+          break;
+        }
         const agent = this.agentRegistry?.get(agentId);
         if (!agent) {
           this.sendToClient(ws, { type: "error", payload: { message: `Agent not found: ${agentId}` } });
@@ -371,6 +387,7 @@ export class CoreWSServer {
         agent.run(content, {
           groupId: groupMatch ? groupMatch[1] : undefined,
           groupContext: collabContext,
+          guideContent: groupMatch ? this.groupManager?.get(groupMatch[1])?.workspace.readGuide() ?? undefined : undefined,
           workingDir: groupMatch ? this.groupManager?.get(groupMatch[1])?.effectiveWorkspace : undefined,
           events: {
             onToken: (token) => {
@@ -496,6 +513,10 @@ export class CoreWSServer {
         this.sendToClient(ws, { type: "log", payload: this.messageLog });
         break;
 
+      // ═══════════════════════════════════════════════════════════
+      // Configuration
+      // ═══════════════════════════════════════════════════════════
+
       case "get_config": {
         const configFilePath = this.configPath || path.resolve("config/default.json");
         try {
@@ -603,6 +624,10 @@ export class CoreWSServer {
         (ws as any).__subscribedLog = true;
         break;
       }
+
+      // ═══════════════════════════════════════════════════════════
+      // Agent Lifecycle
+      // ═══════════════════════════════════════════════════════════
 
       case "create_agent": {
         const { name, role, provider, model, systemPrompt, skills, sandbox: payloadSandbox } = msg.payload as {
@@ -767,6 +792,10 @@ export class CoreWSServer {
         this.broadcastState();
         break;
       }
+
+      // ═══════════════════════════════════════════════════════════
+      // Group Lifecycle
+      // ═══════════════════════════════════════════════════════════
 
       case "create_group": {
         const { name, members, topic } = msg.payload as {
@@ -955,6 +984,17 @@ export class CoreWSServer {
           break;
         }
         const resolved = path.resolve(raw);
+        // 防御：禁止绑定到系统敏感目录
+        const dataRoot = path.resolve(this.dataRoot);
+        if (!resolved.startsWith(dataRoot)) {
+          this.sendToClient(ws, { type: "error", payload: { message: `工作区路径必须在项目数据目录内 (${dataRoot})` } });
+          break;
+        }
+        // 防御：禁止绑定到其他 Agent 的数据目录
+        if (resolved.includes(path.sep + "agents" + path.sep) && !resolved.includes(path.sep + "workspace" + path.sep)) {
+          this.sendToClient(ws, { type: "error", payload: { message: "禁止直接绑定到 Agent 数据目录，请指定 workspace 子目录" } });
+          break;
+        }
         if (!fs.existsSync(resolved)) {
           this.sendToClient(ws, { type: "error", payload: { message: `Directory not found: ${resolved}` } });
           break;
@@ -1817,6 +1857,9 @@ export class CoreWSServer {
 
         try {
           switch (action) {
+            case "start":
+              // 容器按需启动，在 Agent 首次使用沙箱时自动触发
+              break;
             case "stop":
             case "delete":
               await sandboxRunner.destroy();
