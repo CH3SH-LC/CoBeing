@@ -7,6 +7,9 @@
 
 ## 2026-05-25
 
+- [New Feature] 方案 9: 记忆安全 + 中英文注入防御 — security-scan.ts 扩充至 13EN+18CN+混合检测+围栏函数，write-file/memory-store 接入
+- [New Feature] Task 1 (edit-file): 增强 edit-file 工具 — 添加 replace_all 参数 + old/new 相等检查 + 英文错误消息 + 结构化输出，6 个单元测试全部通过
+- [New Feature] Task 1 (security-scan): 新增 26 个 scanContent 威胁检测测试 — 英文/中文/混合/隐形字符全覆盖，当前预期失败等待 Task 2
 - [New Feature] Task 6: EXPERIENCE.md 模板更新 + 6 单元测试 — extractExperienceSummary (4测试) + maintainExperienceSummarySync (2测试)，模板加入概要标记
 - [New Feature] Task 5: appendExperience 接入 maintainExperienceSummarySync — AgentFiles 和 GroupWorkspace 追加经验时自动维护概要区
 - [New Feature] Task 3: extractExperienceSummary + maintainExperienceSummarySync — EXPERIENCE.md 概要区提取/维护工具函数

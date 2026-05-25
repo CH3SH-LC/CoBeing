@@ -2,6 +2,33 @@
 
 ## 2026-05-25
 
+### 方案 9: 记忆安全 + 中英文注入防御
+
+**变更原因**：依据综合调研方案 9，扩展现有 `memory/security-scan.ts`，新增中文恶意注入模式、英文威胁模式、混合语言攻击检测和上下文围栏函数。防止 LLM 将注入的记忆内容当作指令执行。
+
+**修改文件**：
+- `packages/core/src/memory/security-scan.ts` — THREAT_PATTERNS 5→13（新增 disregard rules, bypass restrictions, deception_hide, read_secrets, ssh_backdoor, ssh_access 等）；新增 CN_THREAT_PATTERNS（18 个中文模式：忽略指令/忘记身份/角色劫持/越狱/语境嵌套/假系统消息/数据泄露/后门/提权 等）；INVISIBLE_CHARS 5→14（新增双向文本控制符）；新增 MIXED_THREAT_PATTERN（中英文混合注入检测）；新增 `wrapMemoryContent()` 和 `stripMemoryContext()` 围栏函数
+- `packages/core/src/tools/write-file.ts` — 导入 scanContent，写入 MEMORY.md/EXPERIENCE.md 前执行安全扫描，拒绝匹配威胁模式的内容
+- `packages/core/src/memory/memory-store.ts` — 导入 wrapMemoryContent，`formatForSystemPrompt()` 返回前包裹 `<memory-context>` 标签和 `[System note]`
+- `packages/core/src/index.ts` — 新增导出 wrapMemoryContent / stripMemoryContext
+
+**验证**: pnpm build 6pkgs pass, pnpm test 335 pass (42 security-scan tests)
+
+### Task 1 (edit-file 增强): 测试 + 实现 edit-file 工具功能升级
+
+**变更原因**：方案 2 (tool enhancement) Task 1 — 增强 edit-file 工具以对齐 claw-code 的设计，添加 replace_all 参数、old/new 相同时的错误检查、改进错误消息、结构化输出格式。
+
+**修改文件**：
+- `packages/core/src/tools/edit-file.ts` — 新增 `replace_all` 参数（boolean, 默认 false）到参数 schema 和 execute 实现；新增 `old_string === new_string` 检查返回错误 "must be different"；升级 "not found" 错误消息为英文含指导提示；替换成功后输出结构化格式（`Edit applied to {relPath}\\n- occurrences: {N}\\n- old: {preview}\\n- new: {preview}`）；保留 `isProtectedPath` 逻辑和工具名称不变
+- `packages/core/src/tools/edit-file.test.ts` — 新建测试文件，6 个测试用例：单次替换、replace_all 替换所有出现、old==new 拒绝、not found 错误消息、多出现无 replace_all 拒绝、输出包含 old/new 预览
+
+### Task 1 (security-scan): 扩展 scanContent 测试（26 新测试用例）
+
+**变更原因**：为 security-scan.ts 新增 26 个威胁检测测试用例，覆盖英文/中文/混合/隐形字符攻击模式。当前所有新测试预期失败，等待 Task 2 添加对应模式后通过。
+
+**修改文件**：
+- `packages/core/src/memory/security-scan.test.ts` — 新增 26 个 it 测试（6 英文模式 + 17 中文模式 + 1 混合 + 2 隐形字符），9 个已有测试保持通过
+
 ### Task 6: EXPERIENCE.md 模板更新 + 单元测试
 
 **变更原因**：Task 3 添加了 `extractExperienceSummary` 和 `maintainExperienceSummarySync` 工具函数。Task 6 更新 EXPERIENCE.md 模板（个人和群组）加入概要标记区，并为两个工具函数各添加 4+2 共 6 个单元测试。

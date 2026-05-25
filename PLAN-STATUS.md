@@ -11,15 +11,19 @@
 |------|------|-------|---------|
 | 方案 1 | System Prompt 三层架构重组 | 290 pass | 5 |
 | 方案 4 | GUIDE.md + EXPERIENCE.md 概要机制 | 296 pass | 8 |
+| 方案 9 | 记忆安全 + 中英文注入防御 | 335 pass | 3 |
 
 **方案 1 改动**: `prompt-builder.ts` (+buildStaticLayer/GROUP_MECHANICS_NOTICE), `agent.ts` (createGroupLoop 注入)
 **方案 4 改动**: `workspace.ts` (+GUIDE.md 路径/读写), `agent.ts` (guideContent 注入), `prompt-builder.ts` (+extractExperienceSummary/maintainExperienceSummarySync), `memory-store.ts` (体验目标概要), `paths.ts` (appendExperience 维护概要), 模板更新
+**方案 9 改动**: `security-scan.ts` (+13EN/+18CN/+混合检测/+围栏函数), `write-file.ts` (MEMORY.md/EXPERIENCE.md 写入前扫描), `memory-store.ts` (formatForSystemPrompt 围栏包裹), `index.ts` (新导出)
 
 **Spec/Plan 文档**:
 - `docs/superpowers/specs/2026-05-25-system-prompt-restructure-design.md`
 - `docs/superpowers/plans/2026-05-25-system-prompt-restructure.md`
 - `docs/superpowers/specs/2026-05-25-guide-experience-summary-design.md`
 - `docs/superpowers/plans/2026-05-25-guide-experience-summary.md`
+- `docs/superpowers/specs/2026-05-25-memory-security-cn-injection-design.md`
+- `docs/superpowers/plans/2026-05-25-memory-security-cn-injection.md`
 
 ---
 
@@ -28,7 +32,6 @@
 | 窗口 | 方案 | 优先级 | 复杂度 | 核心改动 |
 |------|------|--------|--------|---------|
 | **A** | 方案 5 — 权限分级免审批 + 工作区绑定 | P0 | 中 | `permission.ts` 重写为 5 级体系 + `bash.ts` 命令分级 |
-| **B** | 方案 9 — 记忆安全 + 中英文注入防御 | P0 | 低 | 新建 `security/memory-security.ts` + 调用点接入 |
 | **C** | 方案 3 — 工具智能体系统 | P1 | 高 | 新建 `agent/tool-agent/`（审查/判断/复制/记忆 4 种） |
 | **D** | 方案 2 — 工具增强 | P1 | 低 | `edit-file.ts` + `grep.ts` + `bash.ts` 小改 |
 
