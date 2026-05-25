@@ -11,7 +11,7 @@ const BUILTIN_TOOLS = [
   "bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch", "agent-message",
 ];
 
-const PERMISSIONS = ["full-access", "workspace-write", "read-only", "ask"];
+const PERMISSIONS = ["full-access", "basic-access", "workspace-access", "workspace-readwrite", "read-only"];
 
 const CATALOG_MODELS: Record<string, Array<{ id: string; name: string; tags?: string[] }>> = {
   deepseek: [

@@ -4,7 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { createLogger } from "@myagents/shared";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("memory-writer");
 

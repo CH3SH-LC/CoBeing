@@ -1,6 +1,6 @@
 {
-  "name": "@myagents/providers",
-  "version": "0.0.1",
+  "name": "@cobeing/providers",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -13,8 +13,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.88.0",
-    "@myagents/shared": "workspace:*"
+    "@cobeing/shared": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

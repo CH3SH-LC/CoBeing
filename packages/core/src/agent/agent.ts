@@ -214,8 +214,9 @@ export class Agent {
   private memoryWriter: MemoryWriter;
   private experienceWriter: ExperienceWriter;
 
-  // 每个用户/会话独立的对话循环
-  private sessionLoops = new Map<string, ConversationLoop>();
+  // 每个用户/会话独立的对话循环 (with lastAccessTime for idle cleanup)
+  private sessionLoops = new Map<string, { loop: ConversationLoop; lastAccessTime: number }>();
+  private readonly SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 
   constructor(config: AgentConfig, provider: LLMProvider, dataRoot?: string) {
     this.id = config.id;
@@ -448,6 +449,7 @@ export class Agent {
 
   /** 获取或创建群组隔离的 ConversationLoop */
   private getGroupLoop(groupId: string, groupContext?: string, guideContent?: string, workingDir?: string): ConversationLoop {
+    this.pruneIdleSessions();
     this._groupLoopWorkingDir = workingDir;
     const key = `group:${groupId}`;
     // 更新快照（无论 loop 是否已存在，确保 promptBuilder 读到最新值）
@@ -456,8 +458,8 @@ export class Agent {
     snapshot.guideContent = guideContent;
     this._groupContextSnapshots.set(key, snapshot);
 
-    let loop = this.sessionLoops.get(key);
-    if (!loop) {
+    let entry = this.sessionLoops.get(key);
+    if (!entry) {
       const effectiveWd = workingDir ?? this.effectiveWorkspace;
       const permission = new PermissionEnforcer(
         this.config.permissions ?? { mode: "workspace-readwrite" },
@@ -475,12 +477,13 @@ export class Agent {
         this.observabilityDB,
         this.name,
       );
-      loop = this.createGroupLoop(toolExecutor, groupId, snapshot, effectiveWd);
-      this.sessionLoops.set(key, loop);
+      entry = { loop: this.createGroupLoop(toolExecutor, groupId, snapshot, effectiveWd), lastAccessTime: Date.now() };
+      this.sessionLoops.set(key, entry);
     }
+    entry.lastAccessTime = Date.now();
     // Always clear history for group calls — context is rebuilt each time by WakeSystem
-    loop.clearHistory();
-    return loop;
+    entry.loop.clearHistory();
+    return entry.loop;
   }
 
   /** 注入 SkillRepository，注册 3 个统一工具 */
@@ -557,8 +560,8 @@ export class Agent {
     }
     // Update existing loops (created before setObservabilityDB was called)
     (this.conversationLoop as any).observabilityDB = db;
-    for (const loop of this.sessionLoops.values()) {
-      (loop as any).observabilityDB = db;
+    for (const entry of this.sessionLoops.values()) {
+      (entry.loop as any).observabilityDB = db;
     }
   }
 
@@ -597,8 +600,9 @@ export class Agent {
     }
 
     const sessionKey = `${msg.channelId}:${msg.senderId}`;
-    let loop = this.sessionLoops.get(sessionKey);
-    if (!loop) {
+    this.pruneIdleSessions();
+    let entry = this.sessionLoops.get(sessionKey);
+    if (!entry) {
       const permission = new PermissionEnforcer(
         this.config.permissions ?? { mode: "workspace-readwrite" },
         this.config.toolsConfig,
@@ -615,9 +619,11 @@ export class Agent {
         this.observabilityDB,
         this.name,
       );
-      loop = this.createLoop(toolExecutor, sessionKey);
-      this.sessionLoops.set(sessionKey, loop);
+      entry = { loop: this.createLoop(toolExecutor, sessionKey), lastAccessTime: Date.now() };
+      this.sessionLoops.set(sessionKey, entry);
     }
+    entry.lastAccessTime = Date.now();
+    const loop = entry.loop;
 
     this._status = "running";
     this._abortController = new AbortController();
@@ -853,10 +859,21 @@ export class Agent {
   /** 清除指定群组的对话循环历史（用于错误恢复） */
   clearGroupLoop(groupId: string): void {
     const key = `group:${groupId}`;
-    const loop = this.sessionLoops.get(key);
-    if (loop) {
-      loop.clearHistory();
+    const entry = this.sessionLoops.get(key);
+    if (entry) {
+      entry.loop.clearHistory();
       this.logger.info("Cleared group loop history for group: %s", groupId);
+    }
+  }
+
+  /** Prune session loops that have been idle for over 1 hour */
+  private pruneIdleSessions(): void {
+    const cutoff = Date.now() - this.SESSION_IDLE_TIMEOUT_MS;
+    for (const [key, entry] of this.sessionLoops) {
+      if (entry.lastAccessTime < cutoff) {
+        this.sessionLoops.delete(key);
+        this.logger.debug("Pruned idle session: %s", key);
+      }
     }
   }
 

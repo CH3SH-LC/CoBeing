@@ -14,8 +14,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
-import type { LLMProvider } from "@myagents/providers";
-import { createLogger } from "@myagents/shared";
+import type { LLMProvider } from "@cobeing/providers";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("skill-repository");
 
@@ -91,7 +91,7 @@ export class SkillRepository {
     this.loadAll();
   }
 
-  /** 扫描 skills/ 目录加载所有 SKILL.md */
+  /** 扫描 skills/ 目录加载所有 SKILL.md（递归支持技能包子技能） */
   private loadAll(): void {
     this.skills.clear();
 
@@ -100,20 +100,30 @@ export class SkillRepository {
       return;
     }
 
-    const entries = fs.readdirSync(this.skillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const fullPath = path.join(this.skillsDir, entry.name);
-      try {
-        const parsed = loadSkillFromDir(fullPath);
-        if (parsed) {
-          this.skills.set(parsed.name, parsed);
-          log.info("Loaded skill: %s", parsed.name);
+    const scanDir = (dir: string): void => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const fullPath = path.join(dir, entry.name);
+        try {
+          const parsed = loadSkillFromDir(fullPath);
+          if (parsed) {
+            if (this.skills.has(parsed.name)) {
+              log.warn("Duplicate skill name '%s', skipping %s", parsed.name, fullPath);
+            } else {
+              this.skills.set(parsed.name, parsed);
+              log.info("Loaded skill: %s", parsed.name);
+            }
+          }
+          // 递归扫描子目录 — 支撑技能包子技能（如 meta-skills/cognitive-toolkit/）
+          scanDir(fullPath);
+        } catch (err) {
+          log.warn("Failed to load skill from %s: %s", entry.name, err);
         }
-      } catch (err) {
-        log.warn("Failed to load skill from %s: %s", entry.name, err);
       }
-    }
+    };
+
+    scanDir(this.skillsDir);
 
     log.info("SkillRepository: %d skills loaded from %s", this.skills.size, this.skillsDir);
   }

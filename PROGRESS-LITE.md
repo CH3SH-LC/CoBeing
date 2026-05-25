@@ -7,40 +7,87 @@
 
 ## 2026-05-25
 
+### 第二轮深度审计修复（P0+P1 共 12 项）
+
+- [Debug] P0#1: bash.ts 命令注入硬化 — 新增 shell 元字符转义 + shellArgs 数组模式备选
+- [Debug] P0#2: Tauri CSP 启用 — `"csp": null` → `default-src 'self'` 策略；TutorialOverlay `dangerouslySetInnerHTML` → FormattedText/SafeContent React 组件
+- [Debug] P0#3: WS 频率限制 + 消息体积 — maxPayload 1MB + 每连接 60条/60秒 + send_message 2秒冷却
+- [Debug] P0#4: secret-store KDF 升级 — 单次 SHA-256 → PBKDF2 (100K 迭代 SHA-512)；解密失败返回空串；密钥文件 chmod 600
+- [Debug] P1#1: workspace.ts 原子写入 — atomicWrite/atomicAppend 替换 writeFileSync，消除 appendExperience/appendProgressEntry 读-改-写竞态
+- [Debug] P1#2: WakeSystem dispose() — 新增 dispose() 清理定时器/队列/处理集合 + _disposed 守卫；Group.dispose() 调用
+- [Debug] P1#3: WebSocket 心跳 — 服务端 30s ping + 10s pong 超时 → terminate
+- [Debug] P1#4: LLM 熔断器 — conversation-loop.ts 静态 circuit breaker (3次失败→60s断路)
+- [Debug] P1#5: 无界集合修剪 — eventHistory ≤1000 / processedMsgIds ≤5000 / sessionLoops 1h 空闲清理
+- [New Feature] 共享常量文件 — packages/shared/src/constants.ts (DEFAULT_PROVIDER/MODEL/PORT 等)，6 个消费文件更新
+- [Debug] 路径包含性检查 — read-file/write-file/edit-file 增加 path.relative() 逃逸检测 + realpath 符号链接解析
+- [Debug] WS 输入校验 — agent/group 名称 ≥64字符+字符白名单；消息内容≥100KB
+
+### 五维度审计修复（11 项）
+
+- [Debug] 审计修复 #1: `__cobeingGetProvider` 全局未赋值 — runtime.ts 构造函数中赋值 `(globalThis as any).__cobeingGetProvider = (id) => this.providers.get(id)`，修复 wake-system.ts / group-scanner.ts 判断系统静默失效
+- [Debug] 审计修复 #2: 插件 `registerTool()` / `registerMemoryBackend()` 空桩 — runtime.ts 实现全局注册表 (__cobeingPluginTools / __cobeingPluginMemoryBackends)，插件可注册工具和记忆后端
+- [Debug] 审计修复 #3: `readMasterRegistry()` 损坏时返回空导致数据丢失 — master-registry.ts 损坏时重命名为 .corrupted 备份而非返回空 registry
+- [Debug] 审计修复 #4: `buildProviders()` 绕过 PluginLoader — 新增 `loadProviderPlugins()` async 方法，start() 中调用，实际执行插件 register()
+- [Debug] 审计修复 #5: 通道消息绕过群组审核 — startChannels() 群组绑定时注入 runReviewAgent 审核管道
+- [Debug] 审计修复 #6: 权限模式名不一致 — base.ts 默认值 "workspace-write"→"workspace-readwrite"；executor.ts 传递真实权限模式；新增 PermissionEnforcer.mode getter；前端 2 组件更新为新 5 级体系
+- [Debug] 审计修复 #7: 只读模式白名单含 Remove-Item — bash-classifier.ts 移除 Copy-Item/Move-Item/New-Item/Remove-Item，只保留 Test-Path/Get-* 等安全 cmdlet
+- [Debug] 审计修复 #8: 工作区绑定未阻止根目录 — ws-server.ts FORBIDDEN 新增 `/^\/$/` 和 `/^[A-Z]:\\$/i`
+- [Debug] 审计修复 #9: ToolAgent 无超时保护 — base.ts 兜底 AbortSignal.timeout(120s)，双重 abort 检查
+- [Debug] 审计修复 #10: 时间衰减主导记忆搜索 — sqlite-adapter.ts ageFactor 保留 30% 基础分；halfLifeDays=0 防御；空查询返回 []；LIKE 回退用 Jaccard 替代无意义的长度比
+- [Debug] 审计修复 #11（中优先级）: start.bat 始终构建（/fast 跳过）；wake-system.ts / group-scanner.ts deeepseek 硬编码改为 fallback 到首个可用 provider；bash-classifier.ts 新增相对路径逃逸检测；memory-store.ts lazy init 失败自动重试；group-tools.ts runReviewAgent 加 try/catch；memory-tool.ts feedback_action 校验
+
+### 方案 10 — 插件系统
 - [New Feature] 方案 10: 插件系统 — 新建 @cobeing/plugin-sdk 包，PluginLoader + 7 provider + 1 channel 内置插件包装器，runtime.ts 改为插件架构加载，417 tests pass
-- [New Feature] Task 7 Tests: 添加 sqlite-adapter 多策略搜索 + trust feedback 测试（9 tests）+ 新增 hrr.test.ts（6 tests），417/417 tests pass
-- [New Feature] Task 7: runtime.ts 切换插件架构 — buildProviders() 改为扫描 plugins/providers/ 清单 + 自动发现 + 全局 registerProvider() 注册 + getProviderBaseURL() 默认 URL 映射，416/417 tests pass
-- [New Feature] Task 6: 创建 hrr.ts 桩 — HrrEncoder 接口 + StubHrrEncoder Phase 2 桩实现（dim=1024，encodeAtom/bind/unbind/bundle/similarity 全部 stub）
-- [New Feature] Task 5: memory-feedback 工具动作 — memory 工具新增 feedback action + feedback_action 参数，Agent 可标记记忆条目有用/无用，调用 searchAndFeedback 调整信任分数 — SqliteAdapter 新增 adjustTrust/markHelpful/markUnhelpful，MemoryStore 新增 trustConfig + feedback 方法 + searchAndFeedback + add() 重复降分 + reflectFromHistory() 相关经验加分（402 tests pass）
-- [Debug] SQLite 适配器三修复：NULL trust 防御 (`?? 0.5`)、评分循环批量 UPDATE 替代 50 次独立写入、`halfLifeDays ?? 30` 允许 0 值
-- [New Feature] 插件 SDK 类型定义：新增 types.ts（CoBeingPlugin / CoBeingPluginApi / 4 种插件接口 / PluginManifest），index.ts 改为 re-export，tsc 编译通过
-- [New Feature] @cobeing/plugin-sdk 包脚手架：新建 packages/plugin-sdk（package.json + tsconfig.json + src/index.ts），workspace 依赖 shared/providers/channels，tsc 编译通过
-- [New Feature] HRR 多策略记忆检索 Phase 1 (Tasks 1-3): schema 迁移 + Jaccard/temporal decay 工具函数 + searchEntries 三阶段评分管道重写（13 tests pass）
-- [New Feature] 工具智能体系统（方案 3）：4 种 ToolAgent（审查/判断/复制/记忆），独立 LLM 循环，用完即毁 + 15 单元测试
-- [New Feature] Task 12: 创建 WorkspaceBindingSection 组件 — 展示 Agent 工作区绑定列表 + 添加/移除外部目录绑定 UI
-- [New Feature] Task 7 (tool-agent): 新增 tool-agent.test.ts — 15 个单元测试覆盖 base/judgment/review/memory 四个模块，全部通过
-- [New Feature] Task 3 (bash): 添加 16384 字节输出截断保护 + 创建 bash.test.ts（4 测试全部通过）
-- [Debug] grep 工具代码质量修复：line-byline .trim() 移除（保留行尾空白）+ multiline 重复 g flag 去重 + 新增 -- separator 测试
-- [Debug] grep 上下文模式三处合规修复：输出前缀 dash→colon、删除错误 remaining 计数、文件路径 searchDir→baseDir 双重拼接修复
-- [New Feature] Task 2 (grep): 完整重写 — 新增 output_mode/files_with_matches/count、head_limit/offset 分页、-A/-B/-C 上下文、multiline dotAll、-i/-n 控制，18 个测试全部通过
-- [New Feature] 方案 9: 记忆安全 + 中英文注入防御 — security-scan.ts 扩充至 13EN+18CN+混合检测+围栏函数，write-file/memory-store 接入
-- [Debug] Task 1 (edit-file) 代码质量修复: replaceAll 变量重命名为 shouldReplaceAll + 新增 2 个测试（长字符串截断 + 文件不存在），共 8 测试通过
-- [New Feature] Task 1 (edit-file): 增强 edit-file 工具 — 添加 replace_all 参数 + old/new 相等检查 + 英文错误消息 + 结构化输出，6 个单元测试全部通过
-- [New Feature] Task 1 (security-scan): 新增 26 个 scanContent 威胁检测测试 — 英文/中文/混合/隐形字符全覆盖，当前预期失败等待 Task 2
-- [New Feature] Task 6: EXPERIENCE.md 模板更新 + 6 单元测试 — extractExperienceSummary (4测试) + maintainExperienceSummarySync (2测试)，模板加入概要标记
-- [New Feature] Task 5: appendExperience 接入 maintainExperienceSummarySync — AgentFiles 和 GroupWorkspace 追加经验时自动维护概要区
-- [New Feature] Task 3: extractExperienceSummary + maintainExperienceSummarySync — EXPERIENCE.md 概要区提取/维护工具函数
-- [New Feature] Task 2: GUIDE.md 注入到 createGroupLoop volatile — Agent 群组对话时自动将群组规则（GUIDE.md 前 4000 字符）注入 system prompt
-- [New Feature] Task 4: MemoryStore.formatForSystemPrompt 对 experience 目标使用 extractExperienceSummary（≤1500字符），标签改为"工作经验概要"
-- [New Feature] Task 1: GUIDE.md 模板创建 + GroupWorkspace 添加 guide 路径/readGuide()/writeGuide() + 群组初始化自动写入
-- [Change] System Prompt 三层架构 Step 5：新增 buildStaticLayer（6 测试）和 GROUP_MECHANICS_NOTICE（2 测试）测试，更新 3 个已有测试排序断言，修复过时文件头注释
-- [Change] System Prompt 三层架构 Step 3：buildStaticLayer() 集成到 buildSystemPromptFromFiles 头部，所有后续节编号 +1
-- [Change] System Prompt 三层架构 Step 2：buildStaticLayer() 集成到 buildCacheablePrompt sharedPrefix，共享前缀由纯 AGENTS.md 升级为 STATIC 层 + AGENTS.md
-- [Change] System Prompt 三层架构 Step 4：GROUP_MECHANICS_NOTICE 注入 createGroupLoop，群组 Agent 在 sharedPrefix 和 agentPrefix 之间获得群组机制说明
-- [New Feature] System Prompt 三层架构 Step 1：新增 buildStaticLayer() 和 GROUP_MECHANICS_NOTICE 到 prompt-builder.ts
-- [Debug] 全项目五领域审计修复：C1 __cobeingObsDb 未赋值 / H1 符号链接逃逸 / H2 iptables 白名单无效 / H3 安全扫描扩展到消息路径 / M2 bind_workspace 路径校验 / M5 readonly 权限模式 / M6 sandbox_action start / M7 缺失 WS 事件处理器 / M8 WakeQueueSection getWsClient / M9 ObservabilityDB.close WAL
-- [Change] 文档系统审计修复：后端能力清单 Provider 数/包数/测试数 / 测试清单重写 / 待办标记已完成 / STRUCTURE.md 陈旧条目清理 + 缺失文件补全
-- [Debug] 修复 start.bat 端口检查卡死：netstat 无 -p TCP + 无超时 → 新增 TCP 限定 + 15s 超时
+- [New Feature] 方案 10: 插件 SDK 类型定义 — types.ts（CoBeingPlugin / CoBeingPluginApi / 4 种插件接口 / PluginManifest），tsc 编译通过
+- [New Feature] 方案 10: @cobeing/plugin-sdk 包脚手架 — 新建 packages/plugin-sdk，workspace 依赖 shared/providers/channels，tsc 编译通过
+
+### 方案 8 — HRR 多策略记忆检索
+- [New Feature] 方案 8 Task 7 Tests: sqlite-adapter 多策略搜索 + trust feedback 测试（9 tests）+ hrr.test.ts（6 tests），417/417 pass
+- [New Feature] 方案 8 Task 7: runtime.ts 切换插件架构 — 扫描 plugins/providers/ 清单 + 自动发现 + 全局 registerProvider() 注册，416/417 tests pass
+- [New Feature] 方案 8 Task 6: hrr.ts 桩 — HrrEncoder 接口 + StubHrrEncoder Phase 2 桩（dim=1024，全部方法 stub）
+- [New Feature] 方案 8 Task 5: memory-feedback 工具动作 — feedback action + feedback_action 参数，searchAndFeedback 信任分调整 — SqliteAdapter + MemoryStore feedback 方法 + add() 重复降分 + reflectFromHistory() 加分（402 tests pass）
+- [Debug] 方案 8: SQLite 适配器三修复 — NULL trust 防御 (`?? 0.5`)、批量 UPDATE 替代逐条写入、`halfLifeDays ?? 30` 允许 0 值
+- [New Feature] 方案 8 Phase 1 (Tasks 1-3): schema 迁移 + Jaccard/temporal decay + searchEntries 三阶段评分管道重写（13 tests pass）
+
+### 方案 5 — 权限分级免审批 + 工作区绑定
+- [New Feature] 方案 5: 5 级权限（ReadOnly→FullAccess）+ bash 命令动态分级器 + Agent 多工作区绑定 + add/remove/list_binding WS 命令，19 tests pass
+- [New Feature] 方案 5 Task 12: WorkspaceBindingSection 组件 — 展示 Agent 工作区绑定列表 + 添加/移除外部目录绑定 UI
+
+### 方案 3 — 工具智能体系统
+- [New Feature] 方案 3: 4 种 ToolAgent（审查/判断/复制/记忆），独立 LLM 循环，用完即毁 + 15 单元测试
+- [New Feature] 方案 3 Task 7: tool-agent.test.ts — 15 个单元测试覆盖 base/judgment/review/memory，全部通过
+
+### 方案 2 — 高效工具设计
+- [New Feature] 方案 2 Task 3 (bash): 16384 字节输出截断保护 + bash.test.ts（4 tests pass）
+- [Debug] 方案 2: grep 代码质量修复 — line-byline .trim() 移除 + multiline g flag 去重 + -- separator 测试
+- [Debug] 方案 2: grep 上下文模式修复 — 输出前缀 dash→colon、删除错误 remaining 计数、searchDir→baseDir 双重拼接修复
+- [New Feature] 方案 2 Task 2 (grep): 完整重写 — output_mode/files_with_matches/count + head_limit/offset 分页 + -A/-B/-C 上下文 + multiline dotAll + -i/-n 控制，18 tests pass
+- [Debug] 方案 2 Task 1 (edit-file) 代码质量修复: replaceAll → shouldReplaceAll + 2 测试（长字符串截断 + 文件不存在），8 tests pass
+- [New Feature] 方案 2 Task 1 (edit-file): replace_all 参数 + old/new 相等检查 + 英文错误消息 + 结构化输出，6 tests pass
+
+### 方案 9 — 记忆安全 + 中英文注入防御
+- [New Feature] 方案 9: security-scan.ts 扩充至 13EN+18CN+混合检测+围栏函数，write-file/memory-store 接入
+- [New Feature] 方案 9 Task 1: 26 个 scanContent 威胁检测测试 — 英文/中文/混合/隐形字符全覆盖
+
+### 方案 4 — GUIDE.md + EXPERIENCE.md 分离 + 概要机制
+- [New Feature] 方案 4 Task 6: EXPERIENCE.md 模板更新 + 6 单元测试 — extractExperienceSummary (4) + maintainExperienceSummarySync (2)，模板加入概要标记
+- [New Feature] 方案 4 Task 5: appendExperience 接入 maintainExperienceSummarySync — AgentFiles/GroupWorkspace 追加经验时自动维护概要区
+- [New Feature] 方案 4 Task 3: extractExperienceSummary + maintainExperienceSummarySync — 概要区提取/维护工具函数
+- [New Feature] 方案 4 Task 2: GUIDE.md 注入到 createGroupLoop volatile — Agent 群组对话时自动注入群组规则（≤4000 字符）
+- [New Feature] 方案 4 Task 4: MemoryStore.formatForSystemPrompt 对 experience 目标使用 extractExperienceSummary（≤1500 字符），标签改为"工作经验概要"
+- [New Feature] 方案 4 Task 1: GUIDE.md 模板创建 + GroupWorkspace 添加 guide 路径/readGuide()/writeGuide() + 群组初始化自动写入
+
+### 方案 1 — 精确 System Prompt
+- [Change] 方案 1 Step 5: 新增 buildStaticLayer（6 tests）+ GROUP_MECHANICS_NOTICE（2 tests），更新排序断言，修复过时文件头注释
+- [Change] 方案 1 Step 3: buildStaticLayer() 集成到 buildSystemPromptFromFiles 头部，后续节编号 +1
+- [Change] 方案 1 Step 2: buildStaticLayer() 集成到 buildCacheablePrompt sharedPrefix — 纯 AGENTS.md → STATIC 层 + AGENTS.md
+- [Change] 方案 1 Step 4: GROUP_MECHANICS_NOTICE 注入 createGroupLoop — sharedPrefix 和 agentPrefix 之间注入群组机制说明
+- [New Feature] 方案 1 Step 1: 新增 buildStaticLayer() + GROUP_MECHANICS_NOTICE 到 prompt-builder.ts
+
+### 其他修复
+- [Debug] 全项目五领域审计修复：C1 __cobeingObsDb / H1 符号链接逃逸 / H2 iptables 白名单 / H3 安全扫描扩展 / M2 bind_workspace 校验 / M5 readonly 模式 / M6 sandbox start / M7 缺失 WS 事件 / M8 WakeQueueSection / M9 WAL checkpoint
+- [Change] 文档系统审计修复：后端能力清单 / 测试清单重写 / 待办标记已完成 / STRUCTURE.md 陈旧条目清理 + 缺失文件补全
+- [Debug] 修复 start.bat 端口检查卡死：netstat 无 -p TCP + 无超时 → TCP 限定 + 15s 超时
 - [Debug] 修复 start.bat `echo.` 语法错误 + CMD 块解析器将 echo 行内 `()` 误读为代码块边界
 - [Debug] 修复 PowerShell $pid 变量冲突导致端口清理静默失败 → $procId
 

@@ -2,6 +2,77 @@
 
 ## 2026-05-25
 
+### 第二轮深度审计修复（P0+P1 共 12 项）
+
+**变更原因**：5 个子智能体从「代码质量与类型安全」「并发与韧性」「Agent 能力缺口」「安全加固」「测试质量与覆盖」五个新维度深度审计。发现 2 个 VULNERABLE（命令注入、WS 无认证）、大量 FRAGILE/NEEDS HARDENING。修复 P0（4 项）和 P1（8 项）。
+
+**修改文件**：
+
+**P0 安全修复**：
+- `packages/core/src/tools/bash.ts` — 新增 shell 元字符转义函数 escapeShellArg()，防止命令注入
+- `gui-v2/src-tauri/tauri.conf.json` — CSP `null` → `default-src 'self'` 策略
+- `gui-v2/src/components/tutorial/TutorialOverlay.tsx` — `dangerouslySetInnerHTML` → FormattedText/SafeContent React 安全组件
+- `packages/core/src/api/ws-server.ts` — maxPayload 1MB；每连接频率限制 60条/60秒；send_message 2秒冷却；心跳 30s ping + 10s pong 超时
+- `packages/core/src/config/secret-store.ts` — KDF 升级 PBKDF2(100K 迭代 SHA-512)；解密失败返回空串；密钥文件 chmod 0o600；向后兼容旧密钥
+
+**P1 韧性修复**：
+- `packages/core/src/group/workspace.ts` — atomicWrite/atomicAppend 替换 writeFileSync，消除 appendExperience/appendProgressEntry 竞态
+- `packages/core/src/group/wake-system.ts` — 新增 dispose() + _disposed 守卫 + processedMsgIds 5000 上限修剪
+- `packages/core/src/group/group.ts` — dispose() 调用 wakeSystem.dispose()
+- `packages/core/src/conversation/conversation-loop.ts` — 静态 circuit breaker (3次失败→60s 断路，半开探测)
+- `packages/core/src/agent/event-bus.ts` — eventHistory ≤1000 修剪
+- `packages/core/src/agent/agent.ts` — sessionLoops 1h 空闲自动清理
+- `gui-v2/src/lib/ws-client.ts` — 浏览器 WebSocket 协议级 ping/pong 注释
+
+**代码质量修复**：
+- `packages/shared/src/constants.ts` — [新增] DEFAULT_PROVIDER / DEFAULT_MODEL / DEFAULT_JUDGMENT_MODEL / DEFAULT_WS_PORT / MAX_BASH_OUTPUT / MAX_MEMORY_CHARS / MAX_AGENT_NAME_LENGTH / MAX_GROUP_NAME_LENGTH / MAX_MESSAGE_LENGTH
+- `packages/shared/src/index.ts` — 重导出 constants
+- `packages/core/src/runtime.ts` — 11 处硬编码字符串→常量；新增 unhandledRejection/uncaughtException 处理器
+- `packages/core/src/group/wake-system.ts` — 3 处 "deepseek"/"deepseek-chat" → 常量
+- `packages/core/src/todo/group-scanner.ts` — 2 处硬编码 → 常量
+- `packages/core/src/memory/memory-store.ts` — 硬编码字符限制 → MAX_MEMORY_CHARS
+- `packages/core/src/tools/read-file.ts` — path.relative() 逃逸检测 + realpath 符号链接解析
+- `packages/core/src/tools/write-file.ts` — 同上
+- `packages/core/src/tools/edit-file.ts` — 同上
+- `packages/core/src/api/ws-server.ts` — create_agent/create_group 名称长度+字符白名单校验；send_message 消息体积限制
+
+**验证**：pnpm build 7pkgs pass, pnpm test 417 pass (43 files)
+
+---
+
+### 五维度审计修复（11 项）
+
+**变更原因**：5 个子智能体从「插件系统」「HRR 记忆」「权限与工作区绑定」「ToolAgent」「跨领域可用性」五个维度审计。发现了 3 个严重问题（`__cobeingGetProvider` 未赋值、插件 stubs、registry 损坏数据丢失）、5 个高严重性问题（权限模式不匹配、白名单含 Remove-Item、根目录绑定、ToolAgent 无超时、时间衰减主导搜索）、6 个中等问题。
+
+**修改文件**：
+
+**严重修复**：
+- `packages/core/src/runtime.ts` — #1 构造函数赋值 `(globalThis as any).__cobeingGetProvider`；#2 实现 registerTool/registerMemoryBackend 全局注册表 (__cobeingPluginTools / __cobeingPluginMemoryBackends)；#4 新增 `loadProviderPlugins()` async 方法 + start() 中调用；#5 startChannels() 群组绑定时注入 runReviewAgent 审核管道
+- `packages/shared/src/master-registry.ts` — #3 `readMasterRegistry()` 损坏时重命名为 `.corrupted` 备份（写注释说会防御但实际返回了空 → 现在真的防御了）
+
+**高修复**：
+- `packages/core/src/agent/tool-agent/base.ts` — #6 默认权限 "workspace-write"→"workspace-readwrite"；#9 兜底 timeout AbortSignal.timeout(120s) + 双重 abort 检查
+- `packages/core/src/tools/executor.ts` — #6 传递真实权限模式而非硬编码 "full-access"
+- `packages/core/src/tools/permission.ts` — #6 新增 `get mode()` 对外访问器
+- `gui-v2/src/components/agent/CreateAgentDialog.tsx` — #6 PERMISSIONS 更新为 5 级新体系
+- `gui-v2/src/components/agent/AgentConfigTab.tsx` — #6 同上
+- `packages/core/src/tools/bash-classifier.ts` — #7 移除 Copy-Item/Move-Item/New-Item/Remove-Item；#11 新增 RELATIVE_ESCAPE_RE 检测多层相对路径遍历
+- `packages/core/src/api/ws-server.ts` — #8 FORBIDDEN 新增根目录模式 `/^\/$/` 和 `/^[A-Z]:\\$/i`
+- `packages/core/src/memory/sqlite-adapter.ts` — #10 ageFactor=0.3+0.7*temporalDecay 保留 30% 基础分；halfLifeDays=0 防御；空查询返回 []；LIKE 回退用 Jaccard
+- `packages/core/src/agent/tool-agent/tool-agent.test.ts` — abort 测试期望消息更新
+
+**中修复**：
+- `start.bat` — #11 默认始终构建，`/fast` 标志跳过
+- `packages/core/src/group/wake-system.ts` — #11 deepseek 硬编码 → 尝试所有 provider
+- `packages/core/src/todo/group-scanner.ts` — #11 同上
+- `packages/core/src/memory/memory-store.ts` — #11 lazy init 失败自动重试一次
+- `packages/core/src/tools/group-tools.ts` — #11 runReviewAgent 加 try/catch 防止崩溃导致消息丢失
+- `packages/core/src/memory/memory-tool.ts` — #11 feedback_action 值校验
+
+**验证**：pnpm build 7pkgs pass, pnpm test 417 pass (43 files)
+
+---
+
 ### 方案 10: 插件系统
 
 **变更原因**: 依据综合调研方案 10，新建 @cobeing/plugin-sdk 轻量包，定义插件接口和加载器，将现有 7 个 provider 和 1 个 channel 包装为内置插件。插件发现机制：配置文件声明 + plugins/ 目录扫描，扫描到的新插件自动写入配置。
@@ -18,7 +89,7 @@
 
 **验证**: pnpm build 7pkgs pass, pnpm test 417 pass (43 files)
 
-### 新功能：HRR 多策略记忆检索添加单元测试（Task 7 Tests）
+### 方案 8 Task 7 Tests: HRR 多策略记忆检索添加单元测试
 
 **变更原因**：为 Task 7 的 HRR 多策略记忆检索功能添加测试覆盖，验证搜索评分管道和信任反馈机制。
 
@@ -32,7 +103,7 @@
 
 ---
 
-### 新功能：runtime.ts 切换为插件架构加载 Provider（Task 7）
+### 方案 8 Task 7: runtime.ts 切换为插件架构加载 Provider
 
 **变更原因**：将 runtime.ts 的 `buildProviders()` 从直接 `new OpenAICompatProvider()` 切换为基于插件清单的发现和加载架构，为后续完全异步插件加载奠定基础。
 
@@ -49,7 +120,7 @@
 
 ---
 
-### 新功能：HRR 桩实现（Task 6）
+### 方案 8 Task 6: HRR 桩实现
 
 **变更原因**：为 Phase 2 HRR 记忆检索预先定义接口，创建 StubHrrEncoder 桩让调用方可以按接口编程。
 
@@ -60,7 +131,7 @@
 
 ---
 
-### 新功能：memory-feedback 工具动作（Task 5）
+### 方案 8 Task 5: memory-feedback 工具动作
 
 **变更原因**：为 Agent 的 memory 工具添加 feedback 动作，让 Agent 能对记忆条目标记有用/无用，利用已有的 searchAndFeedback 机制动态调整条目的信任分数。
 
@@ -73,7 +144,7 @@
 
 ---
 
-### 新功能：Trust 反馈方法 + MemoryStore 集成（Task 4）
+### 方案 8 Task 4: Trust 反馈方法 + MemoryStore 集成
 
 **变更原因**：为记忆系统添加信任反馈机制，支持标记条目的有用/无用及自动信任评分调整。
 
@@ -140,7 +211,7 @@
 
 ---
 
-### 新增：HRR 多策略记忆检索 Phase 1（Tasks 1-3）
+### 方案 8 Phase 1: HRR 多策略记忆检索（Tasks 1-3）
 
 **变更原因**：为记忆检索添加多策略评分管道，计算 `final_score = (0.5*fts + 0.5*jaccard) * trust * temporal_decay`。Phase 1 完成 schema 迁移、Jaccard 相似度 + 时间衰减工具函数、以及 searchEntries 多策略重写。
 
@@ -255,7 +326,7 @@
 
 ## 2026-05-25
 
-### bash 工具输出截断 + 测试
+### 方案 2 Task 3: bash 工具输出截断 + 测试
 
 **变更描述**：为 bash 工具添加 16384 字节输出截断保护，防止大输出撑爆上下文窗口。同时新增 bash 工具的测试文件。
 
@@ -267,7 +338,7 @@
 
 **验证**: pnpm test 360/360 pass (39 files), 4/4 bash tests pass
 
-### grep 工具两个代码质量修复 + 新增测试
+### 方案 2: grep 工具两个代码质量修复 + 新增测试
 
 **问题描述**：
 1. 第 147 行 line-by-line 模式 `.trim()` 破坏行尾空白信息 — 用户可能依赖前导/尾随空白进行视觉对齐或精确匹配
@@ -281,7 +352,7 @@
 
 **验证**: pnpm test (grep) 19/19 pass, pnpm build 7pkgs pass
 
-### grep 上下文模式三处合规修复
+### 方案 2: grep 上下文模式三处合规修复
 
 **问题描述**：grep 工具的上下文模式（`-A`/`-B`/`-C`）存在 3 处与 spec 不一致的 bug：
 1. 上下文模式输出行前缀使用 `file-lineNum:`（dash）而非 `file:lineNum:`（colon），与非上下文模式格式不一致
@@ -302,7 +373,7 @@
 
 **验证**: pnpm test (grep) 18/18 pass, pnpm build 7pkgs pass
 
-### Task 2 (grep 参数变更 + 条目收集重构 + 测试)
+### 方案 2 Task 2 (grep): 完整重写
 
 **变更原因**：方案 2 (tool enhancement) Task 2 — 完整重写 grep 工具以对齐 claw-code 的 grep 设计，新增输出模式、分页、上下文行、多行匹配等参数。
 
@@ -324,7 +395,7 @@
 
 **验证**: pnpm build 6pkgs pass, pnpm test 335 pass (42 security-scan tests)
 
-### Task 1 (edit-file 增强): 测试 + 实现 edit-file 工具功能升级
+### 方案 2 Task 1 (edit-file): 增强 edit-file 工具
 
 **变更原因**：方案 2 (tool enhancement) Task 1 — 增强 edit-file 工具以对齐 claw-code 的设计，添加 replace_all 参数、old/new 相同时的错误检查、改进错误消息、结构化输出格式。
 
@@ -332,7 +403,7 @@
 - `packages/core/src/tools/edit-file.ts` — 新增 `replace_all` 参数（boolean, 默认 false）到参数 schema 和 execute 实现；新增 `old_string === new_string` 检查返回错误 "must be different"；升级 "not found" 错误消息为英文含指导提示；替换成功后输出结构化格式（`Edit applied to {relPath}\\n- occurrences: {N}\\n- old: {preview}\\n- new: {preview}`）；保留 `isProtectedPath` 逻辑和工具名称不变
 - `packages/core/src/tools/edit-file.test.ts` — 新建测试文件，6 个测试用例：单次替换、replace_all 替换所有出现、old==new 拒绝、not found 错误消息、多出现无 replace_all 拒绝、输出包含 old/new 预览
 
-### Task 1 (edit-file) 代码质量修复: 变量重命名 + 新增测试
+### 方案 2 Task 1 (edit-file) 代码质量修复: 变量重命名 + 新增测试
 
 **变更原因**：修复 3 个代码质量问题 — `replaceAll` 变量遮蔽 `String.prototype.replaceAll`；缺少长字符串预览截断测试；缺少文件不存在错误路径测试。
 
@@ -342,14 +413,14 @@
 
 **验证**: 8 tests pass, pnpm build pass
 
-### Task 1 (security-scan): 扩展 scanContent 测试（26 新测试用例）
+### 方案 9 Task 1 (security-scan): 扩展 scanContent 测试（26 新测试用例）
 
 **变更原因**：为 security-scan.ts 新增 26 个威胁检测测试用例，覆盖英文/中文/混合/隐形字符攻击模式。当前所有新测试预期失败，等待 Task 2 添加对应模式后通过。
 
 **修改文件**：
 - `packages/core/src/memory/security-scan.test.ts` — 新增 26 个 it 测试（6 英文模式 + 17 中文模式 + 1 混合 + 2 隐形字符），9 个已有测试保持通过
 
-### Task 6: EXPERIENCE.md 模板更新 + 单元测试
+### 方案 4 Task 6: EXPERIENCE.md 模板更新 + 单元测试
 
 **变更原因**：Task 3 添加了 `extractExperienceSummary` 和 `maintainExperienceSummarySync` 工具函数。Task 6 更新 EXPERIENCE.md 模板（个人和群组）加入概要标记区，并为两个工具函数各添加 4+2 共 6 个单元测试。
 
@@ -358,7 +429,7 @@
 - `config/templates/groups/EXPERIENCE.md` — 同上，在描述行后插入概要标记
 - `packages/core/src/conversation/prompt-builder.test.ts` — 新增 `extractExperienceSummary` describe（4 tests）和 `maintainExperienceSummarySync` describe（2 tests）；import 中新增导入两个函数
 
-### Task 5: appendExperience 接入 maintainExperienceSummarySync
+### 方案 4 Task 5: appendExperience 接入 maintainExperienceSummarySync
 
 **变更原因**：Task 3 添加了 `maintainExperienceSummarySync()` 概要维护工具函数。Task 5 将其接入 `AgentFiles.appendExperience()` 和 `GroupWorkspace.appendExperience()`，使每次追加经验条目时自动更新 EXPERIENCE.md 的概要区。
 
@@ -366,14 +437,14 @@
 - `packages/core/src/agent/paths.ts` — `AgentFiles.appendExperience()` 重构：新建文件时写入 SUMMARY_START/SUMMARY_END 标记和概要行；追加时先 appendFileSync 再调用 `maintainExperienceSummarySync()` 重写概要；新增 import `maintainExperienceSummarySync`
 - `packages/core/src/group/workspace.ts` — `GroupWorkspace.appendExperience()` 重构：section header 未找到时追加到末尾；写入后调用 `maintainExperienceSummarySync()` 维护概要区；新增 import `maintainExperienceSummarySync`
 
-### Task 3: extractExperienceSummary + maintainExperienceSummarySync 工具函数
+### 方案 4 Task 3: extractExperienceSummary + maintainExperienceSummarySync 工具函数
 
 **变更原因**：为 EXPERIENCE.md 概要机制新增两个工具函数。`extractExperienceSummary` 从 EXPERIENCE.md 中提取概要区（有标记→标记间内容，无标记→回退全量兼容旧文件，超长时倒序截断保留最新条目）。`maintainExperienceSummarySync` 在概要区最前面插入新摘要行（无标记→自动创建标记包裹现有内容）。
 
 **修改文件**：
 - `packages/core/src/conversation/prompt-builder.ts` — 新增 `EXPERIENCE_SUMMARY_START` / `EXPERIENCE_SUMMARY_END` 常量、`extractExperienceSummary()` 和 `maintainExperienceSummarySync()` 导出函数
 
-### Task 2: GUIDE.md 注入到 createGroupLoop volatile
+### 方案 4 Task 2: GUIDE.md 注入到 createGroupLoop volatile
 
 **变更原因**：Task 1 在 GroupWorkspace 中添加了 readGuide() 方法。Task 2 将其接入 Agent 的群组 loop，使 GUIDE.md 内容在 Agent 处于群组上下文时自动注入到 system prompt 的 volatile 层。
 
@@ -382,21 +453,21 @@
 - `packages/core/src/api/ws-server.ts` — `handleMessage` 中 `agent.run()` 传入 `guideContent: groupMatch ? this.groupManager?.get(gId)?.workspace.readGuide() ?? undefined : undefined`
 - `packages/core/src/group/wake-system.ts` — 两处 `agent.run()`（正常唤醒 + 错误重试）传入 `guideContent: this.getGroup?.()?.workspace.readGuide() ?? undefined`
 
-### System Prompt 三层架构 Step 4：GROUP_MECHANICS_NOTICE 注入到 createGroupLoop
+### 方案 1 Step 4: GROUP_MECHANICS_NOTICE 注入到 createGroupLoop
 
 **变更原因**：Step 1 定义了 `GROUP_MECHANICS_NOTICE` 常量，Step 4 将其接入 agent.ts 的群组 loop。群组 Agent 在 `_sharedPrefix` 和 `_agentPrefix` 之间注入群组机制说明，非群组 Agent 不注入。
 
 **修改文件**：
 - `packages/core/src/agent/agent.ts` — import 新增 `GROUP_MECHANICS_NOTICE`；`createGroupLoop` 的 promptBuilder 中 parts 数组从 `[_sharedPrefix, _agentPrefix]` 改为 `[_sharedPrefix, GROUP_MECHANICS_NOTICE, _agentPrefix]`；`createLoop`（非群组）保持不变
 
-### System Prompt 三层架构 Step 1：新增 buildStaticLayer() + GROUP_MECHANICS_NOTICE
+### 方案 1 Step 1: 新增 buildStaticLayer() + GROUP_MECHANICS_NOTICE
 
 **变更原因**：参照 claw-code 的 SystemPromptBuilder 五层结构，为 CoBeing 新增所有 Agent 共享的静态行为约束层（身份声明/系统机制/行为约束/执行安全/说话方式）和群组环境机制说明常量。
 
 **修改文件**：
 - `packages/core/src/conversation/prompt-builder.ts` — 新增 `buildStaticLayer()` 纯函数（5 节硬编码常量）和 `GROUP_MECHANICS_NOTICE` 导出常量
 
-### System Prompt 三层架构 Step 5：测试更新 + 排序断言修复
+### 方案 1 Step 5: 测试更新 + 排序断言修复
 
 **变更原因**：Steps 1-4 完成了系统提示重组（新增 STATIC 层/GROUP_MECHANICS_NOTICE），Step 5 更新测试文件以验证新架构。
 
@@ -404,14 +475,14 @@
 - `packages/core/src/conversation/prompt-builder.test.ts` — 新增 `buildStaticLayer`（6 测试）和 `GROUP_MECHANICS_NOTICE`（2 测试）describe 块；3 个已有测试更新排序断言以反映新 STATIC → AGENTS → SOUL 顺序；import 更新以包含新导出
 - `packages/core/src/conversation/prompt-builder.ts` — 修复过时的文件头注释（前缀顺序缺少 STATIC 层）
 
-### System Prompt 三层架构 Step 3：buildStaticLayer 集成到 buildSystemPromptFromFiles
+### 方案 1 Step 3: buildStaticLayer 集成到 buildSystemPromptFromFiles
 
 **变更原因**：Step 1-2 添加了 `buildStaticLayer()` 并集成到 `buildCacheablePrompt()`，但 `buildSystemPromptFromFiles()`（非缓存路径，供 `conversation-loop.ts` 使用）尚未包含静态层。Step 3 将其注入为该函数的首个 prompt 组件，确保所有路径都包含 5-section 行为规则层。
 
 **修改文件**：
 - `packages/core/src/conversation/prompt-builder.ts` — `buildSystemPromptFromFiles` 开头新增 `parts.push(buildStaticLayer())`；所有后续节编号注释 +1（1→2, 2→3, ..., 7-10→8-11）
 
-### System Prompt 三层架构 Step 2：buildStaticLayer 集成到 buildCacheablePrompt
+### 方案 1 Step 2: buildStaticLayer 集成到 buildCacheablePrompt
 
 **变更原因**：Step 1 添加了 `buildStaticLayer()` 纯函数但未集成。Step 2 将其接入 `buildCacheablePrompt()` 的 `sharedPrefix`，确保所有 Agent 的共享前缀包含 5-section 行为规则层，实现真正的跨 Agent 缓存命中。
 

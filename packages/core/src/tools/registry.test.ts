@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ToolRegistry } from "./registry.js";
-import type { Tool } from "@myagents/shared";
+import type { Tool } from "@cobeing/shared";
 
 const mockTool: Tool = {
   name: "test-tool",

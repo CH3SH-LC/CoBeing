@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ViewType } from "@/lib/types";
 
-export type SettingsSection = "general" | "theme" | "providers" | "channels" | "mcp" | "sandbox" | "logs" | "about";
+export type SettingsSection = "general" | "theme" | "providers" | "channels" | "mcp" | "sandbox" | "usage" | "logs" | "search" | "export" | "about";
 export type CloseBehavior = "minimize" | "close";
 
 interface NotificationSettings {
@@ -37,7 +37,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   createAgentDialogOpen: false,
   createGroupDialogOpen: false,
   settingsSection: "theme",
-  closeBehavior: "minimize",
+  closeBehavior: "close",
   notifications: { enabled: true, sound: true },
 
   setActiveView: (view) => set({ activeView: view, detailPanelOpen: false }),

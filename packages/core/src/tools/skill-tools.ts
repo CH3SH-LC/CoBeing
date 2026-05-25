@@ -7,10 +7,10 @@
  * - skill-list: 列出当前 Agent 可用的技能
  * - skill-create: 在仓库中创建新技能
  */
-import type { Tool, ToolContext, ToolResult } from "@myagents/shared";
+import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 import type { SkillRepository } from "../skills/repository.js";
-import type { LLMProvider } from "@myagents/providers";
-import { createLogger } from "@myagents/shared";
+import type { LLMProvider } from "@cobeing/providers";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("skill-tools");
 
@@ -43,8 +43,8 @@ export function makeSkillExecuteTool(
       const task = params.task as string;
       const extraParams = (params.params as Record<string, unknown>) ?? {};
 
-      // 白名单检查
-      if (allowedSkills && !allowedSkills.includes(name)) {
+      // 白名单检查：如果 allowedSkills 是 undefined，则允许所有技能；如果是数组（包括空数组），则进行过滤
+      if (Array.isArray(allowedSkills) && !allowedSkills.includes(name)) {
         return {
           toolCallId: "",
           content: `技能 "${name}" 不在可用列表中。可用技能: ${allowedSkills.join(", ")}`,
@@ -87,8 +87,8 @@ export function makeSkillListTool(
     async execute(_params: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
       let skills = repo.list();
 
-      // 白名单过滤
-      if (allowedSkills) {
+      // 白名单过滤：如果 allowedSkills 是 undefined，则显示所有技能；如果是数组（包括空数组），则进行过滤
+      if (Array.isArray(allowedSkills)) {
         skills = skills.filter(s => allowedSkills.includes(s.name));
       }
 

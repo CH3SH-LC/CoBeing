@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { PROVIDER_CATALOGS } from "./index.js";
 
 describe("Provider Catalogs", () => {
-  const expectedProviders = ["deepseek", "zhipu", "qwen", "minimax", "volcengine", "openai", "grok"];
+  const expectedProviders = ["deepseek", "zhipu", "qwen", "minimax", "volcengine", "moonshot", "mimo"];
 
   it("has all expected providers", () => {
     for (const p of expectedProviders) {
@@ -30,10 +30,9 @@ describe("Provider Catalogs", () => {
 
     expect(codingModels.length).toBeGreaterThanOrEqual(4);
     const codingIds = codingModels.map(m => m.id);
-    expect(codingIds).toContain("deepseek-reasoner");
+    expect(codingIds).toContain("deepseek-v4-pro");
     expect(codingIds).toContain("codegeex-4");
     expect(codingIds).toContain("qwen-coder-plus");
-    expect(codingIds).toContain("o1");
   });
 
   it("reasoning models are tagged", () => {

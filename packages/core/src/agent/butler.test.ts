@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { AgentRegistry } from "./registry.js";
 import { GroupManager } from "../group/manager.js";
 import { ButlerAgent } from "./butler.js";
-import type { LLMProvider } from "@myagents/providers";
+import type { LLMProvider } from "@cobeing/providers";
 
 const mockProvider: LLMProvider = {
   id: "mock", name: "mock",
@@ -20,7 +20,7 @@ describe("ButlerAgent", () => {
       id: "butler", name: "管家", role: "管家",
       systemPrompt: "test", provider: "mock", model: "mock",
       permissions: { mode: "full-access" },
-      sandbox: { enabled: false, filesystem: "workspace-only", network: true },
+      sandbox: { enabled: false, filesystem: "isolated", network: { enabled: true, mode: "all" } },
     }, mockProvider, reg, gm);
     expect(reg.get("butler")).toBeDefined();
   });
@@ -32,7 +32,7 @@ describe("ButlerAgent", () => {
       id: "butler", name: "管家", role: "管家",
       systemPrompt: "test", provider: "mock", model: "mock",
       permissions: { mode: "full-access" },
-      sandbox: { enabled: false, filesystem: "workspace-only", network: true },
+      sandbox: { enabled: false, filesystem: "isolated", network: { enabled: true, mode: "all" } },
     }, mockProvider, reg, gm);
     // Check butler tools are in definitions
     const defs = (butler as any).toolRegistry.listDefinitions();

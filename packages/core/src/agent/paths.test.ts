@@ -7,7 +7,7 @@ import { AgentPaths, AgentFiles } from "./paths.js";
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "myagents-test-"));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cobeing-test-"));
 });
 
 afterEach(() => {
@@ -17,7 +17,8 @@ afterEach(() => {
 describe("AgentPaths", () => {
   it("resolves paths from base dir", () => {
     const p = new AgentPaths(tmpDir);
-    expect(p.identityPath).toBe(path.join(tmpDir, "IDENTITY.md"));
+    expect(p.characterPath).toBe(path.join(tmpDir, "CHARACTER.md"));
+    expect(p.jobPath).toBe(path.join(tmpDir, "JOB.md"));
     expect(p.memoryDir).toBe(path.join(tmpDir, "memory"));
     expect(p.workspaceDir).toBe(path.join(tmpDir, "workspace"));
   });
@@ -39,20 +40,26 @@ describe("AgentPaths", () => {
 });
 
 describe("AgentFiles", () => {
-  it("writes and reads IDENTITY.md", () => {
-    const p = new AgentPaths(tmpDir);
-    const f = new AgentFiles(p);
-    f.writeIdentity({ name: "TestBot", emoji: "🤖", creature: "a test robot" });
-    const id = f.readIdentity();
-    expect(id.name).toBe("TestBot");
-    expect(id.emoji).toBe("🤖");
-    expect(id.creature).toBe("a test robot");
+  it("writes and reads CHARACTER.md", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    f.writeCharacter("# CHARACTER.md\n- Name: TestBot");
+    expect(f.readCharacter()).toBe("# CHARACTER.md\n- Name: TestBot");
   });
 
-  it("returns empty identity for missing file", () => {
+  it("returns empty string for missing CHARACTER.md", () => {
     const f = new AgentFiles(new AgentPaths(tmpDir));
-    const id = f.readIdentity();
-    expect(id.name).toBeUndefined();
+    expect(f.readCharacter()).toBe("");
+  });
+
+  it("writes and reads JOB.md", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    f.writeJob("# JOB.md\n- 角色: 测试员");
+    expect(f.readJob()).toBe("# JOB.md\n- 角色: 测试员");
+  });
+
+  it("returns empty string for missing JOB.md", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    expect(f.readJob()).toBe("");
   });
 
   it("writes and reads SOUL.md", () => {
@@ -101,12 +108,13 @@ describe("AgentFiles", () => {
     expect(f.readTools()).toBe("## bash\n默认 shell: zsh");
   });
 
-  it("deletes BOOTSTRAP.md after consume", () => {
+  it("consumeBootstrap returns content without deleting", () => {
     const f = new AgentFiles(new AgentPaths(tmpDir));
     f.writeBootstrap("一次性引导内容");
     const content = f.consumeBootstrap();
     expect(content).toBe("一次性引导内容");
-    expect(f.readBootstrap()).toBe("");
+    // BOOTSTRAP 不再删除 — 在创建后和加入群组时都需要重新激发
+    expect(f.readBootstrap()).toBe("一次性引导内容");
   });
 
   it("returns empty for consumeBootstrap when no file", () => {

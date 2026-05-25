@@ -1,12 +1,12 @@
 @echo off
 chcp 65001 >nul 2>&1
-title MyAgents GUI Builder
+title CoBeing GUI Builder
 
 set "ROOT=%~dp0"
 cd /d "%ROOT%"
 
 echo ===================================
-echo   MyAgents GUI 打包构建
+echo   CoBeing GUI 打包构建
 echo ===================================
 echo.
 
@@ -48,7 +48,7 @@ if not exist "gui-v2\node_modules" (
 
 :: --- Build ---
 echo.
-echo [INFO] Building MyAgents GUI (format: %BUNDLE%)...
+echo [INFO] Building CoBeing GUI (format: %BUNDLE%)...
 cd gui-v2
 
 if "%BUNDLE%"=="all" (

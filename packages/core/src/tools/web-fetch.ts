@@ -1,7 +1,7 @@
 /**
  * Web Fetch 工具 — 获取网页内容
  */
-import type { Tool, ToolContext, ToolResult } from "@myagents/shared";
+import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 
 export const webFetchTool: Tool = {
   name: "web-fetch",

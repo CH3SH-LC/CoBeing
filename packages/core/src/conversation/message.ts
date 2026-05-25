@@ -1,7 +1,7 @@
 /**
  * 消息类型 — conversation 模块内部使用
  */
-import type { Message } from "@myagents/shared";
+import type { Message } from "@cobeing/shared";
 
 export interface ConversationMessage extends Message {
   timestamp: number;

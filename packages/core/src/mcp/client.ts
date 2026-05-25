@@ -1,8 +1,8 @@
 /**
  * MCP Client — JSON-RPC 2.0 客户端，管理 MCP 服务器连接
  */
-import type { MCPServerConfig, MCPToolInfo, MCPResource } from "@myagents/shared";
-import { createLogger } from "@myagents/shared";
+import type { MCPServerConfig, MCPToolInfo, MCPResource } from "@cobeing/shared";
+import { createLogger } from "@cobeing/shared";
 import {
   MCPTransport,
   StdioTransport,
@@ -63,7 +63,7 @@ export class MCPClient {
       capabilities: {
         roots: { listChanged: true },
       },
-      clientInfo: { name: "MyAgents", version: "0.1.0" },
+      clientInfo: { name: "CoBeing", version: "0.1.0" },
     }) as {
       protocolVersion: string;
       capabilities: MCPServerCapabilities;

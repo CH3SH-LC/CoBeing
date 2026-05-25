@@ -6,7 +6,7 @@ import type {
   ChatChunk,
   ModelInfo,
   ModelCapabilities,
-} from "@myagents/shared";
+} from "@cobeing/shared";
 
 export interface LLMProvider {
   readonly id: string;

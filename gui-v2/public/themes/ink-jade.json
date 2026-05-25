@@ -1,0 +1,46 @@
+{
+  "name": "墨夜翡翠",
+  "description": "深墨蓝底 + 翡翠绿强调，深邃科技感，护眼暗色",
+  "base": {
+    "gradient-from": "#060810",
+    "gradient-to": "#0A0E14",
+    "gradient-angle": 160
+  },
+  "surface": {
+    "bg": "rgba(18,21,30,0.88)",
+    "bg-solid": "#12151E",
+    "elevated": "#1A1E2C",
+    "hover": "#242938",
+    "input": "#0F1118",
+    "border": "rgba(37,43,59,0.7)",
+    "shadow": "0 1px 3px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25)",
+    "shadow-lg": "0 4px 12px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.35)"
+  },
+  "content": {
+    "accent": "#34D399",
+    "accent-warm": "#FBBF24",
+    "accent-dim": "#1A4030",
+    "txt": "#E8ECF4",
+    "txt-sub": "#9BA4B8",
+    "txt-muted": "#5A6278",
+    "success": "#34D399",
+    "warning": "#FBBF24",
+    "danger": "#F87171",
+    "purple": "#C4B5FD"
+  },
+  "chat": {
+    "msg-user": "#1C2A3A",
+    "msg-assistant": "#141E18",
+    "msg-system": "#1E1A14",
+    "msg-tool": "#1A1828"
+  },
+  "misc": {
+    "scrollbar": "#252B3B",
+    "scrollbar-hover": "#3A4258",
+    "overlay": "rgba(0,0,0,0.65)",
+    "code-bg": "#0A0C12",
+    "selection-bg": "#34D399",
+    "selection-fg": "#0C0E14",
+    "divider": "#2A3040"
+  }
+}

@@ -160,7 +160,7 @@ describe("runToolAgent", () => {
 
     const result = await runToolAgent(config, provider, registry, tmpDir);
     expect(result.success).toBe(false);
-    expect(result.output).toBe("[已停止]");
+    expect(result.output).toBe("[已停止 — 超时或取消]");
   });
 });
 

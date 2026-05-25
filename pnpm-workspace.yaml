@@ -1,2 +1,4 @@
 packages:
   - "packages/*"
+  - "packages/mcp-servers/*"
+approveBuilds: better-sqlite3

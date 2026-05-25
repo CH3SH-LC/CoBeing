@@ -5,10 +5,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
-import type { Tool, ToolContext, ToolResult } from "@myagents/shared";
-import type { LLMProvider } from "@myagents/providers";
+import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
+import type { LLMProvider } from "@cobeing/providers";
 import type { SkillDefinition } from "./loader.js";
-import { createLogger } from "@myagents/shared";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("md-skill-loader");
 

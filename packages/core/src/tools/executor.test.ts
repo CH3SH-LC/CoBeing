@@ -23,7 +23,7 @@ function makeExecutor(mode: string = "full-access") {
   registry.register(echoTool);
   registry.register(failTool);
   const permission = new PermissionEnforcer({ mode: mode as any }, undefined, "/workspace");
-  return new ToolExecutor(registry, permission, undefined, { enabled: false, filesystem: "isolated", network: true });
+  return new ToolExecutor(registry, permission, undefined, { enabled: false, filesystem: "isolated", network: { enabled: true, mode: "all" } });
 }
 
 const toolCall = (name: string, args: string): ToolCall => ({

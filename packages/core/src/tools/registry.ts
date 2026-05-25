@@ -1,7 +1,7 @@
 /**
  * ToolRegistry — 注册和管理可用工具
  */
-import type { Tool, ToolDefinition } from "@myagents/shared";
+import type { Tool, ToolDefinition } from "@cobeing/shared";
 
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
@@ -19,10 +19,12 @@ export class ToolRegistry {
   }
 
   listDefinitions(): ToolDefinition[] {
-    return [...this.tools.values()].map(t => ({
-      type: "function" as const,
-      function: { name: t.name, description: t.description, parameters: t.parameters },
-    }));
+    return [...this.tools.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, t]) => ({
+        type: "function" as const,
+        function: { name: t.name, description: t.description, parameters: t.parameters },
+      }));
   }
 
   listAll(): Tool[] {

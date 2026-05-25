@@ -22,11 +22,15 @@ export function CodeBlock({ className, children }: CodeBlockProps) {
   return (
     <div className="my-2 rounded-lg overflow-hidden border border-bdr">
       {/* 顶部栏 */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#282c34] border-b border-bdr">
-        <span className="text-[11px] text-[#abb2bf]/60 font-mono">{language || "code"}</span>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-bdr"
+           style={{ backgroundColor: "var(--code-header-bg)" }}>
+        <span className="text-xs font-mono" style={{ color: "var(--code-header-fg)", opacity: 0.6 }}>{language || "code"}</span>
         <button
           onClick={handleCopy}
-          className="text-[11px] text-[#abb2bf]/60 hover:text-[#abb2bf] transition-colors font-mono flex items-center gap-1"
+          className="text-xs transition-colors font-mono flex items-center gap-1"
+          style={{ color: "var(--code-header-fg)", opacity: 0.6 }}
+          onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = "1"; }}
+          onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = "0.6"; }}
         >
           {copied ? (
             <>&#10003; 已复制</>
@@ -36,7 +40,8 @@ export function CodeBlock({ className, children }: CodeBlockProps) {
         </button>
       </div>
       {/* 代码内容 */}
-      <pre className="code-block-pre !m-0 !rounded-none !border-0 bg-[#282c34] !p-3 overflow-x-auto">
+      <pre className="code-block-pre !m-0 !rounded-none !border-0 !p-3 overflow-x-auto"
+           style={{ backgroundColor: "var(--code-header-bg)" }}>
         <code className={className}>{children}</code>
       </pre>
     </div>

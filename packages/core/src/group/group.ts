@@ -562,8 +562,7 @@ export class Group {
   }
 
   dispose(): void {
-    this.wakeSystem?.pause();
-    this.wakeSystem?.clearQueue();
+    this.wakeSystem?.dispose();
     // Close all per-agent SQLite databases before closing the main GroupDB
     for (const [, mem] of this.agentMemories) {
       try { mem.close(); } catch { /* ignore */ }

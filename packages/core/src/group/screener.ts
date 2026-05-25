@@ -4,17 +4,17 @@
  * 群组中每出现新消息都触发 Screener（轻量模型）。
  * Screener 不执行工具，只判断是否需要唤醒主模型。
  */
-import type { LLMProvider } from "@myagents/providers";
-import { createLogger } from "@myagents/shared";
+import type { LLMProvider } from "@cobeing/providers";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("screener");
 
-const SCREENER_PROMPT = `你是群组讨论的初筛器。你的任务是判断群主是否需要介入当前讨论。
+const SCREENER_PROMPT = `你是群组协作的初筛器。你的任务是判断群主是否需要介入当前协作。
 
 请根据以下规则判断：
 
 **需要介入的情况：**
-- 讨论偏离主题（2+ 轮无关内容）
+- 协作偏离目标（2+ 轮无关内容）
 - 成员间冲突升级（互相否定 3+ 轮）
 - 长时间无实质进展（连续 5+ 条消息无新观点）
 - 任务阻塞报告
@@ -22,7 +22,7 @@ const SCREENER_PROMPT = `你是群组讨论的初筛器。你的任务是判断�
 
 **不需要介入的情况：**
 - 成员正在有效协作
-- 讨论正常推进
+- 工作正常推进
 - 只是信息分享或状态更新
 - 你没有比成员更好的见解
 
@@ -31,6 +31,7 @@ const SCREENER_PROMPT = `你是群组讨论的初筛器。你的任务是判断�
 是否需要唤醒主模型：是/否
 原因：一句话说明
 建议：如果需要唤醒，给出建议群主做什么（不需要则填"无"）
+冲突摘要：如果存在观点分歧，列出各方观点（没有则填"无"）
 
 请分析以下最近消息：`;
 
@@ -38,11 +39,13 @@ export interface ScreenerResult {
   shouldWake: boolean;
   reason: string;
   suggestion: string;
+  conflictSummary?: string;
 }
 
 export class Screener {
   private provider: LLMProvider;
   private model: string;
+  private stats = { totalChecked: 0, totalFiltered: 0, estimatedTokensSaved: 0 };
 
   constructor(provider: LLMProvider, model?: string) {
     this.provider = provider;
@@ -54,6 +57,9 @@ export class Screener {
     if (!recentMessages.trim()) {
       return { shouldWake: false, reason: "无消息", suggestion: "无" };
     }
+
+    this.stats.totalChecked++;
+    const estimatedTokens = Math.ceil(recentMessages.length / 3); // rough estimate
 
     try {
       let result = "";
@@ -69,11 +75,21 @@ export class Screener {
         }
       }
 
-      return this.parseResult(result);
+      const parsed = this.parseResult(result);
+      if (!parsed.shouldWake) {
+        this.stats.totalFiltered++;
+        this.stats.estimatedTokensSaved += estimatedTokens;
+      }
+      return parsed;
     } catch (err: any) {
       log.warn("Screener failed: %s", err.message);
       return { shouldWake: false, reason: `初筛失败: ${err.message}`, suggestion: "无" };
     }
+  }
+
+  /** 获取过滤统计 */
+  getStats() {
+    return { ...this.stats };
   }
 
   /** 解析初筛结果 */
@@ -82,11 +98,16 @@ export class Screener {
 
     const reasonMatch = raw.match(/原因[：:]\s*(.+)/);
     const suggestionMatch = raw.match(/建议[：:]\s*(.+)/);
+    const conflictMatch = raw.match(/冲突摘要[：:]\s*(.+)/);
+
+    const conflictRaw = conflictMatch?.[1]?.trim() ?? "";
+    const hasConflict = conflictRaw && conflictRaw !== "无";
 
     return {
       shouldWake,
       reason: reasonMatch?.[1]?.trim() ?? "",
       suggestion: suggestionMatch?.[1]?.trim() ?? "无",
+      conflictSummary: hasConflict ? conflictRaw : undefined,
     };
   }
 }

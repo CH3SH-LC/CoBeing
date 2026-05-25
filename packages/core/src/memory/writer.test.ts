@@ -7,7 +7,7 @@ import { MemoryWriter } from "./writer.js";
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "myagents-mem-"));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cobeing-mem-"));
 });
 
 afterEach(() => {

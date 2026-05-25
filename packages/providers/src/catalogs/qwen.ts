@@ -1,11 +1,11 @@
-import type { ModelInfo } from "@myagents/shared";
+import type { ModelInfo } from "@cobeing/shared";
 
 export const QWEN_MODELS: ModelInfo[] = [
   {
     id: "qwen-max",
     name: "Qwen Max",
     provider: "qwen",
-    contextWindow: 32000,
+    contextWindow: 32768,
     maxOutput: 8192,
     supportsTools: true,
     supportsVision: false,
@@ -49,5 +49,15 @@ export const QWEN_MODELS: ModelInfo[] = [
     supportsTools: true,
     supportsVision: false,
     tags: ["reasoning"],
+  },
+  {
+    id: "qwen3-235b-a22b",
+    name: "Qwen3 235B-A22B",
+    provider: "qwen",
+    contextWindow: 131072,
+    maxOutput: 16384,
+    supportsTools: true,
+    supportsVision: false,
+    tags: ["flagship", "reasoning"],
   },
 ];

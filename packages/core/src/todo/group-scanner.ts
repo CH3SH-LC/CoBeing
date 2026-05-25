@@ -1,5 +1,5 @@
 // packages/core/src/todo/group-scanner.ts
-import { createLogger } from "@cobeing/shared";
+import { createLogger, DEFAULT_PROVIDER, DEFAULT_JUDGMENT_MODEL } from "@cobeing/shared";
 import type { TodoItem } from "./types.js";
 import { TodoStore } from "./store.js";
 import { OVERDUE_THRESHOLD_MS } from "./types.js";
@@ -210,10 +210,17 @@ export class GroupTodoScanner {
         const group = gm.get(this.groupId);
         if (!group) return;
 
-        const provider = (globalThis as any).__cobeingGetProvider?.("deepseek") as import("@cobeing/providers").LLMProvider | undefined;
+        const getProvider = (globalThis as any).__cobeingGetProvider as ((id: string) => import("@cobeing/providers").LLMProvider | undefined) | undefined;
+        const provider = getProvider?.(DEFAULT_PROVIDER)
+          ?? (() => {
+            const providers: Map<string, import("@cobeing/providers").LLMProvider> | undefined =
+              (globalThis as any).__cobeingRuntime?.providersMap;
+            if (providers && providers.size > 0) return providers.values().next().value;
+            return undefined;
+          })();
         if (!provider) return;
 
-        const model = (globalThis as any).__cobeingConfig?.judgmentModel ?? "deepseek-chat";
+        const model = (globalThis as any).__cobeingConfig?.judgmentModel ?? DEFAULT_JUDGMENT_MODEL;
         const memoryResult = await runMemoryAgent(
           "group",
           {

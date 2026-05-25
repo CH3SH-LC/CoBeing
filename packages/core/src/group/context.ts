@@ -8,7 +8,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { createLogger } from "@myagents/shared";
+import type { AgentEventBus } from "../agent/event-bus.js";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("group-context");
 
@@ -73,7 +74,7 @@ export class GroupContext {
   private dataDir: string;
   private talkCounter = 0;
 
-  constructor(groupId: string, dataRoot?: string) {
+  constructor(groupId: string, dataRoot?: string, private eventBus?: AgentEventBus) {
     this.groupId = groupId;
     this.dataDir = dataRoot
       ? path.join(dataRoot, "groups", groupId)
@@ -95,6 +96,17 @@ export class GroupContext {
     };
     this.mainHistory.push(msg);
     for (const listener of this.mainListeners) listener(msg);
+
+    // 事件总线通知（自发通信核心）
+    if (this.eventBus && msg.mentionTarget) {
+      this.eventBus.emit("group-message", {
+        groupId: this.groupId,
+        fromAgentId,
+        content,
+        mentionTarget: msg.mentionTarget,
+      });
+    }
+
     return msg;
   }
 
@@ -178,11 +190,10 @@ export class GroupContext {
   }
 
   /** 保存群组配置 */
-  saveConfig(members: string[], protocol: string): void {
+  saveConfig(members: string[]): void {
     const config = {
       id: this.groupId,
       members,
-      protocol,
       updatedAt: new Date().toISOString(),
     };
     fs.writeFileSync(

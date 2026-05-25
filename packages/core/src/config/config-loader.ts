@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
-import { createLogger } from "@myagents/shared";
+import { createLogger } from "@cobeing/shared";
 import type { AppConfig } from "./schema.js";
 
 const log = createLogger("config");
@@ -15,26 +15,18 @@ const DEFAULT_CONFIG: AppConfig = {
     dataDir: "./data",
     skillsDir: "./skills",
     promptsDir: "./prompts",
+    maxToolRounds: Infinity,
+    butlerMaxToolRounds: Infinity,
   },
-  agent: {
-    name: "assistant",
-    role: "通用助手",
-    systemPrompt: "你是一个有帮助的AI助手。",
-    provider: "deepseek",
-    model: "deepseek-chat",
-    permissions: { mode: "ask" },
-    sandbox: { enabled: false, filesystem: "workspace-only", network: true },
-  },
+  agents: ["butler", "host"],
   providers: {
-    anthropic: { apiKeyEnv: "ANTHROPIC_API_KEY", type: "anthropic" },
-    openai: { apiKeyEnv: "OPENAI_API_KEY", baseURL: "https://api.openai.com/v1" },
-    deepseek: { apiKeyEnv: "DEEPSEEK_API_KEY", baseURL: "https://api.deepseek.com/v1" },
+    deepseek: { apiKeyEnv: "DEEPSEEK_API_KEY", baseURL: "https://api.deepseek.com" },
     zhipu: { apiKeyEnv: "ZHIPU_API_KEY", baseURL: "https://open.bigmodel.cn/api/paas/v4" },
     qwen: { apiKeyEnv: "QWEN_API_KEY", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-    minimax: { apiKeyEnv: "MINIMAX_API_KEY", baseURL: "https://api.minimax.chat/v1" },
+    minimax: { apiKeyEnv: "MINIMAX_API_KEY", baseURL: "https://api.minimaxi.com/v1" },
     volcengine: { apiKeyEnv: "VOLCENGINE_API_KEY", baseURL: "https://ark.cn-beijing.volces.com/api/v3" },
-    gemini: { apiKeyEnv: "GEMINI_API_KEY", type: "gemini" },
-    grok: { apiKeyEnv: "XAI_API_KEY", baseURL: "https://api.x.ai/v1" },
+    moonshot: { apiKeyEnv: "MOONSHOT_API_KEY", baseURL: "https://api.moonshot.cn/v1" },
+    mimo: { apiKeyEnv: "MIMO_API_KEY", baseURL: "https://api.xiaomimimo.com/v1" },
   },
   channels: {},
   gui: { enabled: true, wsPort: 18765 },
@@ -80,13 +72,15 @@ export function loadConfig(configPath?: string): AppConfig {
   return config;
 }
 
-/** 简易深度合并 */
+/** 简易深度合并（null 值表示删除 key） */
 function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
   const result = { ...target };
   for (const key of Object.keys(source)) {
     const sv = source[key];
     const tv = result[key];
-    if (sv && typeof sv === "object" && !Array.isArray(sv) && tv && typeof tv === "object" && !Array.isArray(tv)) {
+    if (sv === null) {
+      delete result[key];
+    } else if (sv && typeof sv === "object" && !Array.isArray(sv) && tv && typeof tv === "object" && !Array.isArray(tv)) {
       result[key] = deepMerge(
         tv as Record<string, unknown>,
         sv as Record<string, unknown>,

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MyAgents v2 开发启动入口
+ * CoBeing v2 开发启动入口
  * 交互式命令行模式
  *
  * 用法: npx tsx scripts/dev.ts
@@ -17,7 +17,7 @@
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { config as dotenvConfig } from "dotenv";
-import { MyAgentsRuntime, loadConfig } from "../packages/core/dist/index.js";
+import { CoBeingRuntime, loadConfig } from "../packages/core/dist/index.js";
 import { createLogger } from "../packages/shared/dist/index.js";
 
 dotenvConfig({ path: resolve(".env") });
@@ -25,10 +25,10 @@ const log = createLogger("dev");
 
 async function main() {
   const config = loadConfig();
-  const runtime = new MyAgentsRuntime(config);
+  const runtime = new CoBeingRuntime(config);
   await runtime.start();
 
-  console.log("\n=== MyAgents v2 ===");
+  console.log("\n=== CoBeing v2 ===");
   console.log("输入文字与管家对话，输入 /help 查看命令\n");
 
   const rl = createInterface({

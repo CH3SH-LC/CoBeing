@@ -1,8 +1,8 @@
 /**
  * MCP Manager — 管理多个 MCP 服务器连接，桥接工具
  */
-import type { MCPServerConfig, Tool, ToolContext, ToolResult } from "@myagents/shared";
-import { createLogger } from "@myagents/shared";
+import type { MCPServerConfig, Tool, ToolContext, ToolResult } from "@cobeing/shared";
+import { createLogger } from "@cobeing/shared";
 import { MCPClient } from "./client.js";
 
 const log = createLogger("mcp-manager");
@@ -69,6 +69,35 @@ export class MCPManager {
     this.clients.delete(id);
     // 移除该 client 的桥接工具
     this.tools = this.tools.filter(t => !t.name.startsWith(`mcp:${id}:`));
+  }
+
+  /** 获取所有已连接的服务器信息（供 mcp-discover 工具使用） */
+  getServers(): Array<{
+    id: string;
+    serverName: string;
+    toolCount: number;
+    tools: Array<{ name: string; description?: string; inputSchema: Record<string, unknown> }>;
+    connected: boolean;
+  }> {
+    return [...this.clients.entries()].map(([id, client]) => {
+      const serverTools = this.tools.filter(t => t.name.startsWith(`mcp:${id}:`));
+      return {
+        id,
+        serverName: client.serverName,
+        toolCount: serverTools.length,
+        tools: serverTools.map(t => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.parameters,
+        })),
+        connected: client.connected,
+      };
+    });
+  }
+
+  /** 获取指定服务器的所有桥接工具（供 mcp-register 工具使用） */
+  getServerTools(serverId: string): Tool[] {
+    return this.tools.filter(t => t.name.startsWith(`mcp:${serverId}:`));
   }
 
   /** 获取所有桥接的 Tool 对象 */

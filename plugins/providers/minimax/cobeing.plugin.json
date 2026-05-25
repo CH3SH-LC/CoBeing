@@ -4,5 +4,5 @@
   "kind": "model-provider",
   "version": "0.1.0",
   "main": "../../packages/plugin-sdk/dist/builtins/minimax.js",
-  "cobeingVersion": ">=1.2.0"
+  "cobeingVersion": ">=1.3.0"
 }

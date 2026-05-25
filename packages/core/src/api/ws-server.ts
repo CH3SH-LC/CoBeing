@@ -5,7 +5,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import fs from "node:fs";
 import path from "node:path";
-import { createLogger } from "@cobeing/shared";
+import { createLogger, DEFAULT_PROVIDER, DEFAULT_MODEL, MAX_AGENT_NAME_LENGTH, MAX_GROUP_NAME_LENGTH, MAX_MESSAGE_LENGTH } from "@cobeing/shared";
 import { Agent } from "../agent/agent.js";
 import { AgentPaths, AgentFiles } from "../agent/paths.js";
 import type { AgentRegistry } from "../agent/registry.js";
@@ -62,8 +62,12 @@ export class CoreWSServer {
   private providerResolver: ((id: string) => LLMProvider | undefined) | null = null;
   private skillRepo: SkillRepository | null = null;
   private dataRoot: string = "data";
+  private rateLimits = new Map<string, {count: number, resetTime: number}>();
+  private sendMessageCooldowns = new Map<string, number>();
+  private connCounter = 0;
   private onProviderChange: ((providerId: string) => void) | null = null;
   private onMcpConfigChange: ((serverId: string, config: unknown) => Promise<void>) | null = null;
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(private port: number = 18765, private configPath?: string) {
     (globalThis as any).__cobeingWSServer = this;
@@ -168,7 +172,7 @@ export class CoreWSServer {
 
   start(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.wss = new WebSocketServer({ port: this.port, host: "127.0.0.1" });
+      this.wss = new WebSocketServer({ port: this.port, host: "127.0.0.1", maxPayload: 1024 * 1024 });
 
       this.wss.on("error", (err: NodeJS.ErrnoException) => {
         if (err.code === "EADDRINUSE") {
@@ -180,14 +184,45 @@ export class CoreWSServer {
       });
 
       this.wss.on("connection", (ws) => {
+        const connId = String(++this.connCounter);
+        (ws as any).__connId = connId;
         this.clients.add(ws);
         log.info("GUI client connected");
+
+        // Pong timeout: if no pong received in 10 seconds, terminate the connection
+        let pongTimeout: ReturnType<typeof setTimeout> | null = null;
+        const refreshPong = () => {
+          if (pongTimeout) clearTimeout(pongTimeout);
+          pongTimeout = setTimeout(() => {
+            log.warn("WS client pong timeout — terminating connection");
+            ws.terminate();
+          }, 10000);
+        };
+        ws.on("pong", refreshPong);
+        refreshPong(); // start initial timeout
 
         // 发送当前状态
         this.sendToClient(ws, { type: "state", payload: this.getState() });
 
         ws.on("message", (raw) => {
           try {
+            // Per-connection rate limiting: max 60 messages per 60 seconds
+            const now = Date.now();
+            const rl = this.rateLimits.get(connId);
+            if (rl) {
+              if (now > rl.resetTime) {
+                rl.count = 0;
+                rl.resetTime = now + 60000;
+              }
+              if (rl.count >= 60) {
+                this.sendToClient(ws, { type: "error", payload: { message: "Rate limit exceeded. Max 60 messages per minute." } });
+                return;
+              }
+              rl.count++;
+            } else {
+              this.rateLimits.set(connId, { count: 1, resetTime: now + 60000 });
+            }
+
             const msg = JSON.parse(raw.toString()) as WSMessage;
             this.handleMessage(ws, msg);
           } catch (err) {
@@ -196,12 +231,23 @@ export class CoreWSServer {
         });
 
         ws.on("close", () => {
+          if (pongTimeout) clearTimeout(pongTimeout);
           this.clients.delete(ws);
+          this.rateLimits.delete(connId);
+          this.sendMessageCooldowns.delete(connId);
         });
       });
 
       this.wss.on("listening", () => {
         log.info("Core WS server listening on port %d", this.port);
+        // Heartbeat: ping all connected clients every 30 seconds
+        this.heartbeatInterval = setInterval(() => {
+          for (const client of this.clients) {
+            if (client.readyState === WebSocket.OPEN) {
+              client.ping();
+            }
+          }
+        }, 30000);
         resolve();
       });
     });
@@ -211,6 +257,10 @@ export class CoreWSServer {
     // 通知所有客户端立即保存数据，然后等待 flush
     this.broadcast({ type: "server_shutting_down", payload: { timestamp: Date.now() } });
     await new Promise(resolve => setTimeout(resolve, 800));
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
     this.wss?.close();
     this.wss = null;
   }
@@ -297,7 +347,22 @@ export class CoreWSServer {
       // ═══════════════════════════════════════════════════════════
 
       case "send_message": {
+        // Cooldown check: max 1 send_message every 2 seconds per connection
+        const msgConnId = (ws as any).__connId as string;
+        const cooldownNow = Date.now();
+        const lastTime = this.sendMessageCooldowns.get(msgConnId) ?? 0;
+        if (cooldownNow - lastTime < 2000) {
+          this.sendToClient(ws, { type: "error", payload: { message: "消息发送过于频繁，请稍等 2 秒后再试" } });
+          break;
+        }
+        this.sendMessageCooldowns.set(msgConnId, cooldownNow);
+
         const { agentId, content } = msg.payload as { agentId: string; content: string };
+        // 消息长度限制
+        if (content.length > MAX_MESSAGE_LENGTH) {
+          this.sendToClient(ws, { type: "error", payload: { message: `消息内容不能超过 ${MAX_MESSAGE_LENGTH} 个字符` } });
+          break;
+        }
         // 安全扫描：检测用户消息中的注入/劫持威胁
         const scan = scanContent(content);
         if (!scan.safe) {
@@ -638,14 +703,23 @@ export class CoreWSServer {
           this.sendToClient(ws, { type: "error", payload: { message: "name and role are required" } });
           break;
         }
+        // Name length + character validation
+        if (name.length > MAX_AGENT_NAME_LENGTH) {
+          this.sendToClient(ws, { type: "error", payload: { message: `名称不能超过 ${MAX_AGENT_NAME_LENGTH} 个字符` } });
+          break;
+        }
+        if (!/^[\w一-鿿㐀-䶿 -]+$/.test(name)) {
+          this.sendToClient(ws, { type: "error", payload: { message: "名称只能包含字母、数字、中文、连字符、下划线和空格" } });
+          break;
+        }
         const id = name.toLowerCase().replace(/\s+/g, "-");
         if (this.agentRegistry?.get(id)) {
           this.sendToClient(ws, { type: "error", payload: { message: `Agent already exists: ${id}` } });
           break;
         }
 
-        const providerId = provider || "deepseek";
-        const modelId = model || "deepseek-v4-flash";
+        const providerId = provider || DEFAULT_PROVIDER;
+        const modelId = model || DEFAULT_MODEL;
         const prov = this.providerResolver?.(providerId);
         if (!prov) {
           this.sendToClient(ws, { type: "error", payload: { message: `Provider not found: ${providerId}` } });
@@ -803,6 +877,15 @@ export class CoreWSServer {
         };
         if (!name || !members || members.length === 0) {
           this.sendToClient(ws, { type: "error", payload: { message: "name and members are required" } });
+          break;
+        }
+        // Name length + character validation
+        if (name.length > MAX_GROUP_NAME_LENGTH) {
+          this.sendToClient(ws, { type: "error", payload: { message: `群组名称不能超过 ${MAX_GROUP_NAME_LENGTH} 个字符` } });
+          break;
+        }
+        if (!/^[\w一-鿿㐀-䶿 -]+$/.test(name)) {
+          this.sendToClient(ws, { type: "error", payload: { message: "群组名称只能包含字母、数字、中文、连字符、下划线和空格" } });
           break;
         }
         const id = name.toLowerCase().replace(/\s+/g, "-");
@@ -969,40 +1052,83 @@ export class CoreWSServer {
         break;
       }
 
-      case "bind_workspace": {
-        const { agentId, workspacePath } = msg.payload as { agentId: string; workspacePath?: string };
+      case "add_binding": {
+        const { agentId, workspacePath, mode, label } = msg.payload as {
+          agentId: string;
+          workspacePath: string;
+          mode: "readonly" | "readwrite";
+          label?: string;
+        };
         const agent = this.agentRegistry?.get(agentId);
         if (!agent) {
           this.sendToClient(ws, { type: "error", payload: { message: `Agent not found: ${agentId}` } });
           break;
         }
-        const raw = workspacePath?.trim();
-        if (!raw || raw === "default") {
-          agent.clearBindings();
-          this.sendToClient(ws, { type: "workspace_bound", payload: { agentId, path: null, effectiveWorkspace: agent.effectiveWorkspace } });
-          this.logMessage("system", `Workspace unbound for ${agent.name}, restored: ${agent.effectiveWorkspace}`);
+
+        // 安全校验：符号链接解析
+        let realPath: string;
+        try { realPath = fs.realpathSync(workspacePath); } catch {
+          this.sendToClient(ws, { type: "error", payload: { message: `路径不存在或无法解析: ${workspacePath}` } });
           break;
         }
-        const resolved = path.resolve(raw);
-        // 防御：禁止绑定到系统敏感目录
-        const dataRoot = path.resolve(this.dataRoot);
-        if (!resolved.startsWith(dataRoot)) {
-          this.sendToClient(ws, { type: "error", payload: { message: `工作区路径必须在项目数据目录内 (${dataRoot})` } });
-          break;
+
+        // 安全校验：禁止系统目录（含根目录）
+        const FORBIDDEN = [
+          /^\/etc(\/|$)/, /^\/proc(\/|$)/, /^\/sys(\/|$)/, /^\/dev(\/|$)/,
+          /^\/$/,
+          /^[A-Z]:\\$/i,
+          /[\\/]Windows[\\/]/i, /[\\/]Program Files[\\/]/i, /[\\/]ProgramData[\\/]/i,
+          /[\\/]\.ssh[\\/]/, /[\\/]\.gnupg[\\/]/, /[\\/]\.aws[\\/]/, /[\\/]\.config[\\/]/,
+        ];
+        let blocked = false;
+        for (const re of FORBIDDEN) {
+          if (re.test(realPath)) {
+            this.sendToClient(ws, { type: "error", payload: { message: `禁止绑定系统/敏感目录: ${workspacePath}` } });
+            blocked = true;
+            break;
+          }
         }
-        // 防御：禁止绑定到其他 Agent 的数据目录
-        if (resolved.includes(path.sep + "agents" + path.sep) && !resolved.includes(path.sep + "workspace" + path.sep)) {
-          this.sendToClient(ws, { type: "error", payload: { message: "禁止直接绑定到 Agent 数据目录，请指定 workspace 子目录" } });
-          break;
+        if (blocked) break;
+
+        // 安全校验：禁止绑定 CoBeing 其他 Agent 数据目录
+        const agentsDir = path.join(this.dataRoot, "agents");
+        if (realPath.startsWith(agentsDir)) {
+          const rel = path.relative(agentsDir, realPath);
+          const agentIdFromPath = rel.split(path.sep)[0];
+          if (agentIdFromPath && agentIdFromPath !== agentId) {
+            this.sendToClient(ws, { type: "error", payload: { message: "禁止绑定其他 Agent 的数据目录" } });
+            break;
+          }
         }
-        if (!fs.existsSync(resolved)) {
-          this.sendToClient(ws, { type: "error", payload: { message: `Directory not found: ${resolved}` } });
-          break;
-        }
-        agent.addBinding({ path: resolved, mode: "readwrite" });
-        this.sendToClient(ws, { type: "workspace_bound", payload: { agentId, path: resolved, effectiveWorkspace: agent.effectiveWorkspace } });
-        this.logMessage("system", `Workspace bound for ${agent.name}: ${resolved}`);
+
+        agent.addBinding({ path: realPath, mode, label });
+        this.sendToClient(ws, { type: "binding_added", payload: { agentId, bindings: agent.bindings } });
+        this.logMessage("system", `Binding added for ${agent.name}: ${realPath} (${mode})`);
         this.broadcastState();
+        break;
+      }
+
+      case "remove_binding": {
+        const { agentId, workspacePath } = msg.payload as { agentId: string; workspacePath: string };
+        const agent = this.agentRegistry?.get(agentId);
+        if (!agent) {
+          this.sendToClient(ws, { type: "error", payload: { message: `Agent not found: ${agentId}` } });
+          break;
+        }
+        agent.removeBinding(workspacePath);
+        this.sendToClient(ws, { type: "binding_removed", payload: { agentId, bindings: agent.bindings } });
+        this.broadcastState();
+        break;
+      }
+
+      case "list_bindings": {
+        const { agentId } = msg.payload as { agentId: string };
+        const agent = this.agentRegistry?.get(agentId);
+        if (!agent) {
+          this.sendToClient(ws, { type: "error", payload: { message: `Agent not found: ${agentId}` } });
+          break;
+        }
+        this.sendToClient(ws, { type: "bindings_list", payload: { agentId, bindings: agent.bindings } });
         break;
       }
 
@@ -1145,7 +1271,7 @@ export class CoreWSServer {
           this.sendToClient(ws, { type: "error", payload: { message: "Skill system not available" } });
           break;
         }
-        const defaultProvider = this.providerResolver("deepseek");
+        const defaultProvider = this.providerResolver(DEFAULT_PROVIDER);
         if (!defaultProvider) {
           this.sendToClient(ws, { type: "error", payload: { message: "No default provider available" } });
           break;

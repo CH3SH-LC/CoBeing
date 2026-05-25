@@ -9,7 +9,7 @@ import type {
   ModelCapabilities,
   Message,
   ToolDefinition,
-} from "@myagents/shared";
+} from "@cobeing/shared";
 import type { LLMProvider } from "../base/provider-interface.js";
 
 export interface OpenAICompatConfig {
@@ -36,15 +36,32 @@ export class OpenAICompatProvider implements LLMProvider {
   }
 
   async *chat(params: ChatParams): AsyncIterable<ChatChunk> {
-    const { model, messages, tools, temperature, maxTokens } = params;
+    const { model, messages, tools, temperature, maxTokens, thinkingEnabled, reasoningEffort } = params;
 
     const body: Record<string, unknown> = {
       model,
       messages: this.convertMessages(messages),
-      temperature: temperature ?? undefined,
-      max_tokens: maxTokens ?? 4096,
       stream: true,
     };
+
+    // 思考模式下不设置 temperature / top_p（API 会忽略）
+    if (!thinkingEnabled) {
+      body.temperature = temperature ?? undefined;
+    }
+
+    body.max_tokens = maxTokens ?? 4096;
+
+    // 请求包含 usage 统计（DeepSeek 等 provider 在流式最后一个 chunk 返回）
+    body.stream_options = { include_usage: true };
+
+    // DeepSeek V4 思考模式参数
+    if (thinkingEnabled) {
+      body.thinking = { type: "enabled" };
+      if (reasoningEffort) {
+        body.reasoning_effort = reasoningEffort;
+      }
+    }
+
     if (tools?.length) {
       body.tools = this.convertTools(tools);
     }
@@ -56,6 +73,7 @@ export class OpenAICompatProvider implements LLMProvider {
         "Authorization": `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: params.abortSignal,
     });
 
     if (!response.ok) {
@@ -92,6 +110,10 @@ export class OpenAICompatProvider implements LLMProvider {
 
           if (delta.content) {
             yield { type: "content", content: delta.content };
+          }
+          // DeepSeek V4 思考模式：reasoning_content
+          if (delta.reasoning_content) {
+            yield { type: "reasoning", content: delta.reasoning_content };
           }
           if (delta.tool_calls) {
             for (const tc of delta.tool_calls) {
@@ -130,6 +152,19 @@ export class OpenAICompatProvider implements LLMProvider {
               }
               pendingToolCalls.clear();
             }
+          }
+
+          // usage 统计（流式最后一个 chunk，DeepSeek 等 provider 返回）
+          if (json.usage) {
+            yield {
+              type: "usage",
+              usage: {
+                inputTokens: json.usage.prompt_tokens ?? 0,
+                outputTokens: json.usage.completion_tokens ?? 0,
+                cacheHitTokens: json.usage.prompt_cache_hit_tokens ?? 0,
+                cacheMissTokens: json.usage.prompt_cache_miss_tokens ?? 0,
+              },
+            };
           }
         } catch {
           // skip malformed JSON lines
@@ -197,6 +232,11 @@ export class OpenAICompatProvider implements LLMProvider {
             arguments: tc.function.arguments,
           },
         }));
+      }
+
+      // assistant 消息带 reasoning_content（DeepSeek 思考模式）
+      if (m.role === "assistant" && m.reasoningContent) {
+        base.reasoning_content = m.reasoningContent;
       }
 
       // tool 消息必须带 tool_call_id

@@ -3,8 +3,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import type { LLMProvider } from "@myagents/providers";
-import { createLogger } from "@myagents/shared";
+import type { LLMProvider } from "@cobeing/providers";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("memory-indexer");
 

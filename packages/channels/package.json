@@ -1,6 +1,6 @@
 {
-  "name": "@myagents/channels",
-  "version": "0.0.1",
+  "name": "@cobeing/channels",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -13,7 +13,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@myagents/shared": "workspace:*",
+    "@cobeing/shared": "workspace:*",
     "ws": "^8.20.0"
   },
   "devDependencies": {

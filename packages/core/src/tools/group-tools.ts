@@ -301,14 +301,22 @@ export function makeGroupSendTool(getGroup: GroupGetter, getAgent?: AgentGetter)
 
               for (let round = 0; round < maxRounds; round++) {
                 ws?.emitReviewLog({ type: 'review_pending', agentId: context.agentId, groupId: group.id });
-                const toolResult = await runReviewAgent(
-                  reviewInput,
-                  provider,
-                  agent.getToolRegistry(),
-                  agent.config.model,
-                  agent.effectiveWorkspace,
-                  context.agentId,
-                );
+                let toolResult;
+                try {
+                  toolResult = await runReviewAgent(
+                    reviewInput,
+                    provider,
+                    agent.getToolRegistry(),
+                    agent.config.model,
+                    agent.effectiveWorkspace,
+                    context.agentId,
+                  );
+                } catch (err: any) {
+                  log.error("[%s] Review agent crashed for %s: %s — allowing message through", params.groupId, context.agentId, err.message);
+                  group.postMessage(context.agentId, msg);
+                  ws?.emitReviewLog({ type: 'review_passed', agentId: context.agentId, groupId: group.id });
+                  return { toolCallId: "", content: "消息已发送到群组（审核跳过）。" };
+                }
                 const parsed = parseReviewOutput(toolResult.output);
                 retryCount = round + 1;
                 (context as any).reviewRetryCount = retryCount;

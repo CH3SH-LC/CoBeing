@@ -1,7 +1,7 @@
 /**
  * Channel 适配器统一接口
  */
-import type { InboundMessage, OutboundMessage, ChannelCapabilities } from "@myagents/shared";
+import type { InboundMessage, OutboundMessage, ChannelCapabilities } from "@cobeing/shared";
 
 export interface ChannelAdapter {
   readonly id: string;

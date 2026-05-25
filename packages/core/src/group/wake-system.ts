@@ -12,7 +12,7 @@ import type { Agent } from "../agent/agent.js";
 import type { CurrentMd } from "./current-md.js";
 import type { GroupAgentMemory } from "./agent-memory.js";
 import path from "node:path";
-import { createLogger } from "@cobeing/shared";
+import { createLogger, DEFAULT_PROVIDER, DEFAULT_JUDGMENT_MODEL } from "@cobeing/shared";
 import { runJudgmentAgent } from "../agent/tool-agent/judgment.js";
 
 const log = createLogger("wake-system");
@@ -50,6 +50,7 @@ export class WakeSystem {
   private getGroupMembers: (() => string[]) | null;
   private maxCurrentMessages: number;
   private _paused = false;
+  private _disposed = false;
   private wakeQueue: WakeEntry[] = [];
   private processedMsgIds = new Set<string>();
   private ownerId?: string;
@@ -97,8 +98,16 @@ export class WakeSystem {
     this.maxCurrentMessages = deps?.maxCurrentMessages ?? 200;
     this.getGroup = deps?.getGroup ?? null;
 
-    this._judgmentModel = (globalThis as any).__cobeingConfig?.judgmentModel ?? "deepseek-chat";
-    this._judgmentProvider = (globalThis as any).__cobeingGetProvider?.("deepseek");
+    this._judgmentModel = (globalThis as any).__cobeingConfig?.judgmentModel ?? DEFAULT_JUDGMENT_MODEL;
+    const getProvider = (globalThis as any).__cobeingGetProvider as ((id: string) => import("@cobeing/providers").LLMProvider | undefined) | undefined;
+    // 尝试 default provider，fallback 到第一个可用 provider
+    this._judgmentProvider = getProvider?.(DEFAULT_PROVIDER)
+      ?? (() => {
+        const providers: Map<string, import("@cobeing/providers").LLMProvider> | undefined =
+          (globalThis as any).__cobeingRuntime?.providersMap;
+        if (providers && providers.size > 0) return providers.values().next().value;
+        return undefined;
+      })();
 
     // 订阅新消息
     ctx.onMessage((msg) => this.handleNewMessage(msg));
@@ -106,6 +115,7 @@ export class WakeSystem {
 
   /** 处理新消息 */
   private handleNewMessage(msg: GroupMessageV2): void {
+    if (this._disposed) return;
     // 跳过已处理的消息
     if (this.processedMsgIds.has(msg.id)) return;
 
@@ -158,6 +168,13 @@ export class WakeSystem {
 
     // 触发处理
     this.processQueue();
+
+    // Mark as processed and prune if exceeding max size
+    this.processedMsgIds.add(msg.id);
+    if (this.processedMsgIds.size > 5000) {
+      log.info("[%s] processedMsgIds exceeded 5000 — clearing (old IDs won't repeat)", this.ctx.groupId);
+      this.processedMsgIds.clear();
+    }
   }
 
   /**
@@ -216,7 +233,7 @@ export class WakeSystem {
   ): Promise<void> {
     const isOwner = targetAgentId === this.ownerId;
     const isExplicitHostMention = mentionText === "@host" || mentionText === `@${this.ownerId}`;
-    const provider = this._judgmentProvider || (globalThis as any).__cobeingGetProvider?.("deepseek");
+    const provider = this._judgmentProvider || (globalThis as any).__cobeingGetProvider?.(DEFAULT_PROVIDER);
 
     if (isOwner && !isExplicitHostMention && provider) {
       const host = this.getAgent(targetAgentId);
@@ -349,6 +366,19 @@ export class WakeSystem {
     }
   }
 
+  /** 释放所有资源 — 群组销毁时调用 */
+  dispose(): void {
+    this._disposed = true;
+    if (this._wakeTimer) {
+      clearInterval(this._wakeTimer);
+      this._wakeTimer = null;
+    }
+    this.wakeQueue = [];
+    this._processingAgents.clear();
+    this.processedMsgIds.clear();
+    log.info("[%s] WakeSystem disposed", this.ctx.groupId);
+  }
+
   /** 异步评估是否唤醒群主 */
   private async evaluateForOwner(msg: GroupMessageV2): Promise<void> {
     if (!this.localFilter || !this.ownerId) return;
@@ -406,6 +436,7 @@ export class WakeSystem {
 
   /** 定时触发：每次从队列取 1 个 Agent 唤醒（不等待上一个完成，每 tick 触发 1 个） */
   private _tickQueue(): void {
+    if (this._disposed) return;
     if (this._paused) return;
     if (this.wakeQueue.length === 0) {
       this._stopTimerIfIdle();

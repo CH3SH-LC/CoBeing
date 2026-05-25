@@ -58,6 +58,9 @@ importers:
       '@cobeing/channels':
         specifier: workspace:*
         version: link:../channels
+      '@cobeing/plugin-sdk':
+        specifier: workspace:*
+        version: link:../plugin-sdk
       '@cobeing/providers':
         specifier: workspace:*
         version: link:../providers

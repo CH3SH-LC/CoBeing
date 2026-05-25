@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getRole, canManageGroup, type GroupRole } from "./roles.js";
-import type { GroupConfig } from "@myagents/shared";
+import type { GroupConfig } from "@cobeing/shared";
 
 describe("GroupRole", () => {
   const config: GroupConfig = {
@@ -8,7 +8,6 @@ describe("GroupRole", () => {
     name: "test-group",
     members: ["agent-a", "agent-b"],
     owner: "owner-agent",
-    protocol: "round-robin",
   };
 
   describe("getRole", () => {

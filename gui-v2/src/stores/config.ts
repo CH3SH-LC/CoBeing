@@ -4,14 +4,25 @@ import { getWsClient } from "@/hooks/useWebSocket";
 export interface ProviderEntry {
   name: string;
   apiKeyEnv: string;
+  apiKey?: string;
+  /** 后端解析环境变量后的 masked 值，前端只读 */
+  _apiKeyResolved?: string;
   type?: string;
   baseURL?: string;
+  plan?: "general" | "coding";
+}
+
+export interface ChannelBindTo {
+  type: "agent" | "group";
+  agentId?: string;
+  groupId?: string;
 }
 
 export interface ChannelEntry {
   name: string;
   enabled: boolean;
   type: string;
+  bindTo?: ChannelBindTo;
   [key: string]: unknown;
 }
 
@@ -74,9 +85,11 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     const providers = { ...get().providers, [name]: entry };
     set({ providers });
     sendUpdate(`providers.${name}`, {
-      apiKeyEnv: entry.apiKeyEnv,
+      apiKeyEnv: entry.apiKeyEnv || undefined,
+      apiKey: entry.apiKey || undefined,
       type: entry.type || undefined,
       baseURL: entry.baseURL || undefined,
+      plan: entry.plan || undefined,
     });
   },
 

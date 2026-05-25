@@ -157,13 +157,12 @@ describe("GroupContext", () => {
 
   describe("Config persistence", () => {
     it("saves group config", () => {
-      ctx.saveConfig(["a", "b", "c"], "round-robin");
+      ctx.saveConfig(["a", "b", "c"]);
 
       const configFile = path.join(tmpDir, "groups", "test-group", "config.json");
       expect(fs.existsSync(configFile)).toBe(true);
       const config = JSON.parse(fs.readFileSync(configFile, "utf-8"));
       expect(config.members).toEqual(["a", "b", "c"]);
-      expect(config.protocol).toBe("round-robin");
     });
   });
 });

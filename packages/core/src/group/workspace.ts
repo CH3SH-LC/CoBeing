@@ -8,12 +8,38 @@
  * - PROGRESS.md: 当前进度
  * - PLAN.md: 任务分工和计划
  */
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createLogger } from "@cobeing/shared";
 import { maintainExperienceSummarySync } from "../conversation/prompt-builder.js";
 
 const logger = createLogger("group:workspace");
+
+/**
+ * Atomically write content to a file using temp-file + rename.
+ * Prevents partial writes on crash and reduces read-modify-write race windows.
+ */
+function atomicWrite(filePath: string, content: string): void {
+  const tmpPath = filePath + ".tmp." + process.pid + "." + Date.now() + "." + Math.random().toString(36).slice(2, 8);
+  try {
+    writeFileSync(tmpPath, content, "utf-8");
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    // Best-effort cleanup on failure
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    throw err;
+  }
+}
+
+/**
+ * Atomically append a single line to a file.
+ * Reads the file, appends the line, then writes via temp-file + rename.
+ */
+function atomicAppend(filePath: string, line: string): void {
+  const existing = existsSync(filePath) ? readFileSync(filePath, "utf-8") : "";
+  atomicWrite(filePath, existing + line);
+}
 
 export interface GroupWorkspacePaths {
   root: string;
@@ -254,7 +280,7 @@ ${vars.taskContent}
         afterDate;
     }
 
-    writeFileSync(this.paths.progress, content, 'utf-8');
+    atomicWrite(this.paths.progress, content);
   }
 
   /**
@@ -435,14 +461,14 @@ _记录哪些协作方式效果好_
       // Section header not found, append to end
       content += `\n${sectionHeader}${line}`;
     }
-    writeFileSync(this.paths.experience, content, "utf-8");
+    atomicWrite(this.paths.experience, content);
 
     // 维护概要区
     const summaryLine = `- [${timestamp}] [${section}] ${entry.slice(0, 80)}`;
     const full = this.readExperience() || "";
     const updated = maintainExperienceSummarySync(full, summaryLine);
     if (updated !== full) {
-      writeFileSync(this.paths.experience, updated, "utf-8");
+      atomicWrite(this.paths.experience, updated);
     }
   }
 

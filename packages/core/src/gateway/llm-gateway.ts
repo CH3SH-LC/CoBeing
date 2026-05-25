@@ -2,9 +2,9 @@
  * LLMGateway — LLM 请求并发控制和队列调度
  * 所有 Agent 共享一个 Gateway 实例，自动排队执行请求
  */
-import type { ChatParams, ChatChunk } from "@myagents/shared";
-import type { LLMProvider } from "@myagents/providers";
-import { createLogger } from "@myagents/shared";
+import type { ChatParams, ChatChunk } from "@cobeing/shared";
+import type { LLMProvider } from "@cobeing/providers";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("llm-gateway");
 
@@ -102,20 +102,36 @@ export class LLMGateway {
   }
 
   private async createTimedIterable(params: ChatParams): Promise<AsyncIterable<ChatChunk>> {
-    return new Promise<AsyncIterable<ChatChunk>>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`LLM request timed out after ${this.config.timeout}ms`));
-      }, this.config.timeout);
-
-      try {
-        const iterable = this.provider.chat(params);
-        clearTimeout(timeout);
-        resolve(iterable);
-      } catch (err) {
-        clearTimeout(timeout);
-        reject(err);
-      }
-    });
+    const iterable = await this.provider.chat(params);
+    // 包装 iterable：每个 chunk 超过 timeout 未到达则超时
+    const timedIterable: AsyncIterable<ChatChunk> = {
+      [Symbol.asyncIterator]: () => {
+        const iterator = iterable[Symbol.asyncIterator]();
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        const clear = () => { if (timeoutHandle) clearTimeout(timeoutHandle); };
+        return {
+          next: async (): Promise<IteratorResult<ChatChunk>> => {
+            return new Promise((resolve, reject) => {
+              timeoutHandle = setTimeout(() => {
+                reject(new Error(`LLM request timed out after ${this.config.timeout}ms`));
+              }, this.config.timeout);
+              iterator.next().then(result => {
+                clear();
+                resolve(result);
+              }, err => {
+                clear();
+                reject(err);
+              });
+            });
+          },
+          return: async () => {
+            clear();
+            return iterator.return?.() ?? { done: true, value: undefined };
+          },
+        };
+      },
+    };
+    return timedIterable;
   }
 
   private sleep(ms: number): Promise<void> {

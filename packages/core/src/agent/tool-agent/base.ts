@@ -74,7 +74,7 @@ export async function runToolAgent(
   sandboxRunner?: import("@cobeing/shared").SandboxRunner,
 ): Promise<ToolAgentResult> {
   const permission = new PermissionEnforcer(
-    { mode: (permissionMode as any) ?? "workspace-write" },
+    { mode: (permissionMode as any) ?? "workspace-readwrite" },
     undefined,
     workingDir,
   );
@@ -86,6 +86,9 @@ export async function runToolAgent(
     sandboxRunner,
   );
 
+  // 兜底超时：防止 LLM 挂起导致 ToolAgent 永久阻塞
+  const effectiveSignal = config.abortSignal ?? AbortSignal.timeout(120_000);
+
   const messages: Message[] = [
     { role: "system", content: config.systemPrompt },
     { role: "user", content: config.userPrompt },
@@ -94,16 +97,20 @@ export async function runToolAgent(
   const toolDefs = toolRegistry.listDefinitions();
 
   for (let round = 0; round < config.maxIterations; round++) {
+    if (effectiveSignal.aborted) {
+      return { success: false, output: "[已停止 — 超时或取消]" };
+    }
+
     const { content, toolCalls } = await collectResponse(
       provider,
       config.model,
       messages,
       toolDefs,
-      config.abortSignal,
+      effectiveSignal,
     );
 
-    if (config.abortSignal?.aborted) {
-      return { success: false, output: "[已停止]" };
+    if (effectiveSignal.aborted) {
+      return { success: false, output: "[已停止 — 超时或取消]" };
     }
 
     if (content) {

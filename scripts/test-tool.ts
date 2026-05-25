@@ -36,9 +36,9 @@ async function main() {
       role: "编程助手",
       systemPrompt: "你是一个有帮助的AI助手。当用户要求时，使用工具来完成任务。",
       provider: "deepseek",
-      model: "deepseek-chat",
+      model: "deepseek-v4-flash",
       permissions: { mode: "workspace-write" },
-      sandbox: { enabled: false, filesystem: "workspace-only", network: true },
+      sandbox: { enabled: false, filesystem: "isolated", network: { enabled: true, mode: "all" } },
       tools: ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch"],
       toolsConfig: {
         defaultPermission: "workspace-write",
@@ -49,7 +49,7 @@ async function main() {
     provider,
   );
 
-  console.log("\n=== MyAgents 工具测试 ===");
+  console.log("\n=== CoBeing 工具测试 ===");
   console.log("输入消息测试工具调用，输入 exit 退出\n");
 
   // 从命令行读取输入

@@ -10,7 +10,7 @@ import path from "node:path";
 import { SqliteAdapter } from "./sqlite-adapter.js";
 import { scanContent, wrapMemoryContent } from "./security-scan.js";
 import { extractExperienceSummary } from "../conversation/prompt-builder.js";
-import { createLogger } from "@cobeing/shared";
+import { createLogger, MAX_MEMORY_CHARS } from "@cobeing/shared";
 
 const log = createLogger("memory-store");
 
@@ -18,6 +18,12 @@ export type MemoryTarget = "memory" | "experience" | "user" | "tools";
 
 export interface MemoryStoreConfig {
   charLimits?: Partial<Record<MemoryTarget, number>>;
+  defaultHalfLifeDays?: number;
+  trustHelpfulDelta?: number;
+  trustUnhelpfulDelta?: number;
+  trustDuplicatePenalty?: number;
+  minTrust?: number;
+  maxTrust?: number;
 }
 
 export interface ToolResult {
@@ -27,10 +33,10 @@ export interface ToolResult {
 }
 
 const DEFAULT_CHAR_LIMITS: Record<MemoryTarget, number> = {
-  memory: 3000,
-  experience: 5000,
-  user: 2000,
-  tools: 3000,
+  memory: MAX_MEMORY_CHARS.memory,
+  experience: MAX_MEMORY_CHARS.experience,
+  user: MAX_MEMORY_CHARS.user,
+  tools: MAX_MEMORY_CHARS.tools,
 };
 
 const TARGET_FILE_MAP: Record<MemoryTarget, string> = {
@@ -46,6 +52,13 @@ export class MemoryStore {
   private sqlite!: SqliteAdapter;
   private readonly charLimits: Record<MemoryTarget, number>;
   private snapshot: Record<MemoryTarget, string>;
+  private trustConfig: {
+    helpfulDelta: number;
+    unhelpfulDelta: number;
+    duplicatePenalty: number;
+    minTrust: number;
+    maxTrust: number;
+  };
   private _baseDir: string;
   private _ready = false;
   private _initPromise: Promise<void> | null = null;
@@ -53,6 +66,13 @@ export class MemoryStore {
   private constructor(baseDir: string, config?: MemoryStoreConfig) {
     this._baseDir = baseDir;
     this.charLimits = { ...DEFAULT_CHAR_LIMITS, ...config?.charLimits };
+    this.trustConfig = {
+      helpfulDelta: config?.trustHelpfulDelta ?? 0.1,
+      unhelpfulDelta: config?.trustUnhelpfulDelta ?? -0.15,
+      duplicatePenalty: config?.trustDuplicatePenalty ?? -0.05,
+      minTrust: config?.minTrust ?? 0,
+      maxTrust: config?.maxTrust ?? 1,
+    };
     this.snapshot = { memory: "", experience: "", user: "", tools: "" };
   }
 
@@ -66,12 +86,19 @@ export class MemoryStore {
   /** 同步构造 + 延迟初始化（用于 Agent 构造函数） */
   static createLazy(baseDir: string, config?: MemoryStoreConfig): MemoryStore {
     const store = new MemoryStore(baseDir, config);
-    // 启动异步初始化（不等待）
-    store._initPromise = store.init().then(() => {
-      store._ready = true;
-    }).catch(err => {
-      log.error("MemoryStore lazy init failed: %s", err);
-    });
+    // 启动异步初始化（不等待），失败时自动重试一次
+    const doInit = (attempt: number) => {
+      store.init().then(() => {
+        store._ready = true;
+      }).catch(err => {
+        log.error("MemoryStore lazy init failed (attempt %d): %s", attempt, err);
+        if (attempt < 2) {
+          // 延迟 1s 后重试一次
+          setTimeout(() => doInit(attempt + 1), 1000);
+        }
+      });
+    };
+    doInit(1);
     return store;
   }
 
@@ -134,9 +161,11 @@ export class MemoryStore {
       return { success: false, error: `容量不足: ${target} 已达上限 ${this.charLimits[target]} 字符。请先删除或合并旧条目。` };
     }
 
-    // 去重检查（完全相同的内容不重复添加）
+    // 去重检查（完全相同的内容不重复添加，并对重复条目降低信任分数）
     const existing = this.sqlite.getEntries(target);
-    if (existing.some(e => e.content.trim() === content.trim())) {
+    const dup = existing.find(e => e.content.trim() === content.trim());
+    if (dup) {
+      this.sqlite.adjustTrust(dup.id, this.trustConfig.duplicatePenalty, this.trustConfig.minTrust, this.trustConfig.maxTrust);
       return { success: false, error: "重复条目: 相同内容已存在。" };
     }
 
@@ -262,6 +291,39 @@ export class MemoryStore {
     return this.sqlite.searchHistory(query, session, limit);
   }
 
+  // ─── Trust 反馈接口 ───
+
+  /** 调整条目的信任分数 */
+  adjustTrust(id: number, delta: number): number {
+    return this.sqlite.adjustTrust(id, delta, this.trustConfig.minTrust, this.trustConfig.maxTrust);
+  }
+
+  /** 标记条目为有用（使用可配置 delta） */
+  markHelpful(id: number): number {
+    return this.adjustTrust(id, this.trustConfig.helpfulDelta);
+  }
+
+  /** 标记条目为无用（使用可配置 delta） */
+  markUnhelpful(id: number): number {
+    return this.adjustTrust(id, this.trustConfig.unhelpfulDelta);
+  }
+
+  /** 搜索并反馈：查找匹配条目，标记为 helpful/unhelpful */
+  searchAndFeedback(query: string, target: MemoryTarget | undefined, action: "helpful" | "unhelpful"): ToolResult {
+    const results = this.sqlite.searchEntries(query, target, 1);
+    if (results.length === 0) {
+      return { success: false, error: `未找到匹配 "${query}" 的记忆条目。` };
+    }
+    const entry = results[0];
+    const newTrust = action === "helpful"
+      ? this.markHelpful(entry.id)
+      : this.markUnhelpful(entry.id);
+    return {
+      success: true,
+      content: `已将条目 #${entry.id} 标记为 ${action === "helpful" ? "有用" : "无用"}（信任分数: ${(entry.trust ?? 0.5).toFixed(2)} → ${newTrust.toFixed(2)}）`,
+    };
+  }
+
   // ─── 对话历史接口 ───
 
   /** 追加对话历史（双写: md 每日文件 + SQLite） */
@@ -340,6 +402,12 @@ ${convText}
       if (problem.length < 10 || solution.length < 10) return;
 
       this.add("experience", `[${task}] 问题: ${problem} | 解决: ${solution}`);
+
+      // Boost trust for related experience entries
+      const related = this.sqlite.searchEntries(task.slice(0, 50), "experience", 3);
+      for (const entry of related) {
+        this.sqlite.adjustTrust(entry.id, this.trustConfig.helpfulDelta, this.trustConfig.minTrust, this.trustConfig.maxTrust);
+      }
     } catch (err) {
       log.warn("Reflection failed: %s", err);
     }

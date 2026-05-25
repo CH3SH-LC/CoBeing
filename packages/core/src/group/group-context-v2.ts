@@ -5,7 +5,7 @@
  * 每条消息有一个 tag 标识：main 或 talk-xxx。
  * 为 Agent 构建上下文时，按 tag 过滤：Agent 只看到 main + 自己参与的 talk。
  */
-import { createLogger } from "@myagents/shared";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("group-context-v2");
 
@@ -16,6 +16,7 @@ export interface GroupMessageV2 {
   content: string;
   timestamp: number;
   mentions: string[];         // 解析出的 @mention 目标列表
+  metadata?: Record<string, unknown>;  // 附加元数据（审核标记等）
 }
 
 export interface TalkInfo {
@@ -31,15 +32,24 @@ function nextMsgId(): string {
   return `msg-${(++msgCounter).toString().padStart(4, "0")}`;
 }
 
-/** 解析文本中的所有 @mention */
+/** 解析文本中的所有 @mention（支持中文，排除 Markdown 标记，最少 3 字符避免误匹配） */
 function parseMentions(content: string): string[] {
-  const regex = /@(\S+)/g;
+  const regex = /@([\w一-鿿][\w一-鿿-]{2,})/g;
   const mentions: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
-    mentions.push(match[1]);
+    const id = match[1];
+    if (id && id !== "all") mentions.push(id);
   }
-  return mentions;
+  // "all" 单独检查
+  if (/@all\b/.test(content)) mentions.push("all");
+  return [...new Set(mentions)];
+}
+
+export interface AgentActiveStatus {
+  agentId: string;
+  status: "idle" | "processing";
+  since: number; // timestamp when status started
 }
 
 export class GroupContextV2 {
@@ -49,15 +59,34 @@ export class GroupContextV2 {
   private talkCounter = 0;
   /** 消息写入后的回调（WakeSystem 使用） */
   private onMessageCallbacks: Array<(msg: GroupMessageV2) => void> = [];
+  /** Agent 活跃状态追踪 */
+  private agentStatuses = new Map<string, AgentActiveStatus>();
 
   constructor(groupId: string) {
     this.groupId = groupId;
   }
 
+  /** 设置 Agent 活跃状态 */
+  setAgentStatus(agentId: string, status: "idle" | "processing"): void {
+    const existing = this.agentStatuses.get(agentId);
+    if (existing && existing.status === status) return;
+    this.agentStatuses.set(agentId, { agentId, status, since: Date.now() });
+  }
+
+  /** 获取所有 Agent 的活跃状态 */
+  getActiveStatuses(): AgentActiveStatus[] {
+    return [...this.agentStatuses.values()];
+  }
+
+  /** 清除所有 Agent 状态 */
+  clearAgentStatuses(): void {
+    this.agentStatuses.clear();
+  }
+
   // ---- Main 频道 ----
 
   /** 在 main 频道追加消息 */
-  append(fromAgentId: string, content: string, tag: string = "main"): GroupMessageV2 {
+  append(fromAgentId: string, content: string, tag: string = "main", metadata?: Record<string, unknown>): GroupMessageV2 {
     const mentions = parseMentions(content);
     const msg: GroupMessageV2 = {
       id: nextMsgId(),
@@ -66,6 +95,7 @@ export class GroupContextV2 {
       content,
       timestamp: Date.now(),
       mentions,
+      metadata,
     };
     this.messages.push(msg);
 
@@ -80,6 +110,22 @@ export class GroupContextV2 {
   /** 订阅新消息回调 */
   onMessage(callback: (msg: GroupMessageV2) => void): void {
     this.onMessageCallbacks.push(callback);
+  }
+
+  /** 追加消息但不触发回调（用于外部写入响应，避免重复唤醒） */
+  appendSilent(fromAgentId: string, content: string, tag: string = "main", metadata?: Record<string, unknown>): GroupMessageV2 {
+    const mentions = parseMentions(content);
+    const msg: GroupMessageV2 = {
+      id: nextMsgId(),
+      tag,
+      fromAgentId,
+      content,
+      timestamp: Date.now(),
+      mentions,
+      metadata,
+    };
+    this.messages.push(msg);
+    return msg;
   }
 
   // ---- Talk 机制 ----
@@ -178,5 +224,14 @@ export class GroupContextV2 {
   /** 获取最后一条消息的索引 */
   get lastIndex(): number {
     return this.messages.length;
+  }
+
+  /** 获取指定 Agent 可见的消息（main + 参与的 talk），用于 per-agent SQLite 同步 */
+  getVisibleMessages(agentId: string, sinceIndex: number = 0): GroupMessageV2[] {
+    const agentTalks = new Set(this.getAgentTalks(agentId));
+    return this.messages.slice(sinceIndex).filter(msg => {
+      if (msg.tag === "main") return true;
+      return agentTalks.has(msg.tag);
+    });
   }
 }

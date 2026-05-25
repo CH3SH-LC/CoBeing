@@ -2,7 +2,7 @@
  * MCP Transport 层 — stdio 和 Streamable HTTP 传输实现
  */
 import { ChildProcess, spawn } from "node:child_process";
-import { createLogger } from "@myagents/shared";
+import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("mcp-transport");
 

@@ -13,6 +13,52 @@ import type { WakeSession } from "../agent/wake-session.js";
 
 const log = createLogger("conversation-loop");
 
+// ── Circuit Breaker ───────────────────────────────────────────
+const CIRCUIT_OPEN_THRESHOLD = 3;       // consecutive failures to trip
+const CIRCUIT_TIMEOUT_MS = 60_000;      // try again after 60s (half-open)
+
+interface CircuitState {
+  failures: number;
+  openUntil: number; // ms timestamp
+}
+
+const providerCircuits = new Map<string, CircuitState>();
+
+function checkCircuit(providerId: string): boolean {
+  const state = providerCircuits.get(providerId);
+  if (!state) return true; // no history → allow
+
+  if (state.failures < CIRCUIT_OPEN_THRESHOLD) return true; // not tripped
+
+  // Circuit is open — check if timeout has elapsed (half-open)
+  if (Date.now() >= state.openUntil) {
+    // Enter half-open: allow one trial request
+    providerCircuits.delete(providerId);
+    return true;
+  }
+
+  // Circuit is open — skip this provider
+  log.warn("Circuit OPEN for provider %s — skipping until %s",
+    providerId, new Date(state.openUntil).toISOString());
+  return false;
+}
+
+function recordCircuitSuccess(providerId: string): void {
+  providerCircuits.delete(providerId);
+}
+
+function recordCircuitFailure(providerId: string): void {
+  const state = providerCircuits.get(providerId) ?? { failures: 0, openUntil: 0 };
+  state.failures += 1;
+  if (state.failures >= CIRCUIT_OPEN_THRESHOLD) {
+    state.openUntil = Date.now() + CIRCUIT_TIMEOUT_MS;
+    log.warn("Circuit TRIPPED for provider %s (%d consecutive failures) — open for %ds",
+      providerId, state.failures, CIRCUIT_TIMEOUT_MS / 1000);
+  }
+  providerCircuits.set(providerId, state);
+}
+// ─────────────────────────────────────────────────────────────
+
 export interface ConversationLoopConfig {
   agentConfig: {
     name: string;
@@ -212,6 +258,10 @@ export class ConversationLoop {
       const prevCacheMiss = totalUsage.cacheMissTokens ?? 0;
 
       for (const chatProvider of fallbackList) {
+        // Circuit breaker: skip providers with open circuits
+        const providerId = (chatProvider as any).id || chatProvider.constructor.name;
+        if (!checkCircuit(providerId)) continue;
+
         try {
           for await (const chunk of chatProvider.chat({
             model: this.config.agentConfig.model,
@@ -240,6 +290,7 @@ export class ConversationLoop {
             }
           }
           chatSucceeded = true;
+          recordCircuitSuccess(providerId);
           providerError = null; // clear error from previous failed attempt
           if (chatProvider !== this.provider) {
             log.info("Switched to fallback provider for future rounds");
@@ -254,6 +305,7 @@ export class ConversationLoop {
             return { content: "[已停止]", usage: totalUsage };
           }
           log.error("Provider chat error (round %d, provider %s): %s", round, chatProvider.constructor.name, errMsg);
+          recordCircuitFailure(providerId);
           providerError = ConversationLoop.buildProviderError(errMsg, this.config.agentConfig.model);
           // Stop trying fallbacks if error is not retryable
           if (!ConversationLoop.isFallbackEligible(errMsg)) break;

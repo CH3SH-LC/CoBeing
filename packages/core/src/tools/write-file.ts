@@ -31,7 +31,36 @@ export const writeFileTool: Tool = {
     required: ["path", "content"],
   },
   async execute(params, context: ToolContext): Promise<ToolResult> {
-    const filePath = path.resolve(context.workingDir, params.path as string);
+    const workingDir = context.workingDir;
+    const filePath = path.resolve(workingDir, params.path as string);
+
+    // Path containment: prevent escaping working directory
+    const rel = path.relative(workingDir, filePath);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) {
+      return { toolCallId: "", content: "Error: path escapes working directory", isError: true };
+    }
+
+    // Symlink escape prevention: resolve real path; for non-existent files check parent
+    try {
+      const realPath = fs.realpathSync(filePath);
+      const realRel = path.relative(workingDir, realPath);
+      if (realRel.startsWith("..") || path.isAbsolute(realRel)) {
+        return { toolCallId: "", content: "Error: path escapes working directory (symlink)", isError: true };
+      }
+    } catch {
+      // File doesn't exist yet — check parent directory for symlink escapes
+      const parentDir = path.dirname(filePath);
+      try {
+        const realParent = fs.realpathSync(parentDir);
+        const realParentRel = path.relative(workingDir, realParent);
+        if (realParentRel.startsWith("..") || path.isAbsolute(realParentRel)) {
+          return { toolCallId: "", content: "Error: path escapes working directory", isError: true };
+        }
+      } catch {
+        // Parent doesn't exist either — will be created by mkdirSync below
+      }
+    }
+
     if (isProtectedPath(filePath, context.agentId)) {
       return { toolCallId: "", content: "拒绝: 无法修改受保护的 Agent 文件", isError: true };
     }

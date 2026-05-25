@@ -1,7 +1,7 @@
 /**
  * GroupRole — 角色定义与权限检查
  */
-import type { GroupConfig } from "@myagents/shared";
+import type { GroupConfig } from "@cobeing/shared";
 
 export type GroupRole = "user" | "owner" | "member";
 

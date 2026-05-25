@@ -1,6 +1,6 @@
 # CoBeing 项目结构
 
-> 最后更新：2026-05-25 | 文档系统重组 + PROGRESS 三件套
+> 最后更新：2026-05-25 | 新增 @cobeing/plugin-sdk 包
 
 ---
 
@@ -22,7 +22,7 @@
 
 ```
 CoBeing/
-├── packages/          # pnpm monorepo — 后端核心代码 (6 个子包)
+├── packages/          # pnpm monorepo — 后端核心代码 (7 个子包)
 ├── gui-v2/            # 前端 GUI — React 19 + Tauri 2.0
 ├── config/            # 项目配置 + Agent 模板
 ├── data/              # 运行时数据 (agents, groups, butler, host, models)
@@ -114,6 +114,10 @@ packages/
         ├── runtime.ts                   #   CoBeingRuntime 顶层编排器
         ├── index.ts                     #   模块导出
 
+├── plugin-sdk/                # @cobeing/plugin-sdk — 插件 SDK
+│   └── src/
+│       ├── index.ts           #   入口 — re-export types.ts
+│       └── types.ts           #   插件类型定义（CoBeingPlugin, 4种插件接口, PluginManifest）
 ├── mcp-servers/                   # MCP 服务器
 │   ├── qqbot/                     # @cobeing/qqbot-mcp-server — QQ Bot 操作 (18 tools)
 │   │   └── src/
@@ -218,7 +222,8 @@ packages/
         │   ├── writer.ts                #     MemoryWriter 每日对话记录（兼容）
         │   ├── reader.ts                #     MemoryReader 关键词检索（兼容）
         │   ├── indexer.ts               #     MemoryIndexer LLM 总结索引（兼容）
-        │   └── experience.ts            #     Experience 经验反思 + 搜索（兼容）
+        │   ├── experience.ts            #     Experience 经验反思 + 搜索（兼容）
+        │   └── hrr.ts                   #     HRR 接口 + StubHrrEncoder Phase 2 桩
         │
         ├── mcp/                         #   MCP 集成
         │   ├── client.ts                #     MCPClient 标准协议客户端

@@ -3,7 +3,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import type { Tool, ToolContext, ToolResult } from "@myagents/shared";
+import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 
 export const globTool: Tool = {
   name: "glob",

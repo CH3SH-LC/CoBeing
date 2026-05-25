@@ -127,6 +127,7 @@ export interface AgentConfig {
   tools?: string[];
   toolsConfig?: ToolsConfig;
   permissions?: PermissionPolicy;
+  bindings?: WorkspaceBinding[];
   sandbox?: SandboxConfig;
   skillsDir?: string;
   skills?: string[];         // 要装载的技能名称列表（按名称匹配 skills/ 目录下的技能）
@@ -153,12 +154,19 @@ export interface TokenUsage {
 // Permission 相关类型
 // ============================================================
 
-export type PermissionMode = "full-access" | "workspace-write" | "read-only" | "ask";
+export type PermissionMode = "read-only" | "workspace-readwrite"
+  | "workspace-access" | "basic-access" | "full-access";
 
 export interface PermissionPolicy {
   mode: PermissionMode;
   allow?: string[];
   deny?: string[];
+}
+
+export interface WorkspaceBinding {
+  path: string;
+  mode: "readonly" | "readwrite";
+  label?: string;
 }
 
 // ============================================================

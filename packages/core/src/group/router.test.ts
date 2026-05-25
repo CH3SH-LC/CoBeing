@@ -5,7 +5,7 @@ import os from "node:os";
 import { ChannelRouter } from "./router.js";
 import { GroupManager } from "./manager.js";
 import { AgentRegistry } from "../agent/registry.js";
-import type { InboundMessage } from "@myagents/shared";
+import type { InboundMessage } from "@cobeing/shared";
 
 describe("ChannelRouter", () => {
   let tmpDir: string;
@@ -13,15 +13,18 @@ describe("ChannelRouter", () => {
   let groupManager: GroupManager;
   let registry: AgentRegistry;
   let butlerMessages: InboundMessage[];
+  let agentMessages: Array<{ agentId: string; msg: InboundMessage }>;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "router-test-"));
     registry = new AgentRegistry();
     groupManager = new GroupManager(registry, tmpDir);
     butlerMessages = [];
+    agentMessages = [];
 
     router = new ChannelRouter(groupManager, {
       onButlerMessage: async (msg) => { butlerMessages.push(msg); },
+      onAgentMessage: async (agentId, msg) => { agentMessages.push({ agentId, msg }); },
     });
 
     // 创建一个群组
@@ -34,7 +37,9 @@ describe("ChannelRouter", () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    // 关闭所有 SQLite 连接再删除临时目录（Windows 需要）
+    groupManager?.disposeAll();
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* Windows EPERM */ }
   });
 
   describe("no binding", () => {
@@ -45,9 +50,9 @@ describe("ChannelRouter", () => {
     });
   });
 
-  describe("bind to group as user", () => {
+  describe("bind to group", () => {
     it("injects message to group main channel", async () => {
-      router.bind("ch-qq", "debate", "user");
+      router.bind("ch-qq", { type: "group", groupId: "debate" });
 
       await router.route("ch-qq", { channelId: "ch-qq", channelType: "qq", senderId: "u1", senderName: "User", content: "discuss React vs Vue" });
 
@@ -59,7 +64,7 @@ describe("ChannelRouter", () => {
     });
 
     it("returns recent main history as response", async () => {
-      router.bind("ch-qq", "debate", "user");
+      router.bind("ch-qq", { type: "group", groupId: "debate" });
 
       // Pre-populate some messages
       const group = groupManager.get("debate")!;
@@ -68,68 +73,61 @@ describe("ChannelRouter", () => {
       const result = await router.route("ch-qq", { channelId: "ch-qq", channelType: "qq", senderId: "u1", senderName: "User", content: "new message" });
       expect(result).toContain("previous message");
     });
+
+    it("falls back to butler when group not found", async () => {
+      router.bind("ch-qq", { type: "group", groupId: "nonexistent" });
+
+      await router.route("ch-qq", { channelId: "ch-qq", channelType: "qq", senderId: "u1", senderName: "User", content: "hello" });
+      expect(butlerMessages).toHaveLength(1);
+    });
   });
 
-  describe("bind to group as owner", () => {
-    it("creates persistent talk and injects message", async () => {
-      router.bind("ch-discord", "debate", "owner");
+  describe("bind to agent", () => {
+    it("routes message to bound agent", async () => {
+      router.bind("ch-qq", { type: "agent", agentId: "my-agent" });
 
-      await router.route("ch-discord", { channelId: "ch-discord", channelType: "discord", senderId: "u1", senderName: "User", content: "让 agent-a 先发言" });
-
-      const group = groupManager.get("debate")!;
-      const talks = group.ctxV2.listTalks();
-      expect(talks.length).toBeGreaterThanOrEqual(1);
-
-      const ownerTalk = talks.find(t => t.topic === "talk:channel:ch-discord");
-      expect(ownerTalk).toBeDefined();
-
-      const talkMsgs = group.ctxV2.getMessages().filter(m => m.tag === ownerTalk!.id);
-      expect(talkMsgs).toHaveLength(1);
-      expect(talkMsgs[0].content).toBe("让 agent-a 先发言");
+      await router.route("ch-qq", { channelId: "ch-qq", channelType: "qq", senderId: "u1", senderName: "User", content: "hello agent" });
+      expect(agentMessages).toHaveLength(1);
+      expect(agentMessages[0].agentId).toBe("my-agent");
+      expect(agentMessages[0].msg.content).toBe("hello agent");
     });
 
-    it("reuses same talk on subsequent messages", async () => {
-      router.bind("ch-discord", "debate", "owner");
+    it("does not route to butler when bound to agent", async () => {
+      router.bind("ch-qq", { type: "agent", agentId: "my-agent" });
 
-      await router.route("ch-discord", { channelId: "ch-discord", channelType: "discord", senderId: "u1", senderName: "User", content: "message 1" });
-      await router.route("ch-discord", { channelId: "ch-discord", channelType: "discord", senderId: "u1", senderName: "User", content: "message 2" });
-
-      const group = groupManager.get("debate")!;
-      const ownerTalk = group.ctxV2.listTalks().find(t => t.topic === "talk:channel:ch-discord");
-      const talkMsgs = group.ctxV2.getMessages().filter(m => m.tag === ownerTalk!.id);
-      expect(talkMsgs).toHaveLength(2);
+      await router.route("ch-qq", { channelId: "ch-qq", channelType: "qq", senderId: "u1", senderName: "User", content: "hello" });
+      expect(butlerMessages).toHaveLength(0);
     });
   });
 
   describe("dynamic binding", () => {
     it("unbind restores default butler routing", async () => {
-      router.bind("ch-1", "debate", "user");
+      router.bind("ch-1", { type: "group", groupId: "debate" });
       router.unbind("ch-1");
 
       await router.route("ch-1", { channelId: "ch-1", channelType: "qq", senderId: "u1", senderName: "User", content: "hello" });
       expect(butlerMessages).toHaveLength(1);
     });
 
-    it("unbind owner mode cleans up talk reference", async () => {
-      router.bind("ch-discord", "debate", "owner");
-      await router.route("ch-discord", { channelId: "ch-discord", channelType: "discord", senderId: "u1", senderName: "User", content: "msg" });
+    it("can rebind to different target", async () => {
+      router.bind("ch-1", { type: "group", groupId: "debate" });
+      router.bind("ch-1", { type: "agent", agentId: "my-agent" });
 
-      const group = groupManager.get("debate")!;
-      expect(group.ctxV2.listTalks().find(t => t.topic === "talk:channel:ch-discord")).toBeDefined();
-
-      router.unbind("ch-discord");
+      await router.route("ch-1", { channelId: "ch-1", channelType: "qq", senderId: "u1", senderName: "User", content: "hello" });
+      expect(agentMessages).toHaveLength(1);
+      expect(agentMessages[0].agentId).toBe("my-agent");
     });
   });
 
   describe("static config loading", () => {
     it("loads bindings from config", () => {
       router.loadBindings({
-        "ch-qq": { type: "group", groupId: "debate", role: "user" },
-        "ch-discord": { type: "group", groupId: "debate", role: "owner" },
+        "ch-qq": { type: "group", groupId: "debate" },
+        "ch-agent": { type: "agent", agentId: "my-agent" },
       });
 
-      expect(router.getBinding("ch-qq")).toEqual({ type: "group", groupId: "debate", role: "user" });
-      expect(router.getBinding("ch-discord")).toEqual({ type: "group", groupId: "debate", role: "owner" });
+      expect(router.getBinding("ch-qq")).toEqual({ type: "group", groupId: "debate" });
+      expect(router.getBinding("ch-agent")).toEqual({ type: "agent", agentId: "my-agent" });
     });
   });
 

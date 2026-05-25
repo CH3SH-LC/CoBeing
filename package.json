@@ -1,6 +1,6 @@
 {
-  "name": "myagents",
-  "version": "0.0.1",
+  "name": "cobeing",
+  "version": "1.3.0",
   "private": true,
   "description": "Multi-agent architecture with multi-LLM, multi-channel, sandbox, MCP, skills and native GUI",
   "type": "module",
@@ -26,7 +26,14 @@
     "node": ">=22.0.0",
     "pnpm": ">=10.0.0"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  },
   "dependencies": {
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "node-llama-cpp": "^3.18.1"
   }
 }
