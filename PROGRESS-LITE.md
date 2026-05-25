@@ -7,10 +7,6 @@
 
 ## 2026-05-25
 
-> **方案执行状态**: ✅ 方案1（Prompt三层架构） | ✅ 方案4（GUIDE+EXPERIENCE概要） | ⏳ 方案5（权限分级）| ⏳ 方案9（记忆安全）| ⏳ 方案3（工具智能体）| ⏳ 方案2（工具增强）
-> **第二轮**: 方案8（HRR检索）+ 方案10（插件系统）
-> **4窗口并行**: A=方案5, B=方案9, C=方案3, D=方案2（无交叉依赖）
-
 - [New Feature] Task 6: EXPERIENCE.md 模板更新 + 6 单元测试 — extractExperienceSummary (4测试) + maintainExperienceSummarySync (2测试)，模板加入概要标记
 - [New Feature] Task 5: appendExperience 接入 maintainExperienceSummarySync — AgentFiles 和 GroupWorkspace 追加经验时自动维护概要区
 - [New Feature] Task 3: extractExperienceSummary + maintainExperienceSummarySync — EXPERIENCE.md 概要区提取/维护工具函数
