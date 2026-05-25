@@ -2,6 +2,162 @@
 
 ## 2026-05-25
 
+### 方案 10: 插件系统
+
+**变更原因**: 依据综合调研方案 10，新建 @cobeing/plugin-sdk 轻量包，定义插件接口和加载器，将现有 7 个 provider 和 1 个 channel 包装为内置插件。插件发现机制：配置文件声明 + plugins/ 目录扫描，扫描到的新插件自动写入配置。
+
+**修改文件**:
+- Create: `packages/plugin-sdk/package.json` / `tsconfig.json` — 新包脚手架
+- Create: `packages/plugin-sdk/src/types.ts` — CoBeingPlugin, CoBeingPluginApi, ModelProviderPlugin, ChannelPlugin, ToolPlugin, MemoryBackendPlugin, PluginManifest
+- Create: `packages/plugin-sdk/src/loader.ts` — PluginLoader 类（discoverSync + loadAll），5 个单元测试
+- Create: `packages/plugin-sdk/src/builtins/{deepseek,zhipu,qwen,minimax,volcengine,moonshot,mimo}.ts` — 7 个内置 provider 插件包装器
+- Create: `packages/plugin-sdk/src/builtins/qqbot.ts` — 内置 channel 插件包装器
+- Create: `plugins/providers/{7个}/cobeing.plugin.json` + `plugins/channels/qqbot/cobeing.plugin.json` — 8 个插件清单
+- Modify: `packages/core/src/runtime.ts` — buildProviders() 改为插件扫描+自动发现+registerProvider；startChannels() 改为 PluginLoader 加载+getChannel；删除 createChannel()
+- Modify: `packages/core/package.json` — 新增 @cobeing/plugin-sdk 依赖
+
+**验证**: pnpm build 7pkgs pass, pnpm test 417 pass (43 files)
+
+### 新功能：HRR 多策略记忆检索添加单元测试（Task 7 Tests）
+
+**变更原因**：为 Task 7 的 HRR 多策略记忆检索功能添加测试覆盖，验证搜索评分管道和信任反馈机制。
+
+**修改文件**：
+- `packages/core/src/memory/sqlite-adapter.test.ts` — 新增 2 个 describe 块：
+  - `multi-strategy search`（5 tests）：验证搜索结果包含 scoring 字段（final_score/jaccard_sim/fts_score/temporal_decay）、相关条目评分高于不相关条目、temporal_decay 在有效范围 (0,1]、无匹配返回空数组、limit 参数生效
+  - `trust feedback`（4 tests）：验证 markHelpful 提升信任分、markUnhelpful 降低信任分、信任分 clamp 到 0、helpful/unhelpful 计数器递增
+- `packages/core/src/memory/hrr.test.ts` — [新增] 6 个测试覆盖 StubHrrEncoder：dim=1024、encodeAtom/bind/unbind/bundle/similarity 均抛 "not implemented"
+
+**验证**：417/417 tests pass，全部通过。
+
+---
+
+### 新功能：runtime.ts 切换为插件架构加载 Provider（Task 7）
+
+**变更原因**：将 runtime.ts 的 `buildProviders()` 从直接 `new OpenAICompatProvider()` 切换为基于插件清单的发现和加载架构，为后续完全异步插件加载奠定基础。
+
+**修改文件**：
+- `packages/core/src/runtime.ts` — 5 处变更：
+  - 导入新增：`registerProvider`, `getProvider` from `@cobeing/providers`、`registerChannel` from `@cobeing/channels`、`PluginLoader` + `CoBeingPluginApi` type from `@cobeing/plugin-sdk`
+  - 类字段新增：`private pluginLoader: PluginLoader`
+  - 构造函数新增：pluginApi 桥接对象（registerModelProvider → registerProvider、registerChannel → registerChannel、registerTool/registerMemoryBackend 为空桩）
+  - `buildProviders()` 重写：扫描 `plugins/providers/` 目录 → 建立 dir→manifest ID 映射 → 自动发现未在 config 中的插件 → 通过 `registerProvider()` 注册到全局注册表 → config apiKey 覆盖 env 默认值
+  - 新增 `getProviderBaseURL()` 外部函数：7 个内置 provider 的默认 baseURL 映射
+- `packages/core/package.json` — dependencies 新增 `@cobeing/plugin-sdk: workspace:*`
+
+**测试**：416/417 tests pass（1 个预存失败：sqlite-adapter.test.ts 的 `final_score` 问题，与本次变更无关）
+
+---
+
+### 新功能：HRR 桩实现（Task 6）
+
+**变更原因**：为 Phase 2 HRR 记忆检索预先定义接口，创建 StubHrrEncoder 桩让调用方可以按接口编程。
+
+**修改文件**：
+- `packages/core/src/memory/hrr.ts` — [新增] 定义 `HrrVector` 类型（Float64Array 别名）、`HrrEncoder` 接口（encodeAtom/bind/unbind/bundle/similarity）、`StubHrrEncoder` 桩类（dim=1024，全部方法抛 Error 标记 Phase 2 未实现）
+
+**验证**：`pnpm build` 对 hrr.ts 无编译错误（core 包预存错误来自 runtime.ts 的 plugin-sdk 依赖，与本次变更无关）
+
+---
+
+### 新功能：memory-feedback 工具动作（Task 5）
+
+**变更原因**：为 Agent 的 memory 工具添加 feedback 动作，让 Agent 能对记忆条目标记有用/无用，利用已有的 searchAndFeedback 机制动态调整条目的信任分数。
+
+**修改文件**：
+- `packages/core/src/memory/memory-tool.ts` — 3 处变更：
+  - `action` enum 新增 `"feedback"` 选项
+  - 新增 `feedback_action` 参数（enum: `["helpful", "unhelpful"]`）
+  - execute switch 新增 `case "feedback"` 分支：通过 content/old_text 搜索匹配条目，调用 `store.searchAndFeedback()` 标记有用/无用，返回信任分数变化
+  - 工具描述更新：补充 feedback 操作说明
+
+---
+
+### 新功能：Trust 反馈方法 + MemoryStore 集成（Task 4）
+
+**变更原因**：为记忆系统添加信任反馈机制，支持标记条目的有用/无用及自动信任评分调整。
+
+**修改文件**：
+- `packages/core/src/memory/sqlite-adapter.ts` — 新增 3 个公开方法：`adjustTrust(id, delta, min, max)`（带边界约束的信任分数调整）、`markHelpful(id)`（helpful_count+1 + trust+0.1）、`markUnhelpful(id)`（unhelpful_count+1 + trust-0.15）
+- `packages/core/src/memory/memory-store.ts` — 5 处变更：
+  - `MemoryStoreConfig` 接口扩展：新增 `defaultHalfLifeDays` / `trustHelpfulDelta` / `trustUnhelpfulDelta` / `trustDuplicatePenalty` / `minTrust` / `maxTrust` 配置项
+  - 新增 `trustConfig` 私有字段，构造函数中初始化（含默认值）
+  - 新增 4 个公开方法：`adjustTrust`、`markHelpful`、`markUnhelpful`、`searchAndFeedback`（搜索+标记组合）
+  - `add()` 去重检测改为使用 `Array.find()` 并对重复条目自动调用 `adjustTrust` 降分
+  - `reflectFromHistory()` 新增相关经验条目信任加分逻辑（搜索相似条目并 boost trust）
+
+**验证**：`pnpm build`（core 包 tsc 通过），vitest 全量 402 tests pass（42 files）
+
+---
+
+## 2026-05-25
+
+### 修复：SQLite 适配器三个问题
+
+**问题描述**：
+1. `searchEntries` 中 `entry.trust` 可能为 NULL（迁移前的旧行），导致 `relevance * NULL * temporalDecay` 得分为 0
+2. 评分循环内 `candidates.map()` 逐个 UPDATE `last_accessed_at`，50 次独立写入导致性能差
+3. `computeTemporalDecay` 中使用 `||` 将 `halfLifeDays=0` 错误替换为 30
+
+**根因**：
+1. 旧 SQLite 行在 schema 迁移前缺少 `trust` 列，查询返回 NULL
+2. 评分阶段对每个候选行执行一次 `this.db.prepare(...).run(...)` 自动提交写入
+3. `value || default` 将合法值 `0` 也视为 falsy
+
+**修改文件**：
+- `packages/core/src/memory/sqlite-adapter.ts` — 三处修复：
+  - Line 428: `entry.trust` → `entry.trust ?? 0.5`（NULL 防御）
+  - Lines 430-434: 移除评分循环内的单条 UPDATE，改为排序截断后批量 UPDATE（`WHERE id IN (...)`）
+  - Line 108: `halfLifeDays || 30` → `halfLifeDays ?? 30`（允许 0 值）
+
+**验证**: `pnpm build`（core 包 tsc 通过），vitest 13 tests pass
+
+---
+
+### 新增：插件 SDK 类型定义（types.ts）
+
+**变更原因**：为 @cobeing/plugin-sdk 定义完整的插件类型系统，包括插件自身接口、宿主 API、四种插件类型（ModelProvider/Channel/Tool/MemoryBackend）和插件清单。
+
+**修改文件**：
+- `packages/plugin-sdk/src/types.ts` — 新建，定义 CoBeingPlugin, CoBeingPluginApi, ModelProviderPlugin, ChannelPlugin, ToolPlugin, MemoryBackendPlugin, PluginManifest
+- `packages/plugin-sdk/src/index.ts` — 从占位改为 re-export types.ts 所有类型
+
+**验证**: `pnpm --filter @cobeing/plugin-sdk build` 通过（tsc 无错误）
+
+---
+
+### 新增：@cobeing/plugin-sdk 包脚手架
+
+**变更原因**：创建新包 @cobeing/plugin-sdk 为插件系统提供 SDK 基础。包含 package.json（workspace 依赖 @cobeing/shared, @cobeing/providers, @cobeing/channels）、tsconfig.json（ES2022 + bundler 模块解析）、以及占位 src/index.ts。
+
+**修改文件**：
+- `packages/plugin-sdk/package.json` — 新建，workspace 依赖配置
+- `packages/plugin-sdk/tsconfig.json` — 新建，TypeScript 编译配置
+- `packages/plugin-sdk/src/index.ts` — 新建，占位入口
+- `pnpm-lock.yaml` — 自动更新（新增 workspace 依赖链接）
+
+**验证**: `pnpm install` 成功（8 个 workspace 项目），`pnpm --filter @cobeing/plugin-sdk build` 通过（tsc 无错误）
+
+---
+
+### 新增：HRR 多策略记忆检索 Phase 1（Tasks 1-3）
+
+**变更原因**：为记忆检索添加多策略评分管道，计算 `final_score = (0.5*fts + 0.5*jaccard) * trust * temporal_decay`。Phase 1 完成 schema 迁移、Jaccard 相似度 + 时间衰减工具函数、以及 searchEntries 多策略重写。
+
+**修改文件**：
+- `packages/core/src/memory/sqlite-adapter.ts`：
+  - EntryRow 接口扩展：新增 trust, half_life_days, helpful_count, unhelpful_count, last_accessed_at, hrr_vector, fts_score, jaccard_sim, temporal_decay, final_score 字段
+  - 新增 5 个评分工具函数：tokenizeSet, computeJaccard, computeTemporalDecay, normalizeFtsRank, computeRelevance
+  - 新增 migrateSchema() 方法：自动检测并 ALTER TABLE 添加 6 个新列（trust/half_life_days/helpful_count/unhelpful_count/last_accessed_at/hrr_vector）
+  - initTables() 中调用 migrateSchema()
+  - insertEntry 语句写入默认 trust=0.5, half_life_days=30
+  - getEntries 语句显式列出所有列
+  - searchEntries 三阶段重写：Phase 1 FTS5/LIKE 粗筛（CANDIDATE_LIMIT=50）→ Phase 2 逐条打分（Jaccard + temporal decay + trust）→ Phase 3 排序截断 + snippet
+
+**验证**: pnpm build pass (6 pkgs), pnpm test 397 pass (41 files), sqlite-adapter.test.ts 13 tests pass
+
+---
+
 ### 新增：权限分级免审批 + 工作区绑定（方案 5 / 窗口 A）
 
 **变更原因**：将现有 4 级权限体系（full-access/workspace-write/read-only/ask）替换为 5 级免审批体系，新增 bash 命令动态分级器，支持多工作区绑定。Spec: `docs/superpowers/specs/2026-05-25-permission-system-redesign-design.md`，Plan: `docs/superpowers/plans/2026-05-25-permission-system-redesign.md`

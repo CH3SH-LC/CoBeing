@@ -7,6 +7,15 @@
 
 ## 2026-05-25
 
+- [New Feature] 方案 10: 插件系统 — 新建 @cobeing/plugin-sdk 包，PluginLoader + 7 provider + 1 channel 内置插件包装器，runtime.ts 改为插件架构加载，417 tests pass
+- [New Feature] Task 7 Tests: 添加 sqlite-adapter 多策略搜索 + trust feedback 测试（9 tests）+ 新增 hrr.test.ts（6 tests），417/417 tests pass
+- [New Feature] Task 7: runtime.ts 切换插件架构 — buildProviders() 改为扫描 plugins/providers/ 清单 + 自动发现 + 全局 registerProvider() 注册 + getProviderBaseURL() 默认 URL 映射，416/417 tests pass
+- [New Feature] Task 6: 创建 hrr.ts 桩 — HrrEncoder 接口 + StubHrrEncoder Phase 2 桩实现（dim=1024，encodeAtom/bind/unbind/bundle/similarity 全部 stub）
+- [New Feature] Task 5: memory-feedback 工具动作 — memory 工具新增 feedback action + feedback_action 参数，Agent 可标记记忆条目有用/无用，调用 searchAndFeedback 调整信任分数 — SqliteAdapter 新增 adjustTrust/markHelpful/markUnhelpful，MemoryStore 新增 trustConfig + feedback 方法 + searchAndFeedback + add() 重复降分 + reflectFromHistory() 相关经验加分（402 tests pass）
+- [Debug] SQLite 适配器三修复：NULL trust 防御 (`?? 0.5`)、评分循环批量 UPDATE 替代 50 次独立写入、`halfLifeDays ?? 30` 允许 0 值
+- [New Feature] 插件 SDK 类型定义：新增 types.ts（CoBeingPlugin / CoBeingPluginApi / 4 种插件接口 / PluginManifest），index.ts 改为 re-export，tsc 编译通过
+- [New Feature] @cobeing/plugin-sdk 包脚手架：新建 packages/plugin-sdk（package.json + tsconfig.json + src/index.ts），workspace 依赖 shared/providers/channels，tsc 编译通过
+- [New Feature] HRR 多策略记忆检索 Phase 1 (Tasks 1-3): schema 迁移 + Jaccard/temporal decay 工具函数 + searchEntries 三阶段评分管道重写（13 tests pass）
 - [New Feature] 工具智能体系统（方案 3）：4 种 ToolAgent（审查/判断/复制/记忆），独立 LLM 循环，用完即毁 + 15 单元测试
 - [New Feature] Task 12: 创建 WorkspaceBindingSection 组件 — 展示 Agent 工作区绑定列表 + 添加/移除外部目录绑定 UI
 - [New Feature] Task 7 (tool-agent): 新增 tool-agent.test.ts — 15 个单元测试覆盖 base/judgment/review/memory 四个模块，全部通过
