@@ -39,6 +39,7 @@ import { makeGroupMemorySearchTool } from "../tools/group-memory-search.js";
 import { makeExperienceReflectTool } from "../tools/experience-reflect.js";
 import type { ObservabilityDB } from "../observability/observability-db.js";
 import { makeSummarizePhaseTool } from "../tools/summarize-phase.js";
+import { makeAgentCloneTool } from "../tools/agent-clone.js";
 import { WakeSession } from "./wake-session.js";
 import { makeGroupMembersTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool, makeTalkCloseTool, makeGroupSendTool, makeGroupUpdateProgressTool, makeGroupExperienceAddTool, makeGroupExperienceSummarizeTool } from "../tools/group-tools.js";
 import { createLogger } from "@cobeing/shared";
@@ -144,7 +145,7 @@ export class Agent {
   /** 重建 ToolExecutor 和 ConversationLoop（workspace 变更时） */
   private rebuildExecutor(): void {
     const permission = new PermissionEnforcer(
-      this.config.permissions ?? { mode: "workspace-write" },
+      this.config.permissions ?? { mode: "workspace-readwrite" },
       this.config.toolsConfig,
       this.effectiveWorkspace,
     );
@@ -264,8 +265,17 @@ export class Agent {
     // 阶段总结工具（群组上下文中使用）
     this.toolRegistry.register(makeSummarizePhaseTool());
 
+    // agent-clone 工具（创建克隆体并行工作）
+    this.toolRegistry.register(makeAgentCloneTool(
+      (providerId) => providerId
+        ? this._allProviders.get(providerId)
+        : this.provider,
+      (_agentId) => this.config.model,
+      (_agentId) => this.name,
+    ));
+
     const permission = new PermissionEnforcer(
-      mergedConfig.permissions ?? { mode: "workspace-write" },
+      mergedConfig.permissions ?? { mode: "workspace-readwrite" },
       mergedConfig.toolsConfig,
       workingDir,
     );
@@ -401,7 +411,7 @@ export class Agent {
     if (!loop) {
       const effectiveWd = workingDir ?? this.effectiveWorkspace;
       const permission = new PermissionEnforcer(
-        this.config.permissions ?? { mode: "workspace-write" },
+        this.config.permissions ?? { mode: "workspace-readwrite" },
         this.config.toolsConfig,
         effectiveWd,
       );
@@ -539,7 +549,7 @@ export class Agent {
     let loop = this.sessionLoops.get(sessionKey);
     if (!loop) {
       const permission = new PermissionEnforcer(
-        this.config.permissions ?? { mode: "workspace-write" },
+        this.config.permissions ?? { mode: "workspace-readwrite" },
         this.config.toolsConfig,
         this.paths.workspaceDir,
       );
