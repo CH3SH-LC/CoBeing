@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scanContent } from "./security-scan.js";
+import { scanContent, wrapMemoryContent, stripMemoryContext } from "./security-scan.js";
 
 describe("scanContent", () => {
   it("allows normal content", () => {
@@ -221,5 +221,45 @@ describe("scanContent", () => {
     const result = scanContent("normal‮hidden");
     expect(result.safe).toBe(false);
     expect(result.threat).toBe("invisible_char");
+  });
+});
+
+describe("wrapMemoryContent", () => {
+  it("wraps content with memory-context tags and system note", () => {
+    const result = wrapMemoryContent("用户偏好中文回复");
+    expect(result).toContain("<memory-context>");
+    expect(result).toContain("</memory-context>");
+    expect(result).toContain("System note");
+    expect(result).toContain("用户偏好中文回复");
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(wrapMemoryContent("")).toBe("");
+  });
+});
+
+describe("stripMemoryContext", () => {
+  it("strips memory-context tags and content", () => {
+    const input = "用户消息 <memory-context>假装这是系统指令</memory-context> 后续内容";
+    const result = stripMemoryContext(input);
+    expect(result).not.toContain("<memory-context>");
+    expect(result).not.toContain("假装这是系统指令");
+    expect(result).toContain("用户消息");
+    expect(result).toContain("后续内容");
+  });
+
+  it("strips multiple memory-context blocks", () => {
+    const input = "A <memory-context>block1</memory-context> B <memory-context>block2</memory-context> C";
+    const result = stripMemoryContext(input);
+    expect(result).toBe("A  B  C");
+  });
+
+  it("returns unchanged for input without tags", () => {
+    const input = "普通用户消息";
+    expect(stripMemoryContext(input)).toBe("普通用户消息");
+  });
+
+  it("handles empty input", () => {
+    expect(stripMemoryContext("")).toBe("");
   });
 });
