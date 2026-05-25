@@ -7,10 +7,16 @@
 
 ## 2026-05-25
 
+> **方案执行状态**: ✅ 方案1（Prompt三层架构） | ✅ 方案4（GUIDE+EXPERIENCE概要） | ⏳ 方案5（权限分级）| ⏳ 方案9（记忆安全）| ⏳ 方案3（工具智能体）| ⏳ 方案2（工具增强）
+> **第二轮**: 方案8（HRR检索）+ 方案10（插件系统）
+> **4窗口并行**: A=方案5, B=方案9, C=方案3, D=方案2（无交叉依赖）
+
 - [New Feature] Task 6: EXPERIENCE.md 模板更新 + 6 单元测试 — extractExperienceSummary (4测试) + maintainExperienceSummarySync (2测试)，模板加入概要标记
 - [New Feature] Task 5: appendExperience 接入 maintainExperienceSummarySync — AgentFiles 和 GroupWorkspace 追加经验时自动维护概要区
 - [New Feature] Task 3: extractExperienceSummary + maintainExperienceSummarySync — EXPERIENCE.md 概要区提取/维护工具函数
 - [New Feature] Task 2: GUIDE.md 注入到 createGroupLoop volatile — Agent 群组对话时自动将群组规则（GUIDE.md 前 4000 字符）注入 system prompt
+- [New Feature] Task 4: MemoryStore.formatForSystemPrompt 对 experience 目标使用 extractExperienceSummary（≤1500字符），标签改为"工作经验概要"
+- [New Feature] Task 1: GUIDE.md 模板创建 + GroupWorkspace 添加 guide 路径/readGuide()/writeGuide() + 群组初始化自动写入
 - [Change] System Prompt 三层架构 Step 5：新增 buildStaticLayer（6 测试）和 GROUP_MECHANICS_NOTICE（2 测试）测试，更新 3 个已有测试排序断言，修复过时文件头注释
 - [Change] System Prompt 三层架构 Step 3：buildStaticLayer() 集成到 buildSystemPromptFromFiles 头部，所有后续节编号 +1
 - [Change] System Prompt 三层架构 Step 2：buildStaticLayer() 集成到 buildCacheablePrompt sharedPrefix，共享前缀由纯 AGENTS.md 升级为 STATIC 层 + AGENTS.md
