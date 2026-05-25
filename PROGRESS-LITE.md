@@ -7,7 +7,15 @@
 
 ## 2026-05-25
 
+- [New Feature] 工具智能体系统（方案 3）：4 种 ToolAgent（审查/判断/复制/记忆），独立 LLM 循环，用完即毁 + 15 单元测试
+- [New Feature] Task 12: 创建 WorkspaceBindingSection 组件 — 展示 Agent 工作区绑定列表 + 添加/移除外部目录绑定 UI
+- [New Feature] Task 7 (tool-agent): 新增 tool-agent.test.ts — 15 个单元测试覆盖 base/judgment/review/memory 四个模块，全部通过
+- [New Feature] Task 3 (bash): 添加 16384 字节输出截断保护 + 创建 bash.test.ts（4 测试全部通过）
+- [Debug] grep 工具代码质量修复：line-byline .trim() 移除（保留行尾空白）+ multiline 重复 g flag 去重 + 新增 -- separator 测试
+- [Debug] grep 上下文模式三处合规修复：输出前缀 dash→colon、删除错误 remaining 计数、文件路径 searchDir→baseDir 双重拼接修复
+- [New Feature] Task 2 (grep): 完整重写 — 新增 output_mode/files_with_matches/count、head_limit/offset 分页、-A/-B/-C 上下文、multiline dotAll、-i/-n 控制，18 个测试全部通过
 - [New Feature] 方案 9: 记忆安全 + 中英文注入防御 — security-scan.ts 扩充至 13EN+18CN+混合检测+围栏函数，write-file/memory-store 接入
+- [Debug] Task 1 (edit-file) 代码质量修复: replaceAll 变量重命名为 shouldReplaceAll + 新增 2 个测试（长字符串截断 + 文件不存在），共 8 测试通过
 - [New Feature] Task 1 (edit-file): 增强 edit-file 工具 — 添加 replace_all 参数 + old/new 相等检查 + 英文错误消息 + 结构化输出，6 个单元测试全部通过
 - [New Feature] Task 1 (security-scan): 新增 26 个 scanContent 威胁检测测试 — 英文/中文/混合/隐形字符全覆盖，当前预期失败等待 Task 2
 - [New Feature] Task 6: EXPERIENCE.md 模板更新 + 6 单元测试 — extractExperienceSummary (4测试) + maintainExperienceSummarySync (2测试)，模板加入概要标记

@@ -2,6 +2,160 @@
 
 ## 2026-05-25
 
+### 新增：权限分级免审批 + 工作区绑定（方案 5 / 窗口 A）
+
+**变更原因**：将现有 4 级权限体系（full-access/workspace-write/read-only/ask）替换为 5 级免审批体系，新增 bash 命令动态分级器，支持多工作区绑定。Spec: `docs/superpowers/specs/2026-05-25-permission-system-redesign-design.md`，Plan: `docs/superpowers/plans/2026-05-25-permission-system-redesign.md`
+
+**5 级权限**：ReadOnly → WorkspaceReadWrite → WorkspaceAccess → BasicAccess → FullAccess
+**Bash 分级器**：正则匹配 — 极端危险(仅FullAccess)/高危(BasicAccess+)/只读白名单/路径逃逸(BasicAccess+)/其余(WorkspaceReadWrite+)
+**多绑定**：Agent 支持多个外部目录绑定（各自 readonly/readwrite 模式），前端用户手动管理
+
+**新增文件（3 个）**：
+- `packages/core/src/tools/bash-classifier.ts` — Bash 命令动态分级器（classifyBash 纯函数，正则逐层匹配）
+- `packages/core/src/tools/bash-classifier.test.ts` — 10 tests（FullAccess/ReadOnly/极端危险/高危/路径逃逸/Windows/PowerShell）
+- `gui-v2/src/components/settings/WorkspaceBindingSection.tsx` — 工作区绑定 UI 组件
+
+**修改文件（10 个）**：
+- `packages/shared/src/types.ts` — PermissionMode 5 值枚举 + WorkspaceBinding 接口 + AgentConfig.bindings
+- `packages/shared/src/master-registry.ts` — migratePermissionMode() 旧→新自动迁移
+- `packages/core/src/tools/permission.ts` — 全量重写：5 级检查 + 多绑定路径 + bash 委托分级器
+- `packages/core/src/tools/permission.test.ts` — 全量重写：19 tests（5级+多绑定+allow/deny）
+- `packages/core/src/tools/bash.ts` — 无需改动（分级委托在 PermissionEnforcer 层完成）
+- `packages/core/src/agent/agent.ts` — _boundWorkspace→_bindings 数组 + addBinding/removeBinding/clearBindings/loadBindings + 4 处 PermissionEnforcer 构造更新
+- `packages/core/src/runtime.ts` — 3 处启动点调用 migratePermissionMode() + 旧模式引用修复
+- `packages/core/src/api/ws-server.ts` — bind_workspace 替换为 add_binding/remove_binding/list_bindings 三命令
+- `gui-v2/src/lib/types.ts` — PermissionMode 同步 + WorkspaceBinding 类型 + AgentInfo.bindings
+- `gui-v2/src/stores/agents.ts` — updateAgentBindings store 方法
+- `gui-v2/src/hooks/useWebSocket.ts` — binding_added/removed/list 三个 WS 事件处理
+
+**验证**: pnpm build 6pkgs pass, pnpm test 397 pass (41 files), gui-v2 tsc --noEmit pass
+
+---
+
+### 新增：工具智能体系统（方案 3）
+
+**变更原因**：实现 4 种临时、非持久化的工具智能体，在需要时创建、用完即毁。所有 ToolAgent 使用独立的 Provider.chat() 循环，不依赖 Agent 类。
+
+**4 种 ToolAgent**：
+1. **审查（Review）** — 重构自 review-pipeline.ts，改为临时 ToolAgent 模式。每次 group-send 时创建，审查通过后销毁
+2. **判断（Judgment）** — 群组中非显式 @host 的群主提及先经过判断，避免无效唤醒（15s 超时默认唤醒）
+3. **复制（Clone）** — 母体通过 agent-clone 工具创建分身并行工作（最多 5 个），禁止递归克隆和群组消息
+4. **记忆（Memory）** — 个人模式（Agent 完成唤醒后异步触发）和群组模式（phase completion 触发）自动提取经验
+
+**新增文件（8 个）**：
+- `packages/core/src/agent/tool-agent/types.ts` — ToolAgent 类型定义
+- `packages/core/src/agent/tool-agent/base.ts` — 独立 LLM 工具循环（runToolAgent + collectResponse）
+- `packages/core/src/agent/tool-agent/review.ts` — 审查智能体（runReviewAgent + parseReviewOutput）
+- `packages/core/src/agent/tool-agent/judgment.ts` — 判断智能体（runJudgmentAgent + 超时保护）
+- `packages/core/src/agent/tool-agent/clone.ts` — 复制智能体（runCloneAgent + 受限工具集）
+- `packages/core/src/agent/tool-agent/memory.ts` — 记忆智能体（runMemoryAgent + 双模式解析）
+- `packages/core/src/agent/tool-agent/tool-agent.test.ts` — 15 个单元测试
+- `packages/core/src/tools/agent-clone.ts` — agent-clone 工具定义
+
+**修改文件（8 个）**：
+- `agent.ts` — 注册 agent-clone 工具；暴露 getToolRegistry()；run() 后异步触发个人记忆智能体
+- `group-tools.ts` — 审核拦截从 reviewPipeline() 改为 runReviewAgent()
+- `manager.ts` — 移除 createReviewerAgent() + 6 处 Reviewer 生命周期代码
+- `group.ts` — 移除 reviewerAgent 属性
+- `wake-system.ts` — enqueueMentionWithJudgment() 集成判断智能体
+- `group-scanner.ts` — phase completion 触发群组记忆智能体
+- `current-md.ts` — 新增 getRecent(n) 方法
+- `config/default.json` — 新增 judgmentModel
+
+**删除文件（1 个）**：
+- `group/review-pipeline.ts` — 逻辑迁移到 tool-agent/review.ts
+
+**验证**: pnpm build 6pkgs pass, pnpm test 397 pass (41 files)
+
+---
+
+### Task 12: 前端工作区绑定 UI 组件
+
+**变更描述**：创建 WorkspaceBindingSection 组件，展示 Agent 工作区绑定列表并支持添加/移除外部目录绑定。
+
+**修改**：
+- `gui-v2/src/components/settings/WorkspaceBindingSection.tsx`（新建）：React 组件 —
+  - 展示默认工作区（data/agents/{id}/workspace）为只读行
+  - 列出所有 WorkspaceBinding，显示路径、模式（读写/只读）和移除按钮
+  - 空状态提示"未绑定外部目录"
+  - 添加绑定表单：路径输入框 + 模式下拉选择 + 确认/取消按钮
+  - 通过 CustomEvent `ws-send` 发送 add_binding / remove_binding 命令
+  - 使用 useAgentsStore (Zustand) 读取 agent.bindings 数据
+
+**验证**: `npx tsc --noEmit` 零错误通过
+
+### Task 7: Tool Agent 单元测试
+
+**变更描述**：为 tool-agent 模块编写单元测试，覆盖 base.ts (runToolAgent)、judgment.ts (runJudgmentAgent)、review.ts (parseReviewOutput)、memory.ts (runMemoryAgent) 四个核心模块。
+
+**修改**：
+- `packages/core/src/agent/tool-agent/tool-agent.test.ts`（新建）：15 个测试 —
+  - runToolAgent: LLM 文本返回、工具执行与结果汇总、maxIterations 上限、AbortSignal 中断
+  - runJudgmentAgent: 超时返回 wake_host=true、wake_host=false 解析、非 JSON 输出默认唤醒
+  - parseReviewOutput: 有效 JSON(pass=true/false)、解析失败默认 pass=true、从文本提取 JSON
+  - runMemoryAgent: "Nothing to save" 空返回、个人记忆解析、群组记忆带 interfaceUpdates、解析失败空返回
+
+**验证**: pnpm test 397/397 pass (41 files), 15/15 tool-agent tests pass
+
+## 2026-05-25
+
+### bash 工具输出截断 + 测试
+
+**变更描述**：为 bash 工具添加 16384 字节输出截断保护，防止大输出撑爆上下文窗口。同时新增 bash 工具的测试文件。
+
+**修改**：
+- `packages/core/src/tools/bash.ts`：
+  - 新增 `MAX_OUTPUT = 16384` 常量
+  - `executeLocal` 函数：stdout 和 stderr 均检查长度，超过 16384 字节时截断并追加 `[output truncated — exceeded 16384 bytes]` 标记
+- `packages/core/src/tools/bash.test.ts`（新建）：4 个测试 — 简单命令执行、错误命令返回、输出截断、短输出不截断
+
+**验证**: pnpm test 360/360 pass (39 files), 4/4 bash tests pass
+
+### grep 工具两个代码质量修复 + 新增测试
+
+**问题描述**：
+1. 第 147 行 line-by-line 模式 `.trim()` 破坏行尾空白信息 — 用户可能依赖前导/尾随空白进行视觉对齐或精确匹配
+2. 第 133 行 multiline 模式重复追加 `g` flag — `regex.flags + "g"` 当原 flags 已含 `g` 时产生 `"sgg"`（Flags.toString 可能合并没有问题的 flags，但规范上属于重复声明）
+
+**修复**：
+- `packages/core/src/tools/grep.ts`：
+  1. 第 147 行 `lines[i].trim()` → `lines[i]`（保留原始行内容）
+  2. 第 133 行 `regex.flags + "g"` → `regex.flags.replace("g", "") + "g"`（先去重再追加）
+- `packages/core/src/tools/grep.test.ts`：新增 `--` separator 测试（非相邻匹配组间分隔符）
+
+**验证**: pnpm test (grep) 19/19 pass, pnpm build 7pkgs pass
+
+### grep 上下文模式三处合规修复
+
+**问题描述**：grep 工具的上下文模式（`-A`/`-B`/`-C`）存在 3 处与 spec 不一致的 bug：
+1. 上下文模式输出行前缀使用 `file-lineNum:`（dash）而非 `file:lineNum:`（colon），与非上下文模式格式不一致
+2. 上下文模式末尾的 `... and N more results` 计数错误 — 用 output 行数（含上下文行）减去 match entry 数，单位不匹配
+3. 上下文模式文件路径用 `searchDir`（已拼接 `path` 参数的目录）而非 `baseDir`（workingDir）解析，当用户传 `path: "subdir"` 时产生双重拼接 `workingDir/subdir/subdir/foo.ts`
+
+**根因**：
+1. 第 268 行 `file-${lineNum}:` 应为 `${file}:${lineNum}:`
+2. 第 277-282 行 `outputCount` 统计的是输出行数（含上下文行），而 `entries.length` 是 match entry 数，二者单位不同
+3. 第 240 行 `path.join(searchDir, file)` — `file` 路径相对于 `baseDir`，`collectMatches` 中 `relPath = path.relative(baseDir, fullPath)` 生成，因此应使用 `baseDir` 解析
+
+**修复**：
+- `packages/core/src/tools/grep.ts`：
+  1. 第 267 行 `file-${lineNum}:` → `${file}:${lineNum}:`
+  2. 删除第 277-282 行的错误 remaining 计算逻辑
+  3. 第 239 行 `path.join(searchDir, file)` → `path.join(baseDir, file)`
+  4. `buildContentWithContext` 签名移除 `searchDir` 参数，调用点同步更新
+
+**验证**: pnpm test (grep) 18/18 pass, pnpm build 7pkgs pass
+
+### Task 2 (grep 参数变更 + 条目收集重构 + 测试)
+
+**变更原因**：方案 2 (tool enhancement) Task 2 — 完整重写 grep 工具以对齐 claw-code 的 grep 设计，新增输出模式、分页、上下文行、多行匹配等参数。
+
+**修改文件**：
+- `packages/core/src/tools/grep.ts` — 完整重写：参数 schema 新增 `glob`（替代 `include`，保留废弃别名）、`output_mode`（content/files_with_matches/count）、`head_limit`（默认 250，0=无限）、`offset`、`-A`/`-B`/`-C`（上下文行）、`multiline`（dotAll 模式）、`-i`（默认 true）、`-n`（默认 true）；execute 实现重构为收集 MatchEntry[] 再按 output_mode 分发到 4 个 builder；`collectMatches` 支持 line-by-line 和 multiline 两种模式；`buildContentOutput` / `buildFilesWithMatches` / `buildCountOutput` / `buildContentWithContext` 独立处理各输出模式的分页与截断
+- `packages/core/src/tools/grep.test.ts` — 新建测试文件，18 个测试用例覆盖：content/files_with_matches/count 输出模式、head_limit/offset 分页截断、glob/include 过滤及优先级、-n 行号隐藏、-i 大小写控制、-A/-B/-C 上下文行、multiline 跨行匹配
+
+**验证**: pnpm test 355 pass (38 files), pnpm build 7pkgs pass
+
 ### 方案 9: 记忆安全 + 中英文注入防御
 
 **变更原因**：依据综合调研方案 9，扩展现有 `memory/security-scan.ts`，新增中文恶意注入模式、英文威胁模式、混合语言攻击检测和上下文围栏函数。防止 LLM 将注入的记忆内容当作指令执行。
@@ -21,6 +175,16 @@
 **修改文件**：
 - `packages/core/src/tools/edit-file.ts` — 新增 `replace_all` 参数（boolean, 默认 false）到参数 schema 和 execute 实现；新增 `old_string === new_string` 检查返回错误 "must be different"；升级 "not found" 错误消息为英文含指导提示；替换成功后输出结构化格式（`Edit applied to {relPath}\\n- occurrences: {N}\\n- old: {preview}\\n- new: {preview}`）；保留 `isProtectedPath` 逻辑和工具名称不变
 - `packages/core/src/tools/edit-file.test.ts` — 新建测试文件，6 个测试用例：单次替换、replace_all 替换所有出现、old==new 拒绝、not found 错误消息、多出现无 replace_all 拒绝、输出包含 old/new 预览
+
+### Task 1 (edit-file) 代码质量修复: 变量重命名 + 新增测试
+
+**变更原因**：修复 3 个代码质量问题 — `replaceAll` 变量遮蔽 `String.prototype.replaceAll`；缺少长字符串预览截断测试；缺少文件不存在错误路径测试。
+
+**修改文件**：
+- `packages/core/src/tools/edit-file.ts` — `replaceAll` 变量重命名为 `shouldReplaceAll`（避免遮蔽原生方法），更新 4 处引用
+- `packages/core/src/tools/edit-file.test.ts` — 新增 2 个测试：长字符串 >80 字符预览截断测试、文件不存在返回错误测试（共 8 个测试）
+
+**验证**: 8 tests pass, pnpm build pass
 
 ### Task 1 (security-scan): 扩展 scanContent 测试（26 新测试用例）
 

@@ -1,6 +1,6 @@
 # CoBeing 项目结构
 
-> 最后更新：2026-05-18 | Phase 0-9 完成 + 三层记忆架构 + 审核管道 | 281 测试用例（全部通过）
+> 最后更新：2026-05-25 | 文档系统重组 + PROGRESS 三件套
 
 ---
 
@@ -33,14 +33,12 @@ CoBeing/
 │   ├── Dockerfile.base       #   基础镜像 (Node.js + 工具)
 │   ├── Dockerfile.python     #   Python 镜像 (base + Python)
 │   └── Dockerfile.full       #   完整镜像 (python + Go + Ruby)
-├── cobeing/           # Cobeing 品牌资源
-│   └── sandbox/
-│       └── Dockerfile        #   主沙箱 Dockerfile
 ├── docs/              # 项目文档
-├── temporary/         # 临时文件目录
 ├── CLAUDE.md          # Claude Code 项目指令
 ├── STRUCTURE.md       # 本文件 — 项目结构文档
-├── PROGRESS.md        # 开发进度记录
+├── PROGRESS.md        # 详细开发进度
+├── PROGRESS-LITE.md   # 精简进度（标签化：[New Feature]/[Debug]/[Change]）
+├── PROGRESS-VERSION.md # 版本发布记录
 ├── GOAL.md            # 项目愿景与设计目标
 ├── README.md          # 项目说明
 ├── PACKAGE-GUIDE.md   # 打包指南
@@ -53,7 +51,6 @@ CoBeing/
 ├── .env.example       # 环境变量模板
 ├── .gitignore
 ├── start.bat          # 启动后端
-├── start-gui.bat      # 启动前端
 ├── build-gui.bat      # 构建前端
 └── main-icon.png      # 应用图标
 ```
@@ -118,15 +115,28 @@ packages/
         ├── index.ts                     #   模块导出
 
 ├── mcp-servers/                   # MCP 服务器
-│   ├── qqbot/                     # @cobeing/qqbot-mcp-server — QQ Bot 操作 (22 tools)
-│   └── office/                    # @cobeing/office-mcp-server — 办公三件套 (11 tools)
+│   ├── qqbot/                     # @cobeing/qqbot-mcp-server — QQ Bot 操作 (18 tools)
+│   │   └── src/
+│   │       ├── index.ts           #   入口（环境变量+沙箱模式）
+│   │       ├── mcp-server.ts      #   JSON-RPC 2.0 MCP 协议实现
+│   │       ├── qq-client.ts       #   QQ Bot HTTP/WS API 客户端
+│   │       └── tools.ts           #   18 个 MCP 工具
+│   └── office/                    # @cobeing/office-mcp-server — 办公三件套 (32 tools)
 │       └── src/
 │           ├── index.ts           #   入口（环境变量+沙箱模式）
 │           ├── mcp-server.ts      #   JSON-RPC 2.0 MCP 协议实现
-│           ├── qq-client.ts       #   QQ Bot HTTP/WS API 客户端
-│           └── tools.ts           #   18 个 MCP 工具
+│           ├── office-engine.ts   #   文档引擎（Word/Excel/PPT 操作）
+│           └── tools.ts           #   32 个 MCP 工具
         │
         ├── agent/                       #   Agent 系统
+        │   ├── tool-agent/               #     Tool Agent 系统（临时、非持久化）
+        │   │   ├── types.ts              #       类型定义
+        │   │   ├── base.ts               #       独立 LLM 工具循环
+        │   │   ├── review.ts             #       审查智能体
+        │   │   ├── judgment.ts           #       判断智能体
+        │   │   ├── clone.ts              #       复制智能体
+        │   │   ├── memory.ts             #       记忆智能体
+        │   │   └── tool-agent.test.ts    #       单元测试
         │   ├── agent.ts                 #     Agent 基类 (生命周期/会话/消息处理)
         │   ├── butler.ts                #     ButlerAgent 管家 (14 个专属管理工具)
         │   ├── registry.ts              #     AgentRegistry 全局注册中心
@@ -134,6 +144,7 @@ packages/
         │   ├── paths.ts                 #     AgentPaths 自治文件系统路径
         │   ├── event-bus.ts             #     EventBus 事件总线
         │   ├── wake-session.ts          #     WakeSession 唤醒轨迹记录
+        │   ├── butler-registry.ts       #     ButlerRegistry 管家注册表
         │   └── communication-test.ts    #     Agent 通信测试工具
         │
         ├── conversation/                #   对话系统
@@ -160,7 +171,8 @@ packages/
         │   ├── host-tools.ts            #     群主专属工具（6 个 host-* 工具）
         │   ├── agent-memory.ts          #     AgentMemory 群组内 Agent 记忆管理
         │   ├── current-md.ts            #     CurrentMD 对话快照持久化
-        │   └── review-pipeline.ts       #     ReviewPipeline 审核管道核心逻辑
+        │   ├── review-pipeline.ts       #     ReviewPipeline 审核管道核心逻辑
+        │   └── review-experience.ts    #     ReviewExperience 审核反馈经验注入
         │
         ├── tools/                       #   工具系统
         │   ├── registry.ts              #     ToolRegistry 工具注册
@@ -174,13 +186,17 @@ packages/
         │   │   ├── network-whitelist.ts  #       网络白名单管理
         │   │   └── security.ts           #       安全加固配置
         │   ├── bash.ts                  #     bash — Shell 命令执行
+        │   ├── bash.test.ts             #     bash 测试（4 tests）
         │   ├── read-file.ts             #     read-file — 文件读取
         │   ├── write-file.ts            #     write-file — 文件写入
         │   ├── edit-file.ts             #     edit-file — 字符串替换编辑
+        │   ├── edit-file.test.ts        #     edit-file 测试（6 tests）
         │   ├── glob.ts                  #     glob — Pattern 文件搜索
         │   ├── grep.ts                  #     grep — Regex 内容搜索
+        │   ├── grep.test.ts             #     grep 测试（18 tests）
         │   ├── web-fetch.ts             #     web-fetch — HTTP 请求
         │   ├── agent-message.ts         #     agent-message — Agent 间通信
+        │   ├── agent-clone.ts           #     agent-clone — 创建克隆体并行工作
         │   ├── experience-reflect.ts    #     experience-reflect — 经验反思
         │   ├── group-tools.ts           #     群组通信工具 (group-members/talk-*)
         │   ├── group-memory-search.ts   #     group-memory-search — 群组记忆搜索
@@ -220,9 +236,6 @@ packages/
         ├── observability/               #   可观测性
         │   └── observability-db.ts      #     ObservabilityDB LLM 调用日志 + 工具审计
         │
-        ├── butler/                      #   管家持久化
-        │   └── registry.ts              #     ButlerRegistry 注册表
-        │
         ├── workflow/                    #   工作流引擎
         │   └── engine.ts                #     WorkflowEngine 任务分析 + 计划生成
         │
@@ -241,7 +254,8 @@ packages/
         │   └── tools.ts                 #     vote-create/cast/result 工具
         │
         └── api/                         #   WebSocket API
-            └── ws-server.ts             #     CoreWSServer (端口 18765)
+            ├── ws-server.ts             #     CoreWSServer (端口 18765)
+            └── handlers/                #     消息处理模块 (agent/group/message/system)
 ```
 
 ---
@@ -291,6 +305,7 @@ gui-v2/
 │   │   │   ├── GroupConfigTab.tsx      #   群组配置标签页
 │   │   │   ├── GroupMembersTab.tsx     #   成员管理标签页
 │   │   │   ├── GroupWorkspaceTab.tsx   #   工作空间标签页
+│   │   │   ├── GroupHealthPanel.tsx    #   群组健康度面板
 │   │   │   └── CreateGroupDialog.tsx   #   创建群组对话框
 │   │   │
 │   │   ├── settings/           #   设置页组件
@@ -300,7 +315,11 @@ gui-v2/
 │   │   │   ├── McpSection.tsx          #   MCP 配置
 │   │   │   ├── ThemeSelector.tsx       #   主题选择器
 │   │   │   ├── UsageMonitor.tsx        #   用量监控
-│   │   │   └── LogsSection.tsx         #   日志配置
+│   │   │   ├── LogsSection.tsx         #   日志配置
+│   │   │   ├── AgentTimeline.tsx       #   Agent 活动时间线
+│   │   │   ├── ChatSearch.tsx          #   对话全文搜索
+│   │   │   ├── WakeQueueSection.tsx    #   唤醒队列配置
+│   │   │   └── WorkspaceBindingSection.tsx  #   工作区绑定管理
 │   │   │
 │   │   ├── skill/              #   技能中心
 │   │   │   └── SkillCenter.tsx         #   技能浏览/管理
@@ -313,7 +332,8 @@ gui-v2/
 │   │   │   ├── TokenCard.tsx           #     Token 消耗卡片
 │   │   │   ├── LatencyCard.tsx         #     响应时间卡片
 │   │   │   ├── ToolRankCard.tsx        #     工具排行卡片
-│   │   │   └── AgentActivityCard.tsx   #     Agent 活跃度卡片
+│   │   │   ├── AgentActivityCard.tsx   #     Agent 活跃度卡片
+│   │   │   └── ActiveAgentsPanel.tsx   #     活跃 Agent 面板
 │   │   │
 │   │   ├── todo/               #   TODO 管理组件
 │   │   │   ├── TodoPanel.tsx          #     主面板
@@ -321,6 +341,7 @@ gui-v2/
 │   │   │   ├── TodoItem.tsx           #     单条 TODO 卡片
 │   │   │   ├── TodoForm.tsx           #     创建表单
 │   │   │   ├── TodoStatusBadge.tsx    #     状态标签
+│   │   │   ├── TodoKanban.tsx         #     看板视图
 │   │   │   ├── Calendar.tsx           #     自定义日历网格
 │   │   │   └── Clock.tsx              #     SVG 表盘时钟选择器
 │   │   │
@@ -366,11 +387,12 @@ gui-v2/
 ├── public/                     #   静态资源
 │   ├── themes/                 #   主题配置（每个主题独立文件）
 │   │   ├── manifest.json       #   内置主题 ID 列表
-│   │   ├── aurora-light.json
-│   │   ├── aurora-dark.json
-│   │   ├── ocean-breeze.json
-│   │   ├── sakura.json
-│   │   └── midnight-steel.json
+│   │   ├── sakura-mint.json    #     樱花薄荷（默认浅色）
+│   │   ├── amber-dawn.json     #     晨曦琥珀（暖色浅色）
+│   │   ├── lavender-rain.json  #     薰衣草雨（冷色浅色）
+│   │   ├── ink-jade.json       #     墨夜翡翠（深色）
+│   │   ├── amethyst-night.json #     子夜紫晶（深色）
+│   │   └── ember-gold.json     #     熔岩暗金（暖色深色）
 │   └── main-icon.png           #   应用图标
 │
 ├── package.json
@@ -388,12 +410,12 @@ config/
 ├── default.json                # 主配置文件 (JSON 格式)
 │                               #   core: logLevel, dataDir, skillsDir, promptsDir, localModel
 │                               #   agents: 预置 Agent 列表 [butler, host]
-│                               #   providers: 9 家 LLM Provider 配置
+│                               #   providers: 7 家 LLM Provider 配置
 │                               #   channels: Channel 配置
 │                               #   gui: enabled, wsPort
 │                               #   groups: 群组配置
 │
-└── templates/                  # Agent 创建模板 (9 个核心文件)
+└── templates/                  # Agent 创建模板
     ├── SOUL.md                 #   性格特质模板
     ├── CHARACTER.md            #   人物描写模板
     ├── JOB.md                  #   专注领域模板
@@ -402,7 +424,15 @@ config/
     ├── TOOLS.md                #   工具调用策略模板
     ├── MEMORY.md               #   事件记录模板
     ├── EXPERIENCE.md           #   工作经验模板
-    └── BOOTSTRAP.md            #   创建时知识模板（不删除）
+    ├── BOOTSTRAP.md            #   创建时知识模板（不删除）
+    └── groups/                 #   群组创建工作空间模板 (7 个文件)
+        ├── MEMBERS.md          #     成员列表模板
+        ├── STRUCTURE.md        #     项目结构模板
+        ├── TASK.md             #     任务描述模板
+        ├── PROGRESS.md         #     工作日志模板
+        ├── PLAN.md             #     执行计划模板
+        ├── EXPERIENCE.md       #     协作经验模板
+        └── INTERFACE.md        #     群组接口模板
 ```
 
 ---
@@ -411,6 +441,8 @@ config/
 
 ```
 data/                           # 运行时数据目录 (gitignored)
+├── registry.json                #   主注册表（Agent/Group 单一真相源）
+├── observability/               #   可观测性数据（observability.db）
 ├── agents/                     #   Agent 数据 (每个 Agent 一个目录)
 │   ├── {agentId}/
 │   │   ├── config.json         #     Agent 自治配置
@@ -442,6 +474,8 @@ data/                           # 运行时数据目录 (gitignored)
 │   │   ├── TASK.md             #     任务描述和验收标准
 │   │   ├── PROGRESS.md         #     当前进度
 │   │   ├── PLAN.md             #     任务分工和执行计划
+│   │   ├── EXPERIENCE.md       #     群组协作经验
+│   │   ├── INTERFACE.md        #     群组接口登记表
 │   │   └── TODO.json           #     群组级 TODO 列表（按需创建）
 │   └── ...
 │
@@ -455,10 +489,7 @@ data/                           # 运行时数据目录 (gitignored)
 │   ├── DECISIONS.md            #     决策记录（跨群组）
 │   └── GROUPS_REGISTRY.md      #     管理的群组注册表
 │
-└── models/                     #   本地模型文件
-    └── qwen3.5-2b/             #     Qwen 3.5 2B GGUF 模型
-        ├── model.gguf          #       GGUF 格式权重
-        └── ...
+└── models/                     #   本地模型文件（按需下载）
 ```
 
 ---
@@ -503,49 +534,30 @@ scripts/
 
 ```
 docs/
-├── Agent系统深度调查报告.md     # Agent 系统架构/工具/生命周期/能力矩阵
-├── 后端能力清单.md              # 后端技术能力完整清单 (Phase 0-9)
-├── 前端设计清单.md              # 前端组件/设计/架构清单 (P0-P2)
-├── 用户功能清单.md              # 用户视角的功能说明
-├── 用户指南.md                  # 用户使用指南
-├── 启动命令.md                  # 快速启动指南
-├── 测试清单.md                  # 测试用例清单
-├── 待办.md                      # 待办事项（旧版）
-├── 待办新.md                    # 待办事项（新版，完整版）
-├── 参考/                       # Agent 模板参考文档
-│   ├── AGENTS.md
-│   ├── BOOTSTRAP.md
-│   ├── CHARACTER.md
-│   ├── JOB.md
-│   ├── SOUL.md
-│   ├── TOOLS.md
-│   └── USER.md
-├── superpowers/                # 实现计划与设计规格 (Phase 10+)
-│   ├── plans/
-│   │   ├── 2026-04-21-theme-rendering-redesign.md
-│   │   ├── 2026-04-23-group-creation-host-agent.md
-│   │   ├── 2026-04-24-memory-system-redesign.md
-│   │   ├── 2026-04-24-todo-automation.md
-│   │   ├── 2026-04-25-agent-collaboration.md
-│   │   ├── 2026-04-25-group-memory.md
-│   │   ├── 2026-04-25-host-enhancement.md
-│   │   ├── 2026-04-25-mcp-presets.md
-│   │   ├── 2026-04-25-sandbox-core-redesign.md
-│   │   ├── 2026-04-25-sandbox-phase2.md
-│   │   ├── 2026-04-30-group-memory-three-layer.md
-│   └── specs/
-│       ├── 2026-04-21-theme-rendering-redesign.md
-│       ├── 2026-04-23-group-creation-host-agent-design.md
-│       ├── 2026-04-24-memory-system-redesign.md
-│       ├── 2026-04-24-todo-automation-design.md
-│       ├── 2026-04-25-agent-collaboration-design.md
-│       ├── 2026-04-25-group-memory-design.md
-│       ├── 2026-04-25-host-enhancement-design.md
-│       ├── 2026-04-25-mcp-presets-design.md
-│       ├── 2026-04-25-sandbox-core-redesign.md
-│       ├── 2026-04-25-sandbox-phase2-design.md
-│       ├── 2026-04-30-group-memory-three-layer-design.md
-│       ├── 2026-04-30-activity-log-design.md
+├── superpowers/                # 实现计划与设计规格
+│   ├── plans/                  #   实现计划（~20 个文件）
+│   └── specs/                  #   设计规格（~20 个文件）
+├── 调研/                       # 竞品调研与技术调查
+│   ├── Agent系统深度调查报告.md
+│   ├── QQbotMCP调研报告.md
+│   ├── 办公软件MCP调研报告.md
+│   └── LLM链接指南/            #   各厂商接入指南
+│       ├── GLM.md
+│       ├── mimo.md
+│       ├── minimax.md
+│       ├── moonshot.md
+│       ├── qwen.md
+│       └── 火山引擎.md
+├── 项目信息/                   # 项目核心文档
+│   ├── 后端能力清单.md         #   后端技术能力完整清单
+│   ├── 前端设计清单.md         #   前端组件/设计/架构清单
+│   ├── 用户功能清单.md         #   用户视角的功能说明
+│   ├── 用户指南.md             #   用户使用指南
+│   ├── 启动命令.md             #   快速启动指南
+│   ├── 测试清单.md             #   测试用例清单
+│   ├── 待办.md                 #   待办事项
+│   ├── 目标用户.md             #   目标用户定义
+│   └── 闪光点.md               #   项目亮点
 └── archive/                    # 历史归档
     └── superpowers/            #   实现计划与设计规格 (Phase 2-9)
         ├── plans/              #   9 个实现计划
@@ -626,7 +638,7 @@ docs/
 ## 测试
 
 ```
-36 个测试文件, 281 个测试用例（全部通过）
+37 个测试文件, 288 个测试用例（全部通过）
 
 AgentRegistry       — 4 tests      ButlerRegistry   — 2 tests
 GroupContext         — 16 tests     GroupRole         — 8 tests
