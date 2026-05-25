@@ -689,6 +689,11 @@ export class Agent {
     return this._status;
   }
 
+  /** Expose ToolRegistry for ToolAgent use */
+  getToolRegistry(): ToolRegistry {
+    return this.toolRegistry;
+  }
+
   /** 停止当前正在执行的任务 */
   stop(): void {
     if (this._abortController) {

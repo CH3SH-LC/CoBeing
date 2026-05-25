@@ -5,10 +5,9 @@
  * - config.json: 群组配置
  * - context.jsonl: 群组上下文消息（每行一条 JSON）
  */
-import type { GroupConfig, AgentConfig } from "@cobeing/shared";
+import type { GroupConfig } from "@cobeing/shared";
 import type { AgentRegistry } from "../agent/registry.js";
 import { Group } from "./group.js";
-import { Agent } from "../agent/agent.js";
 import type { LLMProvider } from "@cobeing/providers";
 import fs from "node:fs";
 import path from "node:path";
@@ -70,16 +69,6 @@ export class GroupManager {
     }
     if (this._onMessage) {
       group.setOnMessage(this._onMessage);
-    }
-
-    // 创建 Reviewer Agent（如果启用）
-    const reviewerCfg = config.reviewer ?? { enabled: true, maxRounds: 3 };
-    if (reviewerCfg.enabled !== false && reviewerCfg.maxRounds !== 0) {
-      try {
-        group.reviewerAgent = this.createReviewerAgent(group);
-      } catch (err: any) {
-        log.warn("[%s] Failed to create reviewer agent: %s", config.id, err.message);
-      }
     }
 
     this.groups.set(config.id, group);
@@ -177,63 +166,6 @@ export class GroupManager {
     }
   }
 
-  /**
-   * 创建群组的 Reviewer Agent
-   * 在群组创建时自动调用，群组销毁时自动清理
-   */
-  private createReviewerAgent(group: Group): Agent {
-    const reviewerId = `${group.id}-reviewer`;
-
-    // 如果已注册则直接返回（幂等）
-    const existing = this.registry.get(reviewerId);
-    if (existing) return existing;
-
-    // 解析 Provider
-    const reviewerCfg = group.config.reviewer;
-    const providerId = reviewerCfg?.provider;
-    const provider = this.getProvider?.(providerId);
-    if (!provider) {
-      throw new Error(`No provider available for reviewer agent of group ${group.id}`);
-    }
-
-    const model = reviewerCfg?.model || "deepseek-v4-flash";
-
-    const config: AgentConfig = {
-      id: reviewerId,
-      name: `${group.config.name}-审核员`,
-      role: "消息审核员",
-      systemPrompt: `你是群组"${group.config.name}"的消息审核员。你的职责是审查群组成员的工作成果，确保其进行了实质性工作而非偷懒。`,
-      provider: providerId || "deepseek",
-      model,
-      tools: [],
-      permissions: { mode: "read-only" },
-      sandbox: { enabled: false, filesystem: "isolated", network: { enabled: false, mode: "none" } },
-      isReviewer: true,
-    };
-
-    const agent = new Agent(config, provider, this.dataRoot);
-
-    // 写入审核员 JOB.md 画像文件
-    agent.files.writeJob(`# ${group.config.name} 审核员
-
-## 专注领域
-消息审核、工作质量评估
-
-## 核心能力
-- 审查群组成员是否进行了实质性工作（调用了工具、产生了具体输出）
-- 检测成员是否在偷懒（仅声明意图而未展示实际工作成果）
-- 确保工作方法符合任务要求
-`);
-    agent.files.writeCharacter(`- Name: ${group.config.name}-审核员
-- Role: 消息审核员
-
-群组"${group.config.name}"的专属审核员，负责审查成员消息质量。`);
-
-    this.registry.register(agent);
-    log.info("[%s] Reviewer agent created: %s", group.id, reviewerId);
-    return agent;
-  }
-
   /** 获取所有群组的唤醒队列 */
   getAllWakeQueues(): Record<string, { queue: Array<{ targetAgentId: string; triggerMsgId: string; triggerTag: string; triggerContents: string[] }>; processing: string | null; processingAgents: string[] }> {
     const result: Record<string, any> = {};
@@ -258,13 +190,6 @@ export class GroupManager {
     this.groupScanners.delete(groupId);
     const group = this.groups.get(groupId);
     if (group) {
-      // 销毁 Reviewer Agent
-      if (group.reviewerAgent) {
-        try {
-          this.registry.unregister(group.reviewerAgent.id);
-          log.info("[%s] Reviewer agent destroyed", groupId);
-        } catch { /* ignore */ }
-      }
       group.dispose();
       this.groups.delete(groupId);
     }
@@ -329,13 +254,6 @@ export class GroupManager {
     updateGroupStatus(this.dataRoot, groupId, 'archived');
     group.setStatus('archived');
 
-    // 销毁 Reviewer Agent
-    if (group.reviewerAgent) {
-      try {
-        this.registry.unregister(group.reviewerAgent.id);
-      } catch { /* ignore */ }
-    }
-
     group.dispose();
     this.groupScanners.get(groupId)?.stop();
     this.groupScanners.delete(groupId);
@@ -380,16 +298,6 @@ export class GroupManager {
     if (this._onQueueChange) group.setOnQueueChange(this._onQueueChange);
     if (this._onMessageBroadcast) group.setOnMessageBroadcast(this._onMessageBroadcast);
     if (this._onMessage) group.setOnMessage(this._onMessage);
-
-    // 恢复 Reviewer Agent（如果启用）
-    const rCfg = config.reviewer ?? { enabled: true, maxRounds: 3 };
-    if (rCfg.enabled !== false && rCfg.maxRounds !== 0) {
-      try {
-        group.reviewerAgent = this.createReviewerAgent(group);
-      } catch (err: any) {
-        log.warn("[%s] Failed to restore reviewer agent: %s", groupId, err.message);
-      }
-    }
 
     this.groups.set(groupId, group);
     this.saveGroup(groupId);
@@ -559,17 +467,6 @@ export class GroupManager {
         if (this._onMessage) {
           group.setOnMessage(this._onMessage);
         }
-
-        // 恢复 Reviewer Agent（如果启用）
-        const rCfg = config.reviewer ?? { enabled: true, maxRounds: 3 };
-        if (rCfg.enabled !== false && rCfg.maxRounds !== 0) {
-          try {
-            group.reviewerAgent = this.createReviewerAgent(group);
-          } catch (err: any) {
-            log.warn("[%s] Failed to restore reviewer agent: %s", entry.id, err.message);
-          }
-        }
-
         this.groups.set(config.id, group);
         group.pauseWakeSystem();
 

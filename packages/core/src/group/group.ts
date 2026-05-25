@@ -68,9 +68,6 @@ export class Group {
   /** Optional GroupManager reference for context persistence */
   private _groupManager?: import("./manager.js").GroupManager;
 
-  /** 审核 Agent — 负责审查成员消息后再发送 */
-  reviewerAgent?: Agent;
-
   constructor(config: GroupConfig, registry: AgentRegistry, dataRoot: string = "data") {
     this.id = config.id;
     this.config = config;

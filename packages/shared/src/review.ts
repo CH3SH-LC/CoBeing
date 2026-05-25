@@ -32,7 +32,7 @@ export interface ReviewResult {
   reason: string
 }
 
-export type ReviewLogEventType = 'review_pending' | 'review_passed' | 'review_failed_override'
+export type ReviewLogEventType = 'review_pending' | 'review_passed' | 'review_failed' | 'review_failed_override'
 
 export interface ReviewLogEvent {
   type: ReviewLogEventType
