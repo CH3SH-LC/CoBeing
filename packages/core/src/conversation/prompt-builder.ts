@@ -98,51 +98,54 @@ const ROLE_PLAY_INSTRUCTION = `# 角色扮演要求
 export function buildSystemPromptFromFiles(files: AgentFiles, config: PromptConfig, memoryStore?: MemoryStore): string {
   const parts: string[] = [];
 
-  // 1. AGENTS.md — 工作空间指南（共享前缀，最大化缓存命中）
+  // 1. STATIC 层 — 所有 Agent 共享的行为约束（身份/机制/行为/安全/说话方式）
+  parts.push(buildStaticLayer());
+
+  // 2. AGENTS.md — 工作空间指南（共享前缀，最大化缓存命中）
   const agents = files.readAgents();
   if (agents) {
     parts.push(agents);
   }
 
-  // 2. SOUL.md — 性格特质
+  // 3. SOUL.md — 性格特质
   const soul = files.readSoul();
   if (soul) {
     parts.push(soul);
   }
 
-  // 3. CHARACTER.md — 人物描写与背景
+  // 4. CHARACTER.md — 人物描写与背景
   const character = files.readCharacter();
   if (character) {
     parts.push(character);
   }
 
-  // 3.5 角色扮演强化指令 — 确保 LLM 用角色方式说话
+  // 4.5 角色扮演强化指令 — 确保 LLM 用角色方式说话
   if (character) {
     parts.push(ROLE_PLAY_INSTRUCTION);
   }
 
-  // 4. systemPrompt — 角色描述（主体）
+  // 5. systemPrompt — 角色描述（主体）
   parts.push(config.systemPrompt || `你是${config.name}，${config.role}`);
 
-  // 5. JOB.md — 专注领域与专长
+  // 6. JOB.md — 专注领域与专长
   const job = files.readJob();
   if (job) {
     parts.push(job);
   }
 
-  // 6. BOOTSTRAP.md — 创建时知识和行为提醒（不删除，每次激发）
+  // 7. BOOTSTRAP.md — 创建时知识和行为提醒（不删除，每次激发）
   const bootstrap = files.readBootstrap();
   if (bootstrap) {
     parts.push(bootstrap);
   }
 
-  // 6.5 当前装载的技能列表
+  // 7.5 当前装载的技能列表
   const configJson = files.readConfig();
   if (configJson?.skills && Array.isArray(configJson.skills) && configJson.skills.length > 0) {
     parts.push(`\n## 当前装载的技能\n\n${(configJson.skills as string[]).join("、")}`);
   }
 
-  // 7-10. 从 MemoryStore 快照加载（如果提供了 MemoryStore）
+  // 8-11. 从 MemoryStore 快照加载（如果提供了 MemoryStore）
   if (memoryStore) {
     const snapshotBlock = memoryStore.snapshotForSystemPrompt();
     if (snapshotBlock) {
