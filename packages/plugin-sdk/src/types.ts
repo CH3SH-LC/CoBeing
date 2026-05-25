@@ -29,12 +29,12 @@ export interface CoBeingPluginApi {
 // ── 四种插件类型 ──
 
 export interface ModelProviderPlugin {
-  id: string;
-  models: ModelInfo[];
+  readonly id: string;
+  readonly name: string;
   chat(params: ChatParams): AsyncIterable<ChatChunk>;
-  chatComplete?(params: ChatParams): Promise<string>;
-  listModels?(): Promise<ModelInfo[]>;
-  capabilities?(model: string): ModelCapabilities;
+  chatComplete(params: ChatParams): Promise<string>;
+  listModels(): Promise<ModelInfo[]>;
+  capabilities(model: string): ModelCapabilities;
 }
 
 export interface ChannelPlugin {

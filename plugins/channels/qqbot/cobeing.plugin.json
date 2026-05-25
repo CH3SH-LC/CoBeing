@@ -1,0 +1,8 @@
+{
+  "id": "cobeing-plugin-qqbot",
+  "name": "QQ Bot Channel",
+  "kind": "channel",
+  "version": "0.1.0",
+  "main": "../../packages/plugin-sdk/dist/builtins/qqbot.js",
+  "cobeingVersion": ">=1.2.0"
+}
