@@ -3,6 +3,7 @@ import { createLogger } from "@cobeing/shared";
 import type { TodoItem } from "./types.js";
 import { TodoStore } from "./store.js";
 import { OVERDUE_THRESHOLD_MS } from "./types.js";
+import { runMemoryAgent } from "../agent/tool-agent/memory.js";
 
 const log = createLogger("group-todo-scanner");
 
@@ -201,7 +202,68 @@ export class GroupTodoScanner {
       }
     }
 
+    // 3. TODO 完成时触发群组记忆智能体（异步，不阻塞返回）
+    setImmediate(async () => {
+      try {
+        const gm = (globalThis as any).__cobeingGroupManager;
+        if (!gm) return;
+        const group = gm.get(this.groupId);
+        if (!group) return;
+
+        const provider = (globalThis as any).__cobeingGetProvider?.("deepseek") as import("@cobeing/providers").LLMProvider | undefined;
+        if (!provider) return;
+
+        const model = (globalThis as any).__cobeingConfig?.judgmentModel ?? "deepseek-chat";
+        const memoryResult = await runMemoryAgent(
+          "group",
+          {
+            groupName: group.config.name,
+            groupId: group.id,
+            phasePlan: group.workspace.readPlan() ?? "",
+            progressMd: group.workspace.readProgress() ?? "",
+            interfaceMd: group.workspace.readInterface() ?? "",
+            memberContributions: [],
+          },
+          provider,
+          model,
+          group.workspace.paths.root,
+        );
+
+        if (memoryResult.entries.length > 0) {
+          for (const entry of memoryResult.entries) {
+            const section = this.mapCategoryToSection(entry.category);
+            group.workspace.appendExperience(section, `${entry.summary}${entry.detail ? ' — ' + entry.detail : ''}`);
+          }
+          log.info("Group %s: memory saved %d entries", this.groupId, memoryResult.entries.length);
+        }
+
+        // interfaceUpdates 因 GroupWorkspace.appendInterfaceSection 仅接受 agentName，
+        // 将接口更新建议作为经验条目写入
+        if (memoryResult.interfaceUpdates && memoryResult.interfaceUpdates.length > 0) {
+          for (const update of memoryResult.interfaceUpdates) {
+            group.workspace.appendExperience("协作教训", `接口更新建议 — ${update.agentId}/${update.section}: ${update.entry}`);
+          }
+        }
+      } catch (err) {
+        // Non-blocking — memory failure doesn't affect phase completion
+        log.debug("Group %s memory agent error (non-blocking): %s", this.groupId, err);
+      }
+    });
+
     return item;
+  }
+
+  /** 将内存条目类别映射到群组经验区块 */
+  private mapCategoryToSection(category: string): "关键决策" | "协作教训" | "有效模式" {
+    switch (category) {
+      case "架构决策": return "关键决策";
+      case "用户偏好":
+      case "协作模式":
+      case "错误教训": return "协作教训";
+      case "工具发现":
+      case "最佳实践": return "有效模式";
+      default: return "有效模式";
+    }
   }
 
   private formatTriggerMessage(todo: TodoItem): string {

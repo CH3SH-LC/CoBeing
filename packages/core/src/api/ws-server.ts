@@ -669,7 +669,7 @@ export class CoreWSServer {
           systemPrompt: systemPrompt || `你是${name}，${role}`,
           provider: providerId,
           model: modelId,
-          permissions: { mode: "workspace-write" },
+          permissions: { mode: "workspace-readwrite" },
           sandbox: sandboxConfig,
           tools: ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch", "agent-message"],
           skills,
@@ -680,7 +680,7 @@ export class CoreWSServer {
         agentPaths.ensureDirs();
         new AgentFiles(agentPaths).writeConfig({
           name, role, provider: providerId, model: modelId,
-          permissions: { mode: "workspace-write" },
+          permissions: { mode: "workspace-readwrite" },
           sandbox: sandboxConfig,
           tools: ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch", "agent-message"],
           skills,
@@ -978,7 +978,7 @@ export class CoreWSServer {
         }
         const raw = workspacePath?.trim();
         if (!raw || raw === "default") {
-          agent.setBoundWorkspace(null);
+          agent.clearBindings();
           this.sendToClient(ws, { type: "workspace_bound", payload: { agentId, path: null, effectiveWorkspace: agent.effectiveWorkspace } });
           this.logMessage("system", `Workspace unbound for ${agent.name}, restored: ${agent.effectiveWorkspace}`);
           break;
@@ -999,7 +999,7 @@ export class CoreWSServer {
           this.sendToClient(ws, { type: "error", payload: { message: `Directory not found: ${resolved}` } });
           break;
         }
-        agent.setBoundWorkspace(resolved);
+        agent.addBinding({ path: resolved, mode: "readwrite" });
         this.sendToClient(ws, { type: "workspace_bound", payload: { agentId, path: resolved, effectiveWorkspace: agent.effectiveWorkspace } });
         this.logMessage("system", `Workspace bound for ${agent.name}: ${resolved}`);
         this.broadcastState();

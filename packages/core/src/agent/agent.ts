@@ -3,7 +3,7 @@
  */
 import path from "node:path";
 import fs from "node:fs";
-import type { AgentConfig, AgentResponse, AgentStatus, ReviewInput, ReviewResult } from "@cobeing/shared";
+import type { AgentConfig, AgentResponse, AgentStatus, ReviewInput, ReviewResult, WorkspaceBinding } from "@cobeing/shared";
 import type { LLMProvider } from "@cobeing/providers";
 import type { ChannelAdapter } from "@cobeing/channels";
 import { ConversationLoop, type ConversationLoopEvents } from "../conversation/conversation-loop.js";
@@ -42,6 +42,7 @@ import { makeSummarizePhaseTool } from "../tools/summarize-phase.js";
 import { makeAgentCloneTool } from "../tools/agent-clone.js";
 import { WakeSession } from "./wake-session.js";
 import { makeGroupMembersTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool, makeTalkCloseTool, makeGroupSendTool, makeGroupUpdateProgressTool, makeGroupExperienceAddTool, makeGroupExperienceSummarizeTool } from "../tools/group-tools.js";
+import { runMemoryAgent } from "./tool-agent/memory.js";
 import { createLogger } from "@cobeing/shared";
 
 /** run() 的选项 — 支持群组隔离 */
@@ -94,10 +95,13 @@ export class Agent {
   private _groupContext?: string;
   private logger: ReturnType<typeof createLogger>;
 
-  /** 绑定的外部工作目录（null 则使用默认 workspace） */
-  private _boundWorkspace: string | null = null;
+  /** 用户添加的外部工作区绑定 */
+  private _bindings: WorkspaceBinding[] = [];
   /** 当前执行的取消控制器（stop() 时触发 abort） */
   private _abortController: AbortController | null = null;
+
+  /** 群组 loop 的 workingDir（由 createGroupLoop 设置） */
+  private _groupLoopWorkingDir?: string;
 
   /** 唤醒周期轨迹记录器（群组审核用） */
   wakeSession?: WakeSession;
@@ -122,24 +126,64 @@ export class Agent {
     return this._groupContext;
   }
 
-  /** 有效工作目录：绑定路径优先，否则默认 workspace */
+  /** 有效工作目录：始终返回原始 workspace */
   get effectiveWorkspace(): string {
-    return this._boundWorkspace ?? this.paths.workspaceDir;
+    return this.paths.workspaceDir;
   }
 
-  /** 获取当前绑定路径（null 表示未绑定） */
-  get boundWorkspace(): string | null {
-    return this._boundWorkspace;
+  /** 用户添加的绑定列表 */
+  get bindings(): WorkspaceBinding[] {
+    return this._bindings;
   }
 
-  /** 绑定到外部工作目录（核心文件保留在原位置） */
-  setBoundWorkspace(dir: string | null): void {
-    if (dir) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    this._boundWorkspace = dir;
+  /** 添加绑定（去重：同路径覆盖） */
+  addBinding(binding: WorkspaceBinding): void {
+    this._bindings = this._bindings.filter(b => b.path !== binding.path);
+    this._bindings.push(binding);
+    this.persistBindings();
     this.rebuildExecutor();
-    this.logger.info("Bound workspace: %s", dir ?? "(cleared)");
+    this.logger.info("Added binding: %s (%s)", binding.path, binding.mode);
+  }
+
+  /** 移除绑定 */
+  removeBinding(workspacePath: string): void {
+    this._bindings = this._bindings.filter(b => b.path !== workspacePath);
+    this.persistBindings();
+    this.rebuildExecutor();
+    this.logger.info("Removed binding: %s", workspacePath);
+  }
+
+  /** 清空所有绑定 */
+  clearBindings(): void {
+    this._bindings = [];
+    this.persistBindings();
+    this.rebuildExecutor();
+    this.logger.info("Cleared all bindings");
+  }
+
+  /** 持久化 bindings 到 config.json */
+  private persistBindings(): void {
+    try {
+      const config = JSON.parse(fs.readFileSync(this.paths.configPath, "utf-8"));
+      config.bindings = this._bindings;
+      fs.writeFileSync(this.paths.configPath, JSON.stringify(config, null, 2), "utf-8");
+    } catch {
+      this.logger.warn("Failed to persist bindings");
+    }
+  }
+
+  /** 从 config.json 恢复绑定 */
+  loadBindings(): void {
+    try {
+      const raw = fs.readFileSync(this.paths.configPath, "utf-8");
+      const config = JSON.parse(raw);
+      if (Array.isArray(config.bindings)) {
+        this._bindings = config.bindings;
+        this.logger.info("Loaded %d bindings from config", this._bindings.length);
+      }
+    } catch {
+      // config.json may not exist yet (new agent)
+    }
   }
 
   /** 重建 ToolExecutor 和 ConversationLoop（workspace 变更时） */
@@ -147,7 +191,9 @@ export class Agent {
     const permission = new PermissionEnforcer(
       this.config.permissions ?? { mode: "workspace-readwrite" },
       this.config.toolsConfig,
-      this.effectiveWorkspace,
+      this.paths.workspaceDir,
+      this._groupLoopWorkingDir,
+      this._bindings,
     );
     this._toolExecutor = new ToolExecutor(
       this.toolRegistry,
@@ -197,7 +243,6 @@ export class Agent {
 
     // 合并配置（config.json 补充 AgentConfig）
     const mergedConfig = { ...config, ...fileConfig };
-    const workingDir = this.paths.workspaceDir;
 
     // 记忆系统（统一 MemoryStore，延迟初始化）
     this.memoryStore = MemoryStore.createLazy(this.paths.directory, {
@@ -277,7 +322,9 @@ export class Agent {
     const permission = new PermissionEnforcer(
       mergedConfig.permissions ?? { mode: "workspace-readwrite" },
       mergedConfig.toolsConfig,
-      workingDir,
+      this.paths.workspaceDir,
+      this._groupLoopWorkingDir,
+      this._bindings,
     );
 
     // 创建沙箱（如果启用）
@@ -315,6 +362,7 @@ export class Agent {
     );
     this._sharedPrefix = sharedPrefix;
     this._agentPrefix = agentPrefix;
+    this.loadBindings();
   }
 
   private createLoop(
@@ -400,6 +448,7 @@ export class Agent {
 
   /** 获取或创建群组隔离的 ConversationLoop */
   private getGroupLoop(groupId: string, groupContext?: string, guideContent?: string, workingDir?: string): ConversationLoop {
+    this._groupLoopWorkingDir = workingDir;
     const key = `group:${groupId}`;
     // 更新快照（无论 loop 是否已存在，确保 promptBuilder 读到最新值）
     const snapshot = this._groupContextSnapshots.get(key) || { context: undefined };
@@ -413,7 +462,9 @@ export class Agent {
       const permission = new PermissionEnforcer(
         this.config.permissions ?? { mode: "workspace-readwrite" },
         this.config.toolsConfig,
-        effectiveWd,
+        this.paths.workspaceDir,
+        this._groupLoopWorkingDir,
+        this._bindings,
       );
       const toolExecutor = new ToolExecutor(
         this.toolRegistry,
@@ -552,6 +603,8 @@ export class Agent {
         this.config.permissions ?? { mode: "workspace-readwrite" },
         this.config.toolsConfig,
         this.paths.workspaceDir,
+        this._groupLoopWorkingDir,
+        this._bindings,
       );
       const toolExecutor = new ToolExecutor(
         this.toolRegistry,
@@ -665,6 +718,42 @@ export class Agent {
       // 后台反思（不阻塞返回，仅非群组调用时触发）
       if (!isGroup) {
         this.reflectInBackground(input, response.content);
+      }
+
+      // 群组模式下触发个人记忆智能体（异步，不阻塞返回）
+      if (isGroup && this.wakeSession) {
+        const trace = this.wakeSession.getTrace();
+        const hasToolCalls = trace.toolCalls.length > 0;
+        if (hasToolCalls) {
+          setImmediate(async () => {
+            try {
+              const memoryResult = await runMemoryAgent(
+                "personal",
+                {
+                  agentName: this.name,
+                  agentId: this.id,
+                  trace,
+                  taskContext: input,
+                },
+                this.provider,
+                this.config.model,
+                this.effectiveWorkspace,
+              );
+              if (memoryResult.entries.length > 0) {
+                for (const entry of memoryResult.entries) {
+                  this.files.appendExperience({
+                    task: `[${entry.category}] ${entry.summary}`,
+                    problem: `Memory extracted from wake session in ${this.name}`,
+                    solution: entry.detail || entry.summary,
+                  });
+                }
+                this.logger.info("Memory: saved %d entries from wake session", memoryResult.entries.length);
+              }
+            } catch (err) {
+              this.logger.debug("Memory agent failed (non-blocking): %s", err);
+            }
+          });
+        }
       }
 
       return response;
