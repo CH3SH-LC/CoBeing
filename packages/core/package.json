@@ -1,5 +1,5 @@
 {
-  "name": "@myagents/core",
+  "name": "@cobeing/core",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -13,13 +13,16 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@myagents/shared": "workspace:*",
-    "@myagents/providers": "workspace:*",
-    "@myagents/channels": "workspace:*",
-    "ws": "^8.20.0",
-    "js-yaml": "^4.1.1"
+    "@cobeing/channels": "workspace:*",
+    "@cobeing/plugin-sdk": "workspace:*",
+    "@cobeing/providers": "workspace:*",
+    "@cobeing/shared": "workspace:*",
+    "js-yaml": "^4.1.1",
+    "better-sqlite3": "^11.9.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "typescript": "^5.7.0"
   }
 }

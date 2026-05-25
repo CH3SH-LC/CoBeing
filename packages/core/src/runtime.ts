@@ -10,11 +10,13 @@ import { GroupManager } from "./group/manager.js";
 import { ButlerAgent } from "./agent/butler.js";
 import { CoreWSServer } from "./api/ws-server.js";
 import { LLMGateway } from "./gateway/llm-gateway.js";
-import { OpenAICompatProvider, PROVIDER_CATALOGS } from "@cobeing/providers";
+import { OpenAICompatProvider, PROVIDER_CATALOGS, registerProvider, getProvider } from "@cobeing/providers";
 import type { LLMProvider } from "@cobeing/providers";
 import type { ChannelAdapter } from "@cobeing/channels";
-import { QQBotChannel } from "@cobeing/channels";
-import { ButlerRegistry } from "./butler/registry.js";
+import { QQBotChannel, registerChannel } from "@cobeing/channels";
+import { PluginLoader } from "@cobeing/plugin-sdk";
+import type { CoBeingPluginApi } from "@cobeing/plugin-sdk";
+import { ButlerRegistry } from "./agent/butler-registry.js";
 import { Agent } from "./agent/agent.js";
 import { AgentPaths } from "./agent/paths.js";
 import { AgentEventBus } from "./agent/event-bus.js";
@@ -23,7 +25,7 @@ import { makeGroupPlanTool, makeGroupInviteTalkTool, makeGroupSummarizeTool, mak
 import { SkillRepository } from "./skills/repository.js";
 import { VoteStore } from "./vote/store.js";
 import type { ChannelBindTo } from "./config/schema.js";
-import { createLogger, setGlobalLogLevel, readMasterRegistry, migrateFromFilesystem, cleanupOrphanDirectories, addAgentToRegistry } from "@cobeing/shared";
+import { createLogger, setGlobalLogLevel, readMasterRegistry, migrateFromFilesystem, cleanupOrphanDirectories, addAgentToRegistry, migratePermissionMode } from "@cobeing/shared";
 import { decrypt } from "./config/secret-store.js";
 import { AgentTodoScanner } from "./todo/scanner.js";
 import { DockerSandbox } from "./tools/sandbox/docker-sandbox.js";
@@ -55,6 +57,7 @@ export class CoBeingRuntime {
   private dataRoot: string;
   private todoScanner: AgentTodoScanner | null = null;
   readonly voteStore: VoteStore;
+  private pluginLoader: PluginLoader;
   /** 全局 MCP 管理器（按需注册，非自动推给所有 Agent） */
   readonly mcpManager = new MCPManager();
   /** Docker 可用性（start() 中检查，用于沙箱降级） */
@@ -89,16 +92,27 @@ export class CoBeingRuntime {
     (globalThis as any).__cobeingDataRoot = this.dataRoot;
     (globalThis as any).__cobeingConfig = config;
     this.observabilityDB = new ObservabilityDB(this.dataRoot);
+    (globalThis as any).__cobeingObsDb = this.observabilityDB;
     this.wsServer = new CoreWSServer(config.gui?.wsPort ?? 18765);
 
     // 初始化 ChannelRouter（butler 回调在 start() 中通过 setButlerCallback 连接）
     this.router = new ChannelRouter(this.groupManager);
+
+    // 构建插件宿主 API — 桥接到现有全局注册表
+    const pluginApi: CoBeingPluginApi = {
+      registerModelProvider(p) { registerProvider(p as unknown as LLMProvider); },
+      registerChannel(c) { registerChannel(c as any); },
+      registerTool() {},
+      registerMemoryBackend() {},
+    };
+    this.pluginLoader = new PluginLoader(pluginApi);
 
     // 构建多 Provider
     this.buildProviders(config);
 
     // 加载 butler 自治配置（从 data/agents/butler/config.json）
     const butlerPaths = AgentPaths.forAgent("butler", this.dataRoot);
+    migratePermissionMode(path.dirname(butlerPaths.configPath));
     let butlerSelfConfig: Partial<AgentSelfConfig> = {};
     if (fs.existsSync(butlerPaths.configPath)) {
       try {
@@ -154,23 +168,49 @@ export class CoBeingRuntime {
     this.butler.setObservabilityDB(this.observabilityDB);
   }
 
-  /** 按 config 构建所有 Provider 实例 */
+  /** 按 config 构建所有 Provider 实例（插件架构 — 同步部分供构造函数调用） */
   private buildProviders(config: AppConfig): void {
+    const builtinsDir = path.resolve("plugins/providers");
+
+    // 建立目录名 → manifest ID 映射
+    if (fs.existsSync(builtinsDir)) {
+      const dirToManifest = new Map<string, string>();
+      for (const entry of fs.readdirSync(builtinsDir)) {
+        const mp = path.join(builtinsDir, entry, "cobeing.plugin.json");
+        if (!fs.existsSync(mp)) continue;
+        try {
+          const m: { id: string } = JSON.parse(fs.readFileSync(mp, "utf-8"));
+          dirToManifest.set(entry, m.id);
+        } catch { /* 跳过损坏的清单 */ }
+      }
+
+      // 1. 发现尚未在 config 中的插件目录
+      const configuredProviderIds = Object.keys(config.providers);
+      const discovered = [...dirToManifest.keys()].filter(dir => !configuredProviderIds.includes(dir));
+
+      // 2. 自动注册新发现的插件到 config
+      if (discovered.length > 0) {
+        for (const dir of discovered) {
+          (config.providers as any)[dir] = { type: "openai-compat" as const };
+        }
+        log.info("Auto-registered %d new provider plugin(s): %s", discovered.length, discovered.join(", "));
+      }
+    }
+
+    // 3. 为所有已配置的 provider 创建实例并注册到全局注册表
     for (const [id, cfg] of Object.entries(config.providers)) {
       const apiKey = (cfg.apiKey ? decrypt(cfg.apiKey) : "") || process.env[cfg.apiKeyEnv ?? ""] || "";
-      const providerType = cfg.type ?? "openai-compat";
-
       try {
         const provider = new OpenAICompatProvider({
           id,
           name: id,
           apiKey,
-          baseURL: cfg.baseURL ?? "https://api.deepseek.com",
-          models: PROVIDER_CATALOGS[id],
+          baseURL: cfg.baseURL ?? getProviderBaseURL(id),
+          models: PROVIDER_CATALOGS[id] || [],
         });
-
+        registerProvider(provider);
         this.providers.set(id, provider);
-        log.info("Provider registered: %s", id);
+        log.info("Provider ready: %s", id);
       } catch (err: any) {
         log.warn("Failed to create provider %s: %s", id, err.message);
       }
@@ -227,6 +267,7 @@ export class CoBeingRuntime {
 
       // 尝试从 agent 目录读取自治配置
       const paths = AgentPaths.forAgent(entry.id, this.dataRoot);
+      migratePermissionMode(path.dirname(paths.configPath));
       let selfConfig: Record<string, any> = {};
       if (fs.existsSync(paths.configPath)) {
         try {
@@ -253,7 +294,7 @@ export class CoBeingRuntime {
         systemPrompt: selfConfig.systemPrompt || `你是${entry.name}，${entry.role}`,
         provider: providerId,
         model,
-        permissions: (selfConfig.permissions as any) || { mode: "workspace-write" },
+        permissions: (selfConfig.permissions as any) || { mode: "workspace-readwrite" },
         sandbox: ensureSandboxConfig(
           (selfConfig.sandbox as any) || { enabled: true, filesystem: "isolated", network: { enabled: true, mode: "all" } },
           this.dockerAvailable,
@@ -500,6 +541,7 @@ export class CoBeingRuntime {
     delete (globalThis as any).__cobeingConfig;
     delete (globalThis as any).__cobeingRuntime;
     delete (globalThis as any).__cobeingWSServer;
+    delete (globalThis as any).__cobeingObsDb;
 
     this.observabilityDB.close();
     log.info("Runtime stopped");
@@ -681,6 +723,7 @@ export class CoBeingRuntime {
 
       // Load self-config from data/agents/{id}/config.json
       const agentPaths = AgentPaths.forAgent(agentId, this.dataRoot);
+      migratePermissionMode(path.dirname(agentPaths.configPath));
       if (!fs.existsSync(agentPaths.configPath)) {
         log.warn("Skipping agent %s: no config.json at %s", agentId, agentPaths.configPath);
         continue;
@@ -708,7 +751,7 @@ export class CoBeingRuntime {
         systemPrompt: selfConfig.systemPrompt || `你是${selfConfig.name}，${selfConfig.role}`,
         provider: providerId,
         model: selfConfig.model || "deepseek-v4-flash",
-        permissions: (selfConfig.permissions as any) || { mode: "workspace-write" },
+        permissions: (selfConfig.permissions as any) || { mode: "workspace-readwrite" },
         sandbox: ensureSandboxConfig(
           (selfConfig.sandbox as any) || { enabled: true, filesystem: "isolated", network: { enabled: true, mode: "all" } },
           this.dockerAvailable,
@@ -835,4 +878,18 @@ export class CoBeingRuntime {
   getGatewayStatus(): { activeCount: number; queueLength: number; currentRpm: number } {
     return this.gateway.getStatus();
   }
+}
+
+/** 获取 provider 的默认 baseURL */
+function getProviderBaseURL(id: string): string {
+  const defaults: Record<string, string> = {
+    deepseek: "https://api.deepseek.com",
+    zhipu: "https://open.bigmodel.cn/api/paas/v4",
+    qwen: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    minimax: "https://api.minimaxi.com/v1",
+    volcengine: "https://ark.cn-beijing.volces.com/api/v3",
+    moonshot: "https://api.moonshot.cn/v1",
+    mimo: "https://api.xiaomimimo.com/v1",
+  };
+  return defaults[id] || "https://api.deepseek.com";
 }
