@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { SqliteAdapter } from "./sqlite-adapter.js";
-import { scanContent } from "./security-scan.js";
+import { scanContent, wrapMemoryContent } from "./security-scan.js";
 import { extractExperienceSummary } from "../conversation/prompt-builder.js";
 import { createLogger } from "@cobeing/shared";
 
@@ -235,7 +235,8 @@ export class MemoryStore {
     }[target];
 
     const bar = "═".repeat(50);
-    return `${bar}\n${label} [${percent}% — ${usage.toLocaleString()}/${limit.toLocaleString()} chars]\n${bar}\n${content}`;
+    const block = `${bar}\n${label} [${percent}% — ${usage.toLocaleString()}/${limit.toLocaleString()} chars]\n${bar}\n${content}`;
+    return wrapMemoryContent(block);
   }
 
   /** 返回四个目标的拼接快照 */

@@ -14,10 +14,10 @@ export { buildSystemPrompt } from "./conversation/prompt-builder.js";
 export { ToolRegistry } from "./tools/registry.js";
 export { ToolExecutor } from "./tools/executor.js";
 export { PermissionEnforcer, type PermissionResult } from "./tools/permission.js";
-export { DockerSandbox } from "./tools/sandbox/index.js";
-export { setAgentRegistry } from "./tools/agent-message.js";
+export { DockerSandbox, resolveNetworkConfig, buildNetworkArgs, resolveSecurityConfig, buildSecurityArgs } from "./tools/sandbox/index.js";
+export { makeAgentMessageTool } from "./tools/agent-message.js";
 export { makeGroupMembersTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool } from "./tools/group-tools.js";
-export { ButlerRegistry, type AgentRegistryEntry, type GroupRegistryEntry, type TaskLogEntry } from "./butler/registry.js";
+export { ButlerRegistry, type AgentRegistryEntry, type GroupRegistryEntry, type TaskLogEntry } from "./agent/butler-registry.js";
 export { LLMGateway, type GatewayConfig } from "./gateway/llm-gateway.js";
 export { MCPClient, type MCPServerCapabilities } from "./mcp/client.js";
 export { MCPManager } from "./mcp/manager.js";
@@ -33,7 +33,7 @@ export { MemoryIndexer } from "./memory/indexer.js";
 export { ExperienceWriter, type ExperienceEntry } from "./memory/experience.js";
 export { MemoryStore, type MemoryTarget, type MemoryStoreConfig, type ToolResult as MemoryToolResult } from "./memory/memory-store.js";
 export { makeMemoryTool } from "./memory/memory-tool.js";
-export { scanContent, type ScanResult } from "./memory/security-scan.js";
+export { scanContent, wrapMemoryContent, stripMemoryContext, type ScanResult } from "./memory/security-scan.js";
 export { SqliteAdapter } from "./memory/sqlite-adapter.js";
 export { AgentEventBus, type BusMessage, type TaskCompleteMessage } from "./agent/event-bus.js";
 export { WorkflowEngine, type WorkflowConfig } from "./workflow/engine.js";
@@ -53,3 +53,17 @@ export { TodoStore } from "./todo/store.js";
 export { AgentTodoScanner } from "./todo/scanner.js";
 export { GroupTodoScanner } from "./todo/group-scanner.js";
 export type { TodoItem, TodoScope } from "./todo/types.js";
+
+export { VoteStore } from "./vote/store.js";
+export { makeVoteCreateTool, makeVoteCastTool, makeVoteResultTool } from "./vote/tools.js";
+
+export { LocalFilterEngine } from "./group/local-filter.js";
+export type { FilterResult, LocalModelConfig } from "@cobeing/shared";
+export {
+  makeHostGuideDiscussionTool,
+  makeHostDecomposeTaskTool,
+  makeHostSummarizeProgressTool,
+  makeHostRecordDecisionTool,
+  makeHostManageTodoTool,
+  makeHostReviewTodoTool,
+} from "./group/host-tools.js";
