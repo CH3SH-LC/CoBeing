@@ -24,6 +24,7 @@ export interface GroupWorkspacePaths {
   conversations: string;
   experience: string;
   interface: string;
+  guide: string;
 }
 
 export class GroupWorkspace {
@@ -46,7 +47,20 @@ export class GroupWorkspace {
       conversations: join(workspaceRoot, "conversations"),
       experience: join(workspaceRoot, "EXPERIENCE.md"),
       interface: join(workspaceRoot, "INTERFACE.md"),
+      guide: join(workspaceRoot, "GUIDE.md"),
     };
+  }
+
+  private static readonly GROUPS_TEMPLATES_DIR = join("config", "templates", "groups");
+
+  private static resolveTemplate(templateName: string, vars: Record<string, string>): string {
+    const src = join(GroupWorkspace.GROUPS_TEMPLATES_DIR, templateName);
+    if (!existsSync(src)) return "";
+    let content = readFileSync(src, "utf-8");
+    for (const [key, value] of Object.entries(vars)) {
+      content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value);
+    }
+    return content;
   }
 
   /**
@@ -66,6 +80,7 @@ export class GroupWorkspace {
     if (!existsSync(this.paths.plan)) this.writePlan("");
     if (!existsSync(this.paths.experience)) this.writeExperience();
     if (!existsSync(this.paths.interface)) this.writeInterface('', members);
+    if (!existsSync(this.paths.guide)) this.writeGuide();
 
     logger.info(`[Group:${this.groupId}] Workspace initialized at ${this.paths.root}`);
   }
@@ -74,10 +89,20 @@ export class GroupWorkspace {
    * 写入 MEMBERS.md
    */
   writeMembers(members: string[], ownerName: string): void {
-    const content = `# ${this.groupName} - 成员列表
+    const now = new Date().toISOString();
+    const vars: Record<string, string> = {
+      groupName: this.groupName,
+      groupId: this.groupId,
+      datetime: now,
+      ownerName,
+      memberList: members.map((name, i) => `${i + 1}. **${name}**`).join("\n"),
+    };
+    let content = GroupWorkspace.resolveTemplate("MEMBERS.md", vars);
+    if (!content) {
+      content = `# ${this.groupName} - 成员列表
 
 > 群组 ID: ${this.groupId}
-> 创建时间: ${new Date().toISOString()}
+> 创建时间: ${now}
 
 ## 群主 (Owner)
 
@@ -85,7 +110,7 @@ export class GroupWorkspace {
 
 ## 成员 (Members)
 
-${members.map((name, i) => `${i + 1}. **${name}**`).join("\n")}
+${vars.memberList}
 
 ## 成员职责
 
@@ -94,9 +119,9 @@ ${members.map((name, i) => `${i + 1}. **${name}**`).join("\n")}
 
 ## 更新日志
 
-- ${new Date().toISOString()} - 初始化成员列表
+- ${now} - 初始化成员列表
 `;
-
+    }
     writeFileSync(this.paths.members, content, "utf-8");
   }
 
@@ -104,13 +129,20 @@ ${members.map((name, i) => `${i + 1}. **${name}**`).join("\n")}
    * 写入 STRUCTURE.md
    */
   writeStructure(structure: string = ""): void {
-    const content = `# ${this.groupName} - 项目结构
+    const vars: Record<string, string> = {
+      groupName: this.groupName,
+      datetime: new Date().toISOString(),
+      structureContent: structure || "```\n# 待添加项目结构\n```",
+    };
+    let content = GroupWorkspace.resolveTemplate("STRUCTURE.md", vars);
+    if (!content) {
+      content = `# ${this.groupName} - 项目结构
 
 > 本文档记录项目的文件/目录结构
 
 ## 目录结构
 
-${structure || "```\n# 待添加项目结构\n```"}
+${vars.structureContent}
 
 ## 说明
 
@@ -120,9 +152,9 @@ ${structure || "```\n# 待添加项目结构\n```"}
 
 ## 更新日志
 
-- ${new Date().toISOString()} - 初始化结构文档
+- ${vars.datetime} - 初始化结构文档
 `;
-
+    }
     writeFileSync(this.paths.structure, content, "utf-8");
   }
 
@@ -130,13 +162,20 @@ ${structure || "```\n# 待添加项目结构\n```"}
    * 写入 TASK.md
    */
   writeTask(task: string): void {
-    const content = `# ${this.groupName} - 任务描述
+    const vars: Record<string, string> = {
+      groupName: this.groupName,
+      datetime: new Date().toISOString(),
+      taskContent: task || "待添加任务描述...",
+    };
+    let content = GroupWorkspace.resolveTemplate("TASK.md", vars);
+    if (!content) {
+      content = `# ${this.groupName} - 任务描述
 
 > 本文档记录群组的任务目标和要求
 
 ## 任务目标
 
-${task || "待添加任务描述..."}
+${vars.taskContent}
 
 ## 验收标准
 
@@ -149,9 +188,9 @@ ${task || "待添加任务描述..."}
 
 ## 更新日志
 
-- ${new Date().toISOString()} - 初始化任务文档
+- ${vars.datetime} - 初始化任务文档
 `;
-
+    }
     writeFileSync(this.paths.task, content, "utf-8");
   }
 
@@ -160,19 +199,24 @@ ${task || "待添加任务描述..."}
    */
   writeProgress(_progress: string): void {
     const now = new Date().toISOString();
-    const dateStr = now.slice(0, 10);
-    const timeStr = now.slice(11, 16);
-    const content = `# ${this.groupName} - 工作日志
+    const vars: Record<string, string> = {
+      groupName: this.groupName,
+      date: now.slice(0, 10),
+      time: now.slice(11, 16),
+    };
+    let content = GroupWorkspace.resolveTemplate("PROGRESS.md", vars);
+    if (!content) {
+      content = `# ${this.groupName} - 工作日志
 
 > 记录谁在什么时候做了什么、产出了什么。追踪总进度见 PLAN.md。
 
-## ${dateStr}
+## ${vars.date}
 
-### ${timeStr}
+### ${vars.time}
 - 初始化工作日志
 
 `;
-
+    }
     writeFileSync(this.paths.progress, content, "utf-8");
   }
 
@@ -216,7 +260,14 @@ ${task || "待添加任务描述..."}
    * 写入 PLAN.md
    */
   writePlan(plan: string): void {
-    const content = `# ${this.groupName} - 执行计划
+    const vars: Record<string, string> = {
+      groupName: this.groupName,
+      datetime: new Date().toISOString(),
+      planContent: plan || "（Host 调查后填写依赖关系）",
+    };
+    let content = GroupWorkspace.resolveTemplate("PLAN.md", vars);
+    if (!content) {
+      content = `# ${this.groupName} - 执行计划
 
 ## 模块依赖
 
@@ -241,9 +292,9 @@ ${plan ? '' : "（Host 调查后填充阶段计划。每个阶段含具体任务
 
 ## 更新日志
 
-- ${new Date().toISOString()} - 初始化计划文档
+- ${vars.datetime} - 初始化计划文档
 `;
-
+    }
     writeFileSync(this.paths.plan, content, "utf-8");
   }
 
@@ -251,7 +302,13 @@ ${plan ? '' : "（Host 调查后填充阶段计划。每个阶段含具体任务
    * 写入 EXPERIENCE.md（群组级协作经验）
    */
   writeExperience(): void {
-    const content = `# ${this.groupName} - 群组协作经验
+    const vars: Record<string, string> = {
+      groupName: this.groupName,
+      datetime: new Date().toISOString(),
+    };
+    let content = GroupWorkspace.resolveTemplate("EXPERIENCE.md", vars);
+    if (!content) {
+      content = `# ${this.groupName} - 群组协作经验
 
 > 本文档记录协作过程中的关键决策和教训
 
@@ -275,8 +332,9 @@ _记录哪些协作方式效果好_
 
 ## 更新日志
 
-- ${new Date().toISOString()} - 初始化协作经验文档
+- ${vars.datetime} - 初始化协作经验文档
 `;
+    }
     writeFileSync(this.paths.experience, content, "utf-8");
   }
 
@@ -289,12 +347,52 @@ _记录哪些协作方式效果好_
   }
 
   /**
+   * 读取 GUIDE.md — 群组规则
+   * 优先群组 workspace，回退 data/ 根目录
+   */
+  readGuide(): string | null {
+    if (existsSync(this.paths.guide)) {
+      return readFileSync(this.paths.guide, "utf-8");
+    }
+    const globalGuide = join("data", "GUIDE.md");
+    if (existsSync(globalGuide)) {
+      return readFileSync(globalGuide, "utf-8");
+    }
+    return null;
+  }
+
+  /**
+   * 写入 GUIDE.md（从模板初始化）
+   */
+  writeGuide(): void {
+    const vars: Record<string, string> = {
+      groupName: this.groupName,
+    };
+    let content = GroupWorkspace.resolveTemplate("GUIDE.md", vars);
+    if (!content) {
+      content = `# ${this.groupName} 群组规则\n\n## 协作约定\n\n## 工作流约束\n\n## 沟通规范\n`;
+    }
+    writeFileSync(this.paths.guide, content, "utf-8");
+  }
+
+  /**
    * 写入 INTERFACE.md
    */
   writeInterface(content: string = '', memberNames?: string[]): void {
-    const template = content
-      || '# 群组接口\n\n' + (memberNames?.length ? memberNames.map(n => `## ${n}\n`).join('\n') : '');
-    writeFileSync(this.paths.interface, template, "utf-8");
+    if (content) {
+      writeFileSync(this.paths.interface, content, "utf-8");
+      return;
+    }
+    const vars: Record<string, string> = {
+      memberSections: memberNames?.length ? memberNames.map(n => `## ${n}\n`).join('\n') : '',
+    };
+    const resolved = GroupWorkspace.resolveTemplate("INTERFACE.md", vars);
+    if (resolved) {
+      writeFileSync(this.paths.interface, resolved, "utf-8");
+      return;
+    }
+    const fallback = '# 群组接口\n\n' + (memberNames?.length ? memberNames.map(n => `## ${n}\n`).join('\n') : '');
+    writeFileSync(this.paths.interface, fallback, "utf-8");
   }
 
   /**
