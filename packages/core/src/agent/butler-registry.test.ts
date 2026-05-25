@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { ButlerRegistry } from "./registry.js";
+import { ButlerRegistry } from "./butler-registry.js";
 
 describe("ButlerRegistry", () => {
   let tmpDir: string;

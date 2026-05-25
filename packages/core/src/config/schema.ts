@@ -5,7 +5,7 @@
  * Agent 的完整配置存放在 data/agents/{id}/config.json（自治配置）。
  */
 
-import type { NetworkConfig, SecurityConfig, LocalModelConfig } from "@cobeing/shared";
+import type { NetworkConfig, SecurityConfig, LocalModelConfig, ReviewerConfig } from "@cobeing/shared";
 
 export interface ChannelBindTo {
   type: "agent" | "group";
@@ -63,12 +63,16 @@ export interface AppConfig {
     url?: string;
     headers?: Record<string, string>;
   }>;
+  /** 群组级审核员默认配置 — 新建群组时作为 fallback */
+  reviewer?: ReviewerConfig;
   groups?: Array<{
     id: string;
     name: string;
     members: string[];
     owner?: string;
     topic?: string;
+    /** 群组级审核员配置（覆盖全局默认） */
+    reviewer?: ReviewerConfig;
   }>;
 }
 

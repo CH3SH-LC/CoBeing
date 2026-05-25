@@ -48,6 +48,11 @@ export class CurrentMd {
     }).filter((m): m is CurrentMessage => m !== null);
   }
 
+  /** 获取最近 N 条消息（从内存读取） */
+  getRecent(n: number): CurrentMessage[] {
+    return this.inMemory.slice(-n);
+  }
+
   /** 格式化为 Agent 可读的上下文文本（从内存读取） */
   readAsContext(): string {
     if (this.inMemory.length === 0) return "";

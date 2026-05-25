@@ -16,6 +16,7 @@ export interface GroupMessageV2 {
   content: string;
   timestamp: number;
   mentions: string[];         // 解析出的 @mention 目标列表
+  metadata?: Record<string, unknown>;  // 附加元数据（审核标记等）
 }
 
 export interface TalkInfo {
@@ -85,7 +86,7 @@ export class GroupContextV2 {
   // ---- Main 频道 ----
 
   /** 在 main 频道追加消息 */
-  append(fromAgentId: string, content: string, tag: string = "main"): GroupMessageV2 {
+  append(fromAgentId: string, content: string, tag: string = "main", metadata?: Record<string, unknown>): GroupMessageV2 {
     const mentions = parseMentions(content);
     const msg: GroupMessageV2 = {
       id: nextMsgId(),
@@ -94,6 +95,7 @@ export class GroupContextV2 {
       content,
       timestamp: Date.now(),
       mentions,
+      metadata,
     };
     this.messages.push(msg);
 
@@ -111,7 +113,7 @@ export class GroupContextV2 {
   }
 
   /** 追加消息但不触发回调（用于外部写入响应，避免重复唤醒） */
-  appendSilent(fromAgentId: string, content: string, tag: string = "main"): GroupMessageV2 {
+  appendSilent(fromAgentId: string, content: string, tag: string = "main", metadata?: Record<string, unknown>): GroupMessageV2 {
     const mentions = parseMentions(content);
     const msg: GroupMessageV2 = {
       id: nextMsgId(),
@@ -120,6 +122,7 @@ export class GroupContextV2 {
       content,
       timestamp: Date.now(),
       mentions,
+      metadata,
     };
     this.messages.push(msg);
     return msg;

@@ -1,10 +1,14 @@
 import { useEffect } from "react";
 import { useWakeQueueStore, type WakeQueueEntry } from "@/stores/wakeQueue";
 import { useAgentsStore } from "@/stores/agents";
+import { WsClient } from "@/lib/ws-client";
 
-/** 获取 WS 客户端实例 */
-function getWsClient(): any {
-  return (globalThis as any).__wsClient ?? null;
+/** 通过模块级 wsClient 引用发送命令 */
+let _wsClient: WsClient | null = null;
+export function setWakeQueueWsClient(c: WsClient | null) { _wsClient = c; }
+
+function getWsClient(): WsClient | null {
+  return _wsClient;
 }
 
 function resolveAgentName(agentId: string): string {

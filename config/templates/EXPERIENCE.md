@@ -1,5 +1,9 @@
 # EXPERIENCE.md — 工作经验
 
+<!-- EXPERIENCE_SUMMARY_START -->
+## 经验概要
+<!-- EXPERIENCE_SUMMARY_END -->
+
 _记录你在工作中积累的经验和教训。_
 
 ## 领域经验

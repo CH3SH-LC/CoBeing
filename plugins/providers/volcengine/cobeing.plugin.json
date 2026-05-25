@@ -1,0 +1,8 @@
+{
+  "id": "cobeing-plugin-volcengine",
+  "name": "Volcengine / Doubao",
+  "kind": "model-provider",
+  "version": "0.1.0",
+  "main": "../../packages/plugin-sdk/dist/builtins/volcengine.js",
+  "cobeingVersion": ">=1.3.0"
+}

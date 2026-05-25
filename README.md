@@ -1,309 +1,278 @@
-<p align="center">
-  <img src="main-icon.png" alt="CoBeing Logo" width="128" height="128">
-</p>
+# CoBeing
 
-<h1 align="center">CoBeing</h1>
+> 多智能体协作框架 — 让 AI Agents 组队干活
 
-<p align="center">
-  <strong>Native Multi-Agent Collaboration Framework</strong>
-</p>
+CoBeing 是一个多 Agent 协作平台。你可以创建不同角色的 AI Agent，让它们单独完成任务，或者组队协作处理复杂项目。内置智能管家帮你管理一切。
 
-<p align="center">
-  <a href="README_CN.md">中文</a>
-</p>
+## 特性
 
-<p align="center">
-  <img src="cobeing-poster.png" alt="CoBeing Poster" width="100%">
-</p>
-
----
-
-## Core Features
-
-### Native Multi-Agent Architecture
-
-CoBeing is not a wrapper around a single AI, but a **multi-agent collaboration system designed from scratch**. Each Agent is an independent entity with its own memory, experience, and personality.
-
-This architecture enables **specialized division of labor** — each Agent focuses on one domain, more professional than a "jack-of-all-trades AI". Multiple Agents can **work in parallel**, multiplying efficiency. Agents are **reusable** across different projects and groups. When new capabilities are needed, just create a new Agent without affecting existing systems.
-
-### Butler Agent & Host Agent
-
-The **Butler** is the user's first point of contact, like an experienced project manager. It understands user needs, determines what kind of Agents are needed, automatically creates and configures them, organizes groups and assigns roles.
-
-The **Host** is the group's moderator and coordinator, like a meeting facilitator. It guides discussion direction to prevent going off-topic, assigns tasks to ensure every Agent has work to do, and drives decisions to prevent endless discussions.
-
-Users just tell the Butler "what I want to do", and the Butler handles everything. The Host ensures discussions stay on track, tasks get done, and decisions get implemented. The Butler is responsible for "finding the right people", the Host is responsible for "doing the right things".
-
-### Native Inter-Agent Communication
-
-In traditional approaches, Agent communication requires human relay, which is slow and error-prone. CoBeing's Agents can **communicate directly** with each other without human mediation.
-
-Supports **group discussions** — multiple Agents collaborate in the same group, like a real team discussing. Supports **directed messages** — Agents can @mention other Agents for direct point-to-point communication. Supports **task relay** — when an Agent finds a task beyond its capability, it can hand off to a more suitable Agent.
-
-Agents communicate directly without human translation. Communication is structured, no information loss. Supports one-to-many, many-to-many, relay, and other communication patterns.
-
-### TODOboard
-
-When multiple Agents collaborate, tasks easily get forgotten, progress is hard to track, and responsibilities are unclear. CoBeing has a built-in **task management system** to make group collaboration traceable.
-
-The Host can create, assign, and track tasks. TODOs can set due times and automatically remind relevant Agents. Complete lifecycle management from pending to completed. Each TODO has a clear owner.
-
-All tasks are recorded, nothing gets forgotten. Progress at a glance, know how much is completed. Each task has an owner, avoiding buck-passing.
-
-### Self-Learning
-
-AI starts from scratch every conversation, not learning from past work. CoBeing's Agents have **self-evolution capabilities**, learning from work experience.
-
-Through **EXPERIENCE.md** to record accumulated work experience, through **MEMORY.md** to store important events and decisions. Agents can proactively review and summarize experience, discover their own shortcomings and improve.
-
-Agents learn from past mistakes and won't repeat them. Experience doesn't disappear when conversation ends, it keeps accumulating. Agents can proactively identify their own shortcomings and improve, getting better with use.
+- **多 Agent 管理** — 创建、配置、销毁 Agent，每个 Agent 有独立的性格、职责和工具
+- **群组协作** — 组建 Agent 团队，多角色协作完成复杂任务
+- **智能管家** — 内置 Butler Agent，用自然语言管理整个系统
+- **多 LLM 支持** — Anthropic / OpenAI / DeepSeek / Gemini / 智谱 / 千问 等 10+ 厂商
+- **多渠道接入** — QQ / Discord / 飞书 / 企业微信（可选）
+- **工具系统** — bash、文件读写、代码编辑、网页抓取等内置工具
+- **技能系统** — 可扩展的 SKILL.md 技能文件
+- **记忆与经验** — Agent 自动积累对话记忆和工作经验
+- **本地优先** — 所有数据存储在本地，不上传云端
+- **桌面 GUI** — React 19 + Tauri 2.0 原生桌面应用
 
 ---
 
-## Project Structure
+## 快速开始
 
-```
-CoBeing/
-├── packages/
-│   ├── shared/          # Shared types and utilities
-│   ├── providers/       # LLM Provider implementations
-│   ├── channels/        # QQBot channel adapter
-│   └── core/            # Core logic
-├── gui-v2/              # Tauri desktop application
-├── config/              # Configuration files
-├── skills/              # Built-in skills
-├── prompts/             # Prompt templates
-├── sandbox/             # Docker sandbox configuration
-└── scripts/             # Development scripts
-```
+### 环境要求
 
----
+| 工具 | 版本 |
+|------|------|
+| Node.js | >= 22.0.0 |
+| pnpm | >= 10.0.0 |
+| Rust (可选，桌面应用需要) | 最新稳定版 |
+| Docker (可选，沙箱功能需要) | 任意版本 |
 
-## Core Concepts
+### 安装步骤
 
-### Agent
-
-Agent is the core unit of CoBeing. Each Agent has independent:
-- **SOUL.md**: Personality traits and behavioral principles
-- **CHARACTER.md**: Character description and background
-- **JOB.md**: Focus areas and work methods
-- **MEMORY.md**: Memory storage (SQLite FTS5 full-text search)
-- **EXPERIENCE.md**: Experience accumulation
-- **TOOLS.md**: Tool usage strategies
-- Configurable LLM Provider and Model per Agent
-- External workspace binding (`bind` to any project directory)
-- 4-level permission system (full-access / workspace-write / read-only / ask)
-
-### Group
-
-Group is the core collaboration unit for multiple Agents, more like a "project team" than a "chat room":
-- **Lifecycle management** — active → completed (auto-detect when all TODOs done & idle >1h) → archived (zip packaged)
-- **Task decomposition** — Host breaks down tasks with parent-child hierarchy and dependency chains (dependsOn)
-- **Voting & consensus** — vote-create / cast / result, majority approval with Host arbitration on tie
-- **Experience accumulation** — group-experience-add / summarize, cross-Agent knowledge sharing via EXPERIENCE.md
-- **Group workspace** — shared TASK.md / PLAN.md / PROGRESS.md / MEMBERS.md / STRUCTURE.md
-- **Screener** — optional dual-model pre-filtering, lightweight LLM judges whether to wake the main model
-
-### Skill
-
-Skill is a reusable workflow methodology, stored in the `skills/` directory:
-- Each skill is a directory containing `SKILL.md`
-- Supports frontmatter metadata
-- Can be dynamically loaded and executed by Agents
-- **Meta-skills** — cognitive-toolkit, collaboration-mindset, learning-loop
-- Agent-level skill whitelist (config.json skills field)
-
-### Channel
-
-Channel is the interface for user interaction:
-- QQBot (Official QQ Bot API v2)
-
-Connect QQBot to communicate with Agent groups directly on QQ.
-
----
-
-## Changelog
-
-### v1.2.0 (2026-05-13)
-
-**New Features:**
-- Master Registry — unified Agent/Group registry (`data/registry.json`), single source of truth
-- Group lifecycle management — active → completed → archived state machine with auto-completion detection
-- Group workspace — Agents in groups now point file tools to the group workspace directory
-- Voting & consensus — vote-create/cast/result, majority approval with Host arbitration
-- Task dependency management — parent-child task hierarchy, dependsOn chains, auto-trigger downstream
-- Agent external workspace binding — `bind` any external project directory as workspace
-- Observability dashboard — LLM calls, tool calls, token stats, latency metrics, auto-refresh
-- Provider auto-fallback — automatic failover on timeout/503/500/402/429 errors
-- Theme system redesign — 6 visually distinct themes (3 light: Sakura Mint, Amber Dawn, Lavender Rain; 3 dark: Ink Jade, Amethyst Night, Ember Gold)
-- All UI colors migrated to CSS variables — theme-aware color system, zero hardcoded colors
-- TODO kanban board — 4-column view with batch complete/delete/reassign operations
-- Meta-skills system — cognitive-toolkit, collaboration-mindset, learning-loop
-- Message status feedback — sending → sent → streaming → done/error lifecycle in UI
-- Channel message sender attribution — external channel messages display actual sender name
-
-**Improvements:**
-- WakeSystem redesigned with fire-and-forget per-group independent timers
-- Agent/Group lists sorted by recent message time
-- Sidebar auto-selects first item on view switch
-- Tool call bubbles merged into collapsible groups in Agent chat
-- Group chat UI aligned with Agent chat (centered input, animated thinking indicator)
-- Overdue TODO detection with priority sorting
-- Warehouse: Agent awareness of teammates, capabilities, and active status in group context
-- Proactive collaboration: `group-send` and `group-update-progress` tools for Agents
-- Knowledge sharing: `group-experience-add` and `group-experience-summarize`
-
-**Fixes:**
-- Ghost groups permanently resolved (content-level validation + delete fallback rename)
-- Full-chain message persistence fix (14 items: save timing, race conditions, sender attribution)
-- Group member add/remove not persisting to config.json → restart losing members
-- PermissionEnforcer path resolution causing all group tool calls being rejected
-- Windows SQLite WAL file lock preventing Agent/Group deletion
-- Shutdown race condition causing data loss (server_shutting_down broadcast)
-- Zombie process + build cache causing inconsistent version at startup
-- Tool call round limit removed (was 20, now unlimited via config-loader.ts)
-
-### v1.1.1 (2026-04-27)
-
-**Bug Fixes:**
-- Fix group message persistence — Agent replies now sync to GroupContextV2, current.md, and context.jsonl
-- Fix ContextWindow tool_calls validation — changed from global pre-collection to forward scanning, resolves message corruption in multi-round tool calls
-- Fix tool execution exception breaking conversation chain — catch exceptions and write isError message to prevent tool_calls chain crash
-- Fix current.md parsing compatibility — support both JSON-wrapped and JSONL formats
-- Fix Provider hot-reload not reading file — API Key changes now take effect immediately after frontend save
-
-**Improvements:**
-- Remove tool call round limit — maxToolRounds set to unlimited
-- CurrentMd now uses in-memory operations — reduces disk I/O, avoids concurrent file write conflicts
-- GroupContextV2 adds appendSilent — write messages without triggering callbacks, prevents duplicate wake-ups
-
----
-
-## Quick Start
-
-### Option 1: Use Release Archive (Recommended)
-
-1. Go to [Releases](https://github.com/CH3SH-LC/CoBeing/releases) and download the latest archive
-2. Extract to any directory
-3. Double-click `start.bat` to launch
-
-> **Note:** Running the terminal in the background may trigger antivirus false positives. If blocked, add the CoBeing directory to your antivirus whitelist.
-
-### Option 2: Build from Source
-
-**Requirements:**
-- Node.js >= 22
-- pnpm >= 10
-- Docker (optional, for sandbox features)
-
-**Installation:**
+**1. 克隆项目**
 
 ```bash
-# Clone repository
-git clone https://github.com/CH3SH-LC/CoBeing.git
-cd CoBeing
+git clone <repo-url> cobeing
+cd cobeing
+```
 
-# Install dependencies
+**2. 安装依赖**
+
+```bash
 pnpm install
+```
 
-# Configure environment variables
+**3. 配置 API Key**
+
+复制环境变量模板并填入你的 API Key：
+
+```bash
 cp .env.example .env
-# Edit .env file and add your API keys
-
-# Build project
-pnpm build
-
-# Start development server
-pnpm dev
 ```
 
----
+编辑 `.env` 文件，至少填入一个 LLM Provider 的 Key：
 
-## Supported LLM Providers
+```
+# 推荐从 DeepSeek 开始（性价比高）
+DEEPSEEK_API_KEY=your_key_here
 
-> **Recommendation:** We suggest using **DeepSeek V4** for the best balance of performance and cost.
+# 或使用其他 Provider
+ANTHROPIC_API_KEY=your_key_here
+OPENAI_API_KEY=your_key_here
+```
 
-| Provider | Models | Status |
-|----------|--------|--------|
-| DeepSeek | V4 Flash, V4 Pro | ✅ |
-| Zhipu (GLM) | GLM-5.1, GLM-4.7, GLM-Z1, CodeGeeX 4 | ✅ |
-| Qwen | Qwen-Max, Qwen-Plus, Qwen-Turbo, QwQ 32B | ✅ |
-| MiniMax | MiniMax-M2.7, MiniMax-M2.5, abab6.5s | ✅ |
-| Volcengine (Doubao) | Seed 2.0, Doubao Pro, Doubao Lite | ✅ |
-| Moonshot (Kimi) | Kimi K2.6, Kimi K2.5, Kimi K2 | ✅ |
-| MiMo | MiMo V2.5 Pro, MiMo V2 Pro, MiMo V2 Flash | ✅ |
+> 你只需要配置一个 Provider 就能开始使用。更多 Provider 详见下方 [配置 LLM Provider](#配置-llm-provider) 章节。
 
----
+**4. 启动**
 
-## Development
+最简单的方式 — 双击 `start.bat`（Windows），按提示选择模式。
 
-### Build
+或命令行启动：
 
 ```bash
-# Build all packages
-pnpm build
-
-# Build single package
-pnpm --filter @cobeing/core build
-
-# Watch mode
+# CLI 模式（终端交互）
 pnpm dev
+
+# GUI 模式（浏览器）
+# 终端 1: 启动后端
+pnpm dev
+# 终端 2: 启动前端
+cd gui-v2 && npm install && npm run dev
+# 然后打开 http://localhost:1420
 ```
 
-### Test
+看到以下输出说明启动成功：
 
-```bash
-# Run all tests
-pnpm test
-
-# Run single package tests
-pnpm --filter @cobeing/core test
-
-# Watch mode
-pnpm test:watch
+```
+=== CoBeing v2 ===
+Core WS Server started on port 18765
+输入文字与管家对话，输入 /help 查看命令
 ```
 
 ---
 
-## Acknowledgements
+## 新手教程
 
-### Project Inspiration
+### 第一步：和管家打个招呼
 
-- [OpenClaw](https://github.com/openclaw) - Open source AI Agent framework
-- [Hermes](https://github.com/hermes-agent) - Terminal Agent framework
-- [Claude Code](https://claude.ai/code) - AI programming assistant
+启动后你会看到一个叫 **管家** 的 Agent。它是你的第一联系人，可以帮你做任何事。
 
-### Model Support
+在 CLI 或 GUI 中直接输入：
 
-- [Zhipu Qingyan](https://open.bigmodel.cn/) - GLM series models
-- [Xiaomi MIMO](https://mimo.xiaomi.com/) - MIMO series models
+```
+你好，帮我介绍一下你自己
+```
 
-### Individual Contributions
+管家会自然地回复你，就像和一个朋友聊天。
 
-- **Liu Cheng** - Developer
-- **Fan Hongjiao, Ma Zhuqi, Cui Xitong** - Project testing and feedback
+### 第二步：和管家聊天
 
-### Institutional Support
+管家不仅能聊天，还能帮你做事：
 
-- **Shanghai Jiao Tong University, School of Artificial Intelligence, Geek Center** - Token support
+```
+帮我用 Python 写一个快速排序
+```
 
-### Special Thanks
+管家会直接帮你写代码，不需要创建额外的 Agent。
 
-- **Brother Dawei** - Project inspiration
+```
+帮我搜索一下当前目录有哪些文件
+```
+
+管家有 bash、文件读写等工具，可以直接操作。
+
+### 第三步：创建一个专属 Agent
+
+当你需要一个长期存在的专业角色时，可以让管家帮你创建：
+
+```
+帮我创建一个 Python 数据分析专家
+```
+
+管家会：
+1. 分析你的需求
+2. 设计 Agent 的性格和能力
+3. 创建并注册新 Agent
+
+你也可以通过 GUI 的 "创建 Agent" 按钮手动创建。
+
+### 第四步：组建团队
+
+当任务需要多个角色协作时：
+
+```
+帮我创建一个开发团队，需要一个前端工程师和一个后端工程师，一起设计一个 Todo 应用
+```
+
+管家会创建一个群组，让多个 Agent 在里面讨论和协作。你可以在 GUI 中实时观看它们的讨论过程。
+
+### 第五步：探索 Agent 的世界
+
+每个 Agent 都有自己的文件目录，包含：
+
+| 文件 | 内容 |
+|------|------|
+| SOUL.md | 性格特质 — 决定说话方式和行为风格 |
+| CHARACTER.md | 人物描写 — 姓名、背景、个性 |
+| JOB.md | 工作职责 — 擅长什么、怎么工作 |
+| USER.md | 用户偏好 — 记录你的喜好 |
+| EXPERIENCE.md | 工作经验 — 积累的经验和教训 |
+| TOOLS.md | 工具策略 — 什么时候用什么工具 |
+
+Agent 会在使用过程中自动学习和更新这些文件。你可以在 GUI 的 "文件" 标签页中查看和编辑。
+
+---
+
+## 配置 LLM Provider
+
+CoBeing 支持 10+ 家 LLM 厂商。在 `.env` 中配置你想用的 Provider 的 API Key：
+
+| Provider | 环境变量 | 获取地址 |
+|----------|----------|----------|
+| DeepSeek | `DEEPSEEK_API_KEY` | https://platform.deepseek.com |
+| Anthropic | `ANTHROPIC_API_KEY` | https://console.anthropic.com |
+| OpenAI | `OPENAI_API_KEY` | https://platform.openai.com |
+| Google Gemini | `GEMINI_API_KEY` | https://aistudio.google.com |
+| 智谱 GLM | `ZHIPU_API_KEY` | https://open.bigmodel.cn |
+| 通义千问 | `QWEN_API_KEY` | https://dashscope.console.aliyun.com |
+| MiniMax | `MINIMAX_API_KEY` | https://www.minimaxi.com |
+| 豆包（字节） | `VOLCENGINE_API_KEY` | https://www.volcengine.com |
+| Grok (xAI) | `XAI_API_KEY` | https://console.x.ai |
+| Moonshot | `MOONSHOT_API_KEY` | https://platform.moonshot.cn |
+| SiliconFlow | `SILICONFLOW_API_KEY` | https://siliconflow.cn |
+
+默认使用 DeepSeek 的 `deepseek-chat` 模型。你可以在 `config/default.json` 中修改默认模型。
+
+---
+
+## 项目结构
+
+```
+cobeing/
+├── packages/          # 后端核心 (pnpm monorepo)
+│   ├── core/          #   Agent/群组/工具/记忆/MCP/WebSocket
+│   ├── providers/     #   LLM Provider 适配器
+│   ├── channels/      #   外部通信渠道 (QQ/Discord/飞书/企业微信)
+│   └── shared/        #   共享类型和工具
+├── gui-v2/            # 前端 GUI (React 19 + Tauri 2.0)
+├── config/            # 配置文件 + Agent 模板
+│   ├── default.json   #   主配置
+│   └── templates/     #   Agent 创建模板
+├── data/              # 运行时数据 (自动生成)
+├── skills/            # 全局技能仓库
+├── prompts/           # Prompt 模板
+└── scripts/           # 开发脚本
+```
+
+---
+
+## 常用命令
+
+```bash
+pnpm dev          # 启动开发服务器
+pnpm build        # 构建所有包
+pnpm test         # 运行测试
+pnpm test:watch   # 测试监听模式
+pnpm clean        # 清理构建产物
+```
+
+CLI 模式内置命令：
+
+```
+/agents    # 查看所有 Agent
+/groups    # 查看所有群组
+/registry  # 查看注册表
+/gateway   # 查看 LLM 网关状态
+/help      # 查看帮助
+/quit      # 退出
+```
+
+---
+
+## 桌面应用打包
+
+需要安装 Rust 工具链（https://rustup.rs）：
+
+```bash
+# 双击 build-gui.bat 或手动执行：
+cd gui-v2
+npm install
+npx tauri build
+```
+
+输出在 `gui-v2/src-tauri/target/release/bundle/`。
+
+---
+
+## 数据与隐私
+
+- 所有数据存储在本地 `data/` 目录
+- Agent 配置、对话历史、经验积累全部本地保存
+- API Key 通过 `.env` 文件管理，不会上传
+- 不收集任何遥测数据
+
+---
+
+## 故障排查
+
+**启动报错 "Cannot find module"**
+```bash
+pnpm clean && pnpm build
+```
+
+**GUI 连接失败**
+1. 确认后端已启动并显示 "WS Server started on port 18765"
+2. 检查端口是否被占用
+
+**Agent 创建失败**
+1. 确认 `.env` 中至少配置了一个有效的 API Key
+2. 检查网络连接
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details
-
----
-
-## Contact
-
-- Issue Reports: [GitHub Issues](https://github.com/CH3SH-LC/CoBeing/issues)
-- Discussions: [GitHub Discussions](https://github.com/CH3SH-LC/CoBeing/discussions)
-
----
-
-**CoBeing** - Let multiple AIs work together for you 🚀
+MIT

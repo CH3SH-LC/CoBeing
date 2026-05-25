@@ -74,7 +74,7 @@ const CATALOG_MODELS: Record<string, Array<{ id: string; name: string; tags?: st
 
 const BUILTIN_PROVIDERS = Object.keys(CATALOG_MODELS);
 
-const PERMISSIONS = ["full-access", "workspace-write", "read-only", "ask"] as const;
+const PERMISSIONS = ["full-access", "basic-access", "workspace-access", "workspace-readwrite", "read-only"] as const;
 
 const TAG_LABELS: Record<string, string> = {
   coding: "代码",

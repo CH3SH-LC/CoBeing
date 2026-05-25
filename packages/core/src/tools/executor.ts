@@ -58,7 +58,7 @@ export class ToolExecutor {
       workingDir,
       sandbox: this.sandboxConfig ?? { enabled: false, filesystem: "isolated", network: { enabled: true, mode: "all" } },
       sandboxRunner: this.sandboxRunner,
-      permissions: { mode: "full-access" },
+      permissions: { mode: (this.permission?.mode ?? "full-access") as import("@cobeing/shared").PermissionMode },
       callDepth,
     });
     result.toolCallId = toolCall.id;

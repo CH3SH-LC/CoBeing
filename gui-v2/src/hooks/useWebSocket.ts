@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { WsClient } from "@/lib/ws-client";
-import type { WsMessage, WsStatePayload, WsMessagePayload, ToolEvent } from "@/lib/types";
+import type { WsMessage, WsStatePayload, WsMessagePayload, ToolEvent, WorkspaceBinding } from "@/lib/types";
 import { useSettingsStore } from "@/stores/settings";
 import { useAgentsStore } from "@/stores/agents";
 import { useGroupsStore } from "@/stores/groups";
@@ -299,7 +299,7 @@ export function useWebSocket(url = "ws://localhost:18765") {
         }
 
         case "group_message": {
-          const gm = msg.payload as { groupId: string; fromAgentId: string; content: string; mentions: string[]; timestamp: number };
+          const gm = msg.payload as { groupId: string; fromAgentId: string; content: string; mentions: string[]; timestamp: number; metadata?: Record<string, unknown> };
           // Mark user message as done when group agent responds
           if (gm.groupId) updateMsgStatus(gm.groupId, "done");
           const agents = useAgentsStore.getState().agents;
@@ -317,6 +317,7 @@ export function useWebSocket(url = "ws://localhost:18765") {
             content: gm.content,
             timestamp: gm.timestamp,
             senderId: gm.fromAgentId,
+            metadata: gm.metadata,
           }, gm.groupId);
           break;
         }
@@ -544,6 +545,24 @@ export function useWebSocket(url = "ws://localhost:18765") {
           break;
         }
 
+        case "review_log": {
+          const rl = msg.payload as { type: string; agentId: string; groupId: string; rounds?: number; reason?: string };
+          const reviewTypeMap: Record<string, { icon: string; verb: string; level: "info" | "warn" | "error" }> = {
+            review_pending: { icon: "⏳", verb: "等待审核", level: "info" },
+            review_passed: { icon: "✅", verb: "审核通过", level: "info" },
+            review_failed_override: { icon: "⛔", verb: "审核拦截", level: "warn" },
+          };
+          const info = reviewTypeMap[rl.type];
+          if (info) {
+            const rlAgentName = useAgentsStore.getState().agents.find(a => a.id === rl.agentId)?.name || rl.agentId;
+            const rlGroupName = useGroupsStore.getState().groups.find(g => g.id === rl.groupId)?.name || rl.groupId;
+            const roundsText = rl.rounds ? `[第${rl.rounds}轮]` : "";
+            const reasonText = rl.reason ? `: ${rl.reason}` : "";
+            emitActivity(info.icon, `${rlAgentName} ${info.verb}${roundsText}${reasonText}`, info.level, "system", rl.agentId, rl.groupId, { agentName: rlAgentName, groupName: rlGroupName });
+          }
+          break;
+        }
+
         case "group_history": {
           const gh = msg.payload as { groupId: string; messages: any[]; hasMore: boolean };
           if (gh.messages && gh.messages.length > 0) {
@@ -555,6 +574,68 @@ export function useWebSocket(url = "ws://localhost:18765") {
 
         case "sandbox_status": {
           window.dispatchEvent(new CustomEvent("ws-sandbox-status", { detail: msg }));
+          break;
+        }
+
+        case "workspace_bound": {
+          const wb = msg.payload as { agentId: string; path: string | null; effectiveWorkspace: string };
+          const wbAgentName = useAgentsStore.getState().agents.find(a => a.id === wb.agentId)?.name || wb.agentId;
+          if (wb.path) {
+            emitActivity("📁", `${wbAgentName} 工作区已绑定: ${wb.path}`, "info", "system", wb.agentId, undefined, { agentName: wbAgentName });
+          } else {
+            emitActivity("📁", `${wbAgentName} 工作区已解绑，恢复默认路径`, "info", "system", wb.agentId, undefined, { agentName: wbAgentName });
+          }
+          break;
+        }
+
+        case "binding_added": {
+          const ba = msg.payload as { agentId: string; bindings: WorkspaceBinding[] };
+          useAgentsStore.getState().updateAgentBindings(ba.agentId, ba.bindings);
+          const baName = useAgentsStore.getState().agents.find(a => a.id === ba.agentId)?.name || ba.agentId;
+          emitActivity("📁", `${baName} 已添加工作区绑定`, "info", "system", ba.agentId, undefined, { agentName: baName });
+          break;
+        }
+
+        case "binding_removed": {
+          const br = msg.payload as { agentId: string; bindings: WorkspaceBinding[] };
+          useAgentsStore.getState().updateAgentBindings(br.agentId, br.bindings);
+          const brName = useAgentsStore.getState().agents.find(a => a.id === br.agentId)?.name || br.agentId;
+          emitActivity("📁", `${brName} 已移除工作区绑定`, "info", "system", br.agentId, undefined, { agentName: brName });
+          break;
+        }
+
+        case "bindings_list": {
+          const bl = msg.payload as { agentId: string; bindings: WorkspaceBinding[] };
+          useAgentsStore.getState().updateAgentBindings(bl.agentId, bl.bindings);
+          break;
+        }
+
+        case "channel_bound": {
+          const cb = msg.payload as { channelName: string; targetType: string; targetId: string };
+          emitActivity("🔗", `Channel ${cb.channelName} 已绑定到 ${cb.targetType} ${cb.targetId}`, "info", "system");
+          break;
+        }
+
+        case "channel_unbound": {
+          const cu = msg.payload as { channelName: string; targetType: string; targetId: string };
+          emitActivity("🔗", `Channel ${cu.channelName} 已解绑`, "info", "system");
+          break;
+        }
+
+        case "skill_created": {
+          const sc = msg.payload as { name: string };
+          emitActivity("🛠️", `技能 "${sc.name}" 已创建`, "info", "system");
+          break;
+        }
+
+        case "sandbox_action_result": {
+          const sr = msg.payload as { agentId: string; action: string; success: boolean; error?: string };
+          const srAgentName = useAgentsStore.getState().agents.find(a => a.id === sr.agentId)?.name || sr.agentId;
+          if (sr.success) {
+            emitActivity("📦", `${srAgentName} 沙箱操作完成: ${sr.action}`, "info", "system", sr.agentId, undefined, { agentName: srAgentName });
+          } else {
+            emitActivity("📦", `${srAgentName} 沙箱操作失败 (${sr.action}): ${sr.error || "未知错误"}`, "error", "system", sr.agentId, undefined, { agentName: srAgentName });
+          }
           break;
         }
       }

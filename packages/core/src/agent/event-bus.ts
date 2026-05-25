@@ -10,6 +10,8 @@ import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("event-bus");
 
+const MAX_EVENT_HISTORY = 1000;
+
 export interface BusMessage {
   groupId?: string;
   fromAgentId: string;
@@ -50,9 +52,27 @@ export class AgentEventBus {
 
   /** 发射事件，路由到目标 Agent */
   emit(event: "group-message" | "agent-direct" | "task-complete", msg: BusMessage | TaskCompleteMessage): void {
-    // 记录事件历史
+    // 记录事件历史 (bounded: max 1000 events total across all types)
     if (!this.eventHistory.has(event)) this.eventHistory.set(event, []);
-    this.eventHistory.get(event)!.push(msg);
+    const events = this.eventHistory.get(event)!;
+    events.push(msg);
+    // Prune: if total events exceed MAX_EVENT_HISTORY, drop oldest entries
+    // from the largest queue first
+    let totalEvents = 0;
+    for (const [, evts] of this.eventHistory) totalEvents += evts.length;
+    while (totalEvents > MAX_EVENT_HISTORY) {
+      // Find the event type with the most entries and drop its oldest
+      let maxKey = "";
+      let maxLen = 0;
+      for (const [k, evts] of this.eventHistory) {
+        if (evts.length > maxLen) { maxLen = evts.length; maxKey = k; }
+      }
+      const largest = this.eventHistory.get(maxKey);
+      if (largest && largest.length > 0) {
+        largest.shift();
+        totalEvents--;
+      } else break;
+    }
 
     if (event === "task-complete") {
       const tc = msg as TaskCompleteMessage;

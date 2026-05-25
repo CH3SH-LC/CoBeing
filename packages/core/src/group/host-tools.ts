@@ -52,9 +52,13 @@ export function makeHostGuideDiscussionTool(getGroup: GroupGetter): Tool {
 interface SubTask {
   title: string;
   assignee?: string;
-  triggerAt: string;
+  triggerAt?: string;
+  triggerMode?: string;
   description?: string;
-  /** 依赖的子任务索引（从 0 开始），如 [0] 表示依赖第一个子任务 */
+  check?: string;
+  conditionType?: string;
+  targetAgents?: string[];
+  onFail?: string;
   dependsOn?: number[];
 }
 
@@ -65,29 +69,38 @@ export function makeHostDecomposeTaskTool(
 ): Tool {
   return {
     name: "host-decompose-task",
-    description: "拆解任务为子任务，创建 TODO 并分配给成员（群主专用）。支持依赖声明：使用 dependsOn 指定当前子任务依赖哪些子任务（按索引，从 0 开始）。",
+    description: "拆解任务为子任务，创建 0time TODO 并分配给成员（群主专用）。支持 triggerMode、接口依赖 condition、并行启动。",
     parameters: {
       type: "object",
       properties: {
         groupId: { type: "string", description: "群组 ID" },
         task: { type: "string", description: "总体任务描述" },
+        triggerMode: {
+          type: "string", enum: ["time", "0time", "condition"],
+          description: "触发模式。默认 0time（创建即触发）。time 需填 triggerAt，condition 需填 conditionType"
+        },
         subtasks: {
           type: "array",
-          description: "子任务列表。用 dependsOn 指定依赖关系（索引从 0 开始），上游完成后当前任务自动触发。",
+          description: "子任务列表。用 dependsOn 指定依赖关系（索引从 0 开始）。",
           items: {
             type: "object",
             properties: {
               title: { type: "string" },
               assignee: { type: "string", description: "分配给哪个成员" },
-              triggerAt: { type: "string", description: "触发时间 (ISO 8601)" },
+              triggerMode: { type: "string", enum: ["time", "0time", "condition"] },
+              triggerAt: { type: "string", description: "触发时间 ISO 8601。mode=time 时必填" },
               description: { type: "string" },
+              check: { type: "string", description: "完成条件。0time/condition 模式使用" },
+              conditionType: { type: "string", enum: ["agent_speak"] },
+              targetAgents: { type: "array", items: { type: "string" }, description: "condition 监视的 Agent" },
+              onFail: { type: "string", enum: ["remind", "recreate"] },
               dependsOn: {
                 type: "array",
                 items: { type: "number" },
-                description: "依赖的子任务索引列表（从 0 开始），上游完成后当前任务才会触发",
+                description: "依赖的子任务索引列表（从 0 开始）",
               },
             },
-            required: ["title", "triggerAt"],
+            required: ["title"],
           },
         },
       },
@@ -98,20 +111,33 @@ export function makeHostDecomposeTaskTool(
       if (!group) return { toolCallId: "", content: `未找到群组: ${params.groupId}`, isError: true };
 
       const subtasks = params.subtasks as SubTask[];
+      const defaultMode = (params.triggerMode as string) || "0time";
       const todos: Array<{ id: string; title: string; assignee?: string }> = [];
 
       // Pass 1: 创建所有子任务，记录 ID
       for (const st of subtasks) {
-        const todo = addTodo({
+        const mode = st.triggerMode || defaultMode;
+        const todoInput: any = {
           title: st.title,
           description: st.description || `来自任务拆解: ${params.task}`,
-          triggerAt: st.triggerAt,
+          triggerMode: mode,
+          triggerAt: st.triggerAt || "",
+          check: st.check,
           recurrenceHint: "不重复",
           scope: "group",
           groupId: params.groupId,
           targetAgentId: st.assignee,
           createdBy: context.agentId,
-        });
+        };
+        if (mode === "condition" && st.conditionType) {
+          todoInput.condition = {
+            type: st.conditionType,
+            targetAgents: st.targetAgents || [],
+            check: st.check || "",
+            onFail: st.onFail || "remind",
+          };
+        }
+        const todo = addTodo(todoInput);
         todos.push({ id: todo.id, title: st.title, assignee: st.assignee });
       }
 

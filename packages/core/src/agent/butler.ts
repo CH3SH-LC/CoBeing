@@ -10,12 +10,12 @@ import { Agent } from "./agent.js";
 import { AgentPaths, AgentFiles } from "./paths.js";
 import { AgentRegistry } from "./registry.js";
 import { SubAgentSpawner } from "./spawner.js";
-import { GroupManager } from "../group/manager.js";
+import type { GroupManager } from "../group/manager.js";
 import { ConversationLoop } from "../conversation/conversation-loop.js";
 import { PermissionEnforcer } from "../tools/permission.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { makeGroupMembersTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool } from "../tools/group-tools.js";
-import { ButlerRegistry } from "../butler/registry.js";
+import { ButlerRegistry } from "./butler-registry.js";
 import { WorkflowEngine } from "../workflow/engine.js";
 import { createLogger, rmDirRecursive, addAgentToRegistry, removeAgentFromRegistry, updateGroupMembers } from "@cobeing/shared";
 import { DockerSandbox } from "../tools/sandbox/docker-sandbox.js";
@@ -150,7 +150,7 @@ function makeCreateAgentTool(
         systemPrompt: (params.systemPrompt as string) || `你是${name}，${role}`,
         provider: providerId,
         model,
-        permissions: { mode: "workspace-write" },
+        permissions: { mode: "workspace-readwrite" },
         sandbox: sandboxConfig,
         tools: ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch", "agent-message"],
         skills: params.skills as string[] | undefined,
@@ -169,7 +169,7 @@ function makeCreateAgentTool(
         role,
         provider: providerId,
         model,
-        permissions: { mode: "workspace-write" },
+        permissions: { mode: "workspace-readwrite" },
         sandbox: sandboxConfig,
         tools: ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "web-fetch", "agent-message"],
         skills: params.skills as string[] | undefined,
@@ -487,7 +487,7 @@ function makeBindWorkspaceTool(registry: AgentRegistry): Tool {
 
       if (!rawPath || rawPath === "default" || rawPath === "") {
         // 解绑
-        agent.setBoundWorkspace(null);
+        agent.clearBindings();
         return {
           toolCallId: "",
           content: `已解绑 ${agent.name} 的外部工作目录，恢复默认工作区: ${agent.effectiveWorkspace}`,
@@ -502,7 +502,7 @@ function makeBindWorkspaceTool(registry: AgentRegistry): Tool {
         return { toolCallId: "", content: `绑定目录不存在: ${resolved}`, isError: true };
       }
 
-      agent.setBoundWorkspace(resolved);
+      agent.addBinding({ path: resolved, mode: "readwrite" });
       return {
         toolCallId: "",
         content: `已将 ${agent.name} 绑定到外部工作目录:\n绑定路径: ${resolved}\n核心文件仍在: ${(agent as any).paths.directory}`,

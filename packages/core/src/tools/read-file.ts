@@ -18,7 +18,26 @@ export const readFileTool: Tool = {
     required: ["path"],
   },
   async execute(params, context: ToolContext): Promise<ToolResult> {
-    const filePath = path.resolve(context.workingDir, params.path as string);
+    const workingDir = context.workingDir;
+    const filePath = path.resolve(workingDir, params.path as string);
+
+    // Path containment: prevent escaping working directory
+    const rel = path.relative(workingDir, filePath);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) {
+      return { toolCallId: "", content: "Error: path escapes working directory", isError: true };
+    }
+
+    // Symlink escape prevention: resolve real path if file exists
+    try {
+      const realPath = fs.realpathSync(filePath);
+      const realRel = path.relative(workingDir, realPath);
+      if (realRel.startsWith("..") || path.isAbsolute(realRel)) {
+        return { toolCallId: "", content: "Error: path escapes working directory (symlink)", isError: true };
+      }
+    } catch {
+      // File doesn't exist yet — ok, will fail naturally on readFileSync below
+    }
+
     const offset = params.offset as number | undefined;
     const limit = params.limit as number | undefined;
 

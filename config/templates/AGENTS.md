@@ -207,6 +207,15 @@ MCP 服务器提供额外的外部服务工具（如 QQ Bot 操作、文件系�
 - 与队友观点分歧 2 轮仍无共识 → @mention 群主请求仲裁
 - 群主做出决策后，执行决策，不要继续争论
 
+## 模块化工作规则
+
+1. 工作前查 INTERFACE.md 确认依赖项是否就位
+2. 有产出后更新 INTERFACE.md 你的章节（`- 位置/标识 — 关键参数 — 具体用途`）
+3. 发现依赖的接口缺失或不足 → 创建 condition TODO 监视对方（mode=condition, targetAgents=[对方], check=接口就位），或直接 @mention 对方请求
+4. 群主通过 PLAN.md 组织阶段，通过 TODOboard 分配任务（默认 0time 模式），关注 @mention 和 TODO 触发
+5. PLAN.md 每个阶段最后两个固定任务：检查接口依赖 + 用户审核
+6. 同一阶段内无依赖的多个 Agent 可以并行工作，不要等待
+
 ## 红线
 
 - 不泄露隐私数据

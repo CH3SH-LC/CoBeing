@@ -12,7 +12,8 @@ import type { Agent } from "../agent/agent.js";
 import type { CurrentMd } from "./current-md.js";
 import type { GroupAgentMemory } from "./agent-memory.js";
 import path from "node:path";
-import { createLogger } from "@cobeing/shared";
+import { createLogger, DEFAULT_PROVIDER, DEFAULT_JUDGMENT_MODEL } from "@cobeing/shared";
+import { runJudgmentAgent } from "../agent/tool-agent/judgment.js";
 
 const log = createLogger("wake-system");
 
@@ -49,6 +50,7 @@ export class WakeSystem {
   private getGroupMembers: (() => string[]) | null;
   private maxCurrentMessages: number;
   private _paused = false;
+  private _disposed = false;
   private wakeQueue: WakeEntry[] = [];
   private processedMsgIds = new Set<string>();
   private ownerId?: string;
@@ -64,6 +66,9 @@ export class WakeSystem {
   private _wakeTimer: ReturnType<typeof setInterval> | null = null;
 
   private getGroup: (() => import("./group.js").Group | undefined) | null;
+
+  private _judgmentModel: string;
+  private _judgmentProvider?: import("@cobeing/providers").LLMProvider;
 
   constructor(
     ctx: GroupContextV2,
@@ -93,12 +98,24 @@ export class WakeSystem {
     this.maxCurrentMessages = deps?.maxCurrentMessages ?? 200;
     this.getGroup = deps?.getGroup ?? null;
 
+    this._judgmentModel = (globalThis as any).__cobeingConfig?.judgmentModel ?? DEFAULT_JUDGMENT_MODEL;
+    const getProvider = (globalThis as any).__cobeingGetProvider as ((id: string) => import("@cobeing/providers").LLMProvider | undefined) | undefined;
+    // 尝试 default provider，fallback 到第一个可用 provider
+    this._judgmentProvider = getProvider?.(DEFAULT_PROVIDER)
+      ?? (() => {
+        const providers: Map<string, import("@cobeing/providers").LLMProvider> | undefined =
+          (globalThis as any).__cobeingRuntime?.providersMap;
+        if (providers && providers.size > 0) return providers.values().next().value;
+        return undefined;
+      })();
+
     // 订阅新消息
     ctx.onMessage((msg) => this.handleNewMessage(msg));
   }
 
   /** 处理新消息 */
   private handleNewMessage(msg: GroupMessageV2): void {
+    if (this._disposed) return;
     // 跳过已处理的消息
     if (this.processedMsgIds.has(msg.id)) return;
 
@@ -133,7 +150,13 @@ export class WakeSystem {
         continue;
       }
       if (resolvedId === msg.fromAgentId) continue; // 不唤醒发送者自己
-      this.enqueueMention(resolvedId, msg.id, msg.tag, msg.content, `@${mention}`);
+
+      if (resolvedId === this.ownerId) {
+        // Route through judgment — suppresses unnecessary host wakeups
+        this.enqueueMentionWithJudgment(resolvedId, msg.id, msg.tag, msg.content, `@${mention}`, msg.fromAgentId);
+      } else {
+        this.enqueueMention(resolvedId, msg.id, msg.tag, msg.content, `@${mention}`);
+      }
     }
 
     // 本地过滤：判断是否唤醒群主
@@ -145,6 +168,13 @@ export class WakeSystem {
 
     // 触发处理
     this.processQueue();
+
+    // Mark as processed and prune if exceeding max size
+    this.processedMsgIds.add(msg.id);
+    if (this.processedMsgIds.size > 5000) {
+      log.info("[%s] processedMsgIds exceeded 5000 — clearing (old IDs won't repeat)", this.ctx.groupId);
+      this.processedMsgIds.clear();
+    }
   }
 
   /**
@@ -174,11 +204,8 @@ export class WakeSystem {
       return;
     }
 
-    // 检查是否正在处理中（防止并发 run() 清空 history）
-    if (this._processingAgents.has(targetAgentId)) {
-      log.info("[%s] Agent '%s' is currently processing, skipping re-enqueue", this.ctx.groupId, targetAgentId);
-      return;
-    }
+    // Agent 正在处理中也允许入队（排到队尾，本轮完成后可被再次唤醒）
+    // _tickQueue 的 processing 过滤会防止并发执行
 
     // 新增到队列
     log.info("[%s] Enqueue mention: %s (trigger: %s)", this.ctx.groupId, targetAgentId, triggerMsgId);
@@ -190,6 +217,61 @@ export class WakeSystem {
       triggerMentions: mentionText ? [`@${targetAgentId}`] : [],
     });
     this._broadcastQueue();
+  }
+
+  /**
+   * 带 Judgment 的群主唤醒 — 判断是否需要真的唤醒群主
+   * 仅当 @ 了群主、不是显式 @host、且 judgment provider 就绪时运行判断
+   */
+  private async enqueueMentionWithJudgment(
+    targetAgentId: string,
+    triggerMsgId: string,
+    triggerTag: string,
+    triggerContent: string,
+    mentionText?: string,
+    fromAgentId?: string,
+  ): Promise<void> {
+    const isOwner = targetAgentId === this.ownerId;
+    const isExplicitHostMention = mentionText === "@host" || mentionText === `@${this.ownerId}`;
+    const provider = this._judgmentProvider || (globalThis as any).__cobeingGetProvider?.(DEFAULT_PROVIDER);
+
+    if (isOwner && !isExplicitHostMention && provider) {
+      const host = this.getAgent(targetAgentId);
+      const fromAgent = fromAgentId ? this.getAgent(fromAgentId) : undefined;
+      if (host) {
+        try {
+          const recentMsgs = this.currentMd
+            ? this.currentMd.getRecent(10)
+            : [];
+          const result = await runJudgmentAgent(
+            {
+              targetMessage: triggerContent,
+              fromAgentId: fromAgentId || triggerTag || "unknown",
+              fromAgentName: fromAgent?.name ?? fromAgentId ?? "unknown",
+              recentMessages: recentMsgs.map((m) => `[${m.fromAgentId || m.tag || "?"}]: ${m.content}`),
+              hostName: host.name,
+              groupName: this.ctx.groupId,
+            },
+            provider,
+            this._judgmentModel,
+            targetAgentId,
+            host.effectiveWorkspace,
+          );
+
+          if (!result.wake_host) {
+            log.info("[%s] Judgment: NOT waking host — %s", this.ctx.groupId, result.reason);
+            return;
+          }
+          log.info("[%s] Judgment: waking host (urgency=%s) — %s", this.ctx.groupId, result.urgency, result.reason);
+        } catch (err) {
+          log.warn("[%s] Judgment failed, defaulting to wake: %s", this.ctx.groupId, err);
+        }
+      }
+    }
+
+    // Fall through to normal enqueue
+    this.enqueueMention(targetAgentId, triggerMsgId, triggerTag, triggerContent, mentionText);
+    this.processQueue();
   }
 
   /** 手动触发唤醒（用户消息或 screener 建议） */
@@ -221,6 +303,11 @@ export class WakeSystem {
   /** 注入本地过滤引擎 */
   setLocalFilter(filter: import("./local-filter.js").LocalFilterEngine): void {
     this.localFilter = filter;
+  }
+
+  /** 注入 Judgment Tool Agent 的 LLM provider */
+  setJudgmentProvider(provider: import("@cobeing/providers").LLMProvider): void {
+    this._judgmentProvider = provider;
   }
 
   /** 注入 Agent 响应回调 */
@@ -277,6 +364,19 @@ export class WakeSystem {
       this.wakeQueue = [];
       this._broadcastQueue();
     }
+  }
+
+  /** 释放所有资源 — 群组销毁时调用 */
+  dispose(): void {
+    this._disposed = true;
+    if (this._wakeTimer) {
+      clearInterval(this._wakeTimer);
+      this._wakeTimer = null;
+    }
+    this.wakeQueue = [];
+    this._processingAgents.clear();
+    this.processedMsgIds.clear();
+    log.info("[%s] WakeSystem disposed", this.ctx.groupId);
   }
 
   /** 异步评估是否唤醒群主 */
@@ -336,6 +436,7 @@ export class WakeSystem {
 
   /** 定时触发：每次从队列取 1 个 Agent 唤醒（不等待上一个完成，每 tick 触发 1 个） */
   private _tickQueue(): void {
+    if (this._disposed) return;
     if (this._paused) return;
     if (this.wakeQueue.length === 0) {
       this._stopTimerIfIdle();
@@ -359,6 +460,9 @@ export class WakeSystem {
     }
 
     log.info("[%s] Tick: waking %s (%d remaining in queue)", this.ctx.groupId, entry.targetAgentId, this.wakeQueue.length);
+
+    // Mark processing BEFORE async ops to prevent race condition on re-enqueue
+    this._processingAgents.add(entry.targetAgentId);
     this._broadcastQueue();
 
     // Fire and forget — don't wait for completion, next tick handles next agent
@@ -446,6 +550,7 @@ export class WakeSystem {
               plan: workspace.plan,
               progress: workspace.progress,
               experienceSummary,
+              interface: workspace.interface,
             },
             todos,
             this.ownerId,
@@ -532,10 +637,9 @@ export class WakeSystem {
       }
 
       // 5. 唤醒 Agent（群组隔离：使用独立的 ConversationLoop，上下文已包含三层架构）
-      this._processingAgents.add(entry.targetAgentId);
-      this._broadcastQueue();
       const response = await agent.run(enrichedContext, {
         groupId: this.ctx.groupId,
+        guideContent: this.getGroup?.()?.workspace.readGuide() ?? undefined,
         workingDir: this.getGroup?.()?.effectiveWorkspace,
       });
 
@@ -632,6 +736,7 @@ export class WakeSystem {
         const retryContext = entry.triggerContents.join("\n\n");
         const response = await agent.run(retryContext, {
           groupId: this.ctx.groupId,
+          guideContent: this.getGroup?.()?.workspace.readGuide() ?? undefined,
           workingDir: this.getGroup?.()?.effectiveWorkspace,
         });
 

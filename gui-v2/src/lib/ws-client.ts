@@ -17,6 +17,9 @@ export class WsClient {
     this.handler = handler;
   }
 
+  // Note: The browser's native WebSocket automatically responds to
+  // protocol-level ping frames with pong frames. The server sends pings
+  // every 30s and terminates connections that don't respond within 10s.
   connect() {
     this.disconnect();
     const ws = new WebSocket(this.url);

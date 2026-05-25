@@ -109,6 +109,71 @@ const STEPS: Step[] = [
   },
 ];
 
+/** Safely render inline **bold** formatting */
+function FormattedText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith("**") && part.endsWith("**")) {
+          return <strong key={i}>{part.slice(2, -2)}</strong>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
+/** Safely render content with **bold**, bullet lists, and blockquotes */
+function SafeContent({ content }: { content: string }) {
+  const lines = content.split("\n");
+  const nodes: React.ReactNode[] = [];
+
+  let bulletGroup: string[] = [];
+  let keyCounter = 0;
+
+  const flushBullets = () => {
+    if (bulletGroup.length > 0) {
+      nodes.push(
+        <ul key={keyCounter++} className="list-disc pl-4 my-2 space-y-0.5">
+          {bulletGroup.map((b, i) => (
+            <li key={i}>
+              <FormattedText text={b} />
+            </li>
+          ))}
+        </ul>
+      );
+      bulletGroup = [];
+    }
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("• ")) {
+      bulletGroup.push(line.slice(2));
+    } else {
+      flushBullets();
+      if (line === "") {
+        nodes.push(<div key={keyCounter++} className="h-2" />);
+      } else if (line.startsWith("> ")) {
+        nodes.push(
+          <div key={keyCounter++} className="border-l-2 border-accent pl-3 my-1 italic text-txt-muted">
+            <FormattedText text={line.slice(2)} />
+          </div>
+        );
+      } else {
+        nodes.push(
+          <p key={keyCounter++} className="mb-1">
+            <FormattedText text={line} />
+          </p>
+        );
+      }
+    }
+  }
+  flushBullets();
+
+  return <>{nodes}</>;
+}
+
 export function TutorialOverlay({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState(0);
   const [visible, setVisible] = useState(false);
@@ -180,16 +245,9 @@ export function TutorialOverlay({ onClose }: { onClose: () => void }) {
 
         {/* Content */}
         <div className="px-6 py-4 max-h-[40vh] overflow-y-auto">
-          <div
-            className="text-sm leading-relaxed whitespace-pre-line text-txt-sub"
-            dangerouslySetInnerHTML={{
-              __html: current.content
-                .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-                .replace(/•/g, "&bull;")
-                .replace(/> (.*)/g, "<br><span style='font-style:italic'>$1</span>")
-                .replace(/\n/g, "<br>"),
-            }}
-          />
+          <div className="text-sm leading-relaxed text-txt-sub">
+            <SafeContent content={current.content} />
+          </div>
         </div>
 
         {/* Footer */}

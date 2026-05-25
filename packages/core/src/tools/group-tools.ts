@@ -4,11 +4,15 @@
  */
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 import type { Group } from "../group/group.js";
+import type { Agent } from "../agent/agent.js";
 import { createLogger } from "@cobeing/shared";
+import { injectReviewExperience } from "../group/review-experience.js";
+import { runReviewAgent, parseReviewOutput } from "../agent/tool-agent/review.js";
 
 const log = createLogger("group-tools");
 
 type GroupGetter = (groupId: string) => Group | undefined;
+type AgentGetter = (agentId: string) => Agent | undefined;
 
 // ---- group-members ----
 
@@ -242,7 +246,7 @@ export function makeTalkCloseTool(getGroup: GroupGetter): Tool {
 
 // ---- group-send ----
 
-export function makeGroupSendTool(getGroup: GroupGetter): Tool {
+export function makeGroupSendTool(getGroup: GroupGetter, getAgent?: AgentGetter): Tool {
   return {
     name: "group-send",
     description: "主动向群组 main 频道发送消息。用于主动求助、进度同步、阻塞上报等需要主动发起对话的场景。如果需要特定成员回应，使用 mention 参数 @对方。",
@@ -265,9 +269,95 @@ export function makeGroupSendTool(getGroup: GroupGetter): Tool {
         ? `${mention} ${params.message}`
         : (params.message as string);
 
+      // === 审核拦截：消息发送前经过 Review Tool Agent 检查 ===
+      const reviewerCfg = group.config.reviewer;
+      if (getAgent && reviewerCfg?.enabled !== false && reviewerCfg?.maxRounds !== 0) {
+        const agent = getAgent(context.agentId);
+        if (agent) {
+          const runtime = (globalThis as any).__cobeingRuntime;
+          const provider = runtime?.getProvider(agent.config.provider) as import("@cobeing/providers").LLMProvider | undefined;
+          if (provider) {
+            const trace = agent.wakeSession?.getTrace();
+            if (trace) {
+              trace.finalMessage = msg;
+              const ws = (globalThis as any).__cobeingWSServer;
+              const recentMessages = group.getRecentMessages(10);
+              const mentions = group.getMentionsFor(context.agentId);
+              const workspace = group.workspace;
+              const truncate = (s: string, max: number) => s.length > max ? s.slice(0, max) + '...' : s;
+
+              const reviewInput = {
+                agentJobMd: agent.files.readJob(),
+                agentTrace: trace,
+                groupRecentMessages: recentMessages.map(m => `[${m.fromAgentId}]: ${m.content}`),
+                agentMentions: mentions.map(m => `[${m.fromAgentId}]: ${m.content}`),
+                groupTaskMd: truncate(workspace.readTask() ?? '', 1000),
+                groupPlanMd: truncate(workspace.readPlan() ?? '', 1000),
+                groupProgressMd: truncate(workspace.readProgress() ?? '', 1000),
+              };
+
+              const maxRounds = reviewerCfg.maxRounds ?? 3;
+              let retryCount = 0;
+
+              for (let round = 0; round < maxRounds; round++) {
+                ws?.emitReviewLog({ type: 'review_pending', agentId: context.agentId, groupId: group.id });
+                let toolResult;
+                try {
+                  toolResult = await runReviewAgent(
+                    reviewInput,
+                    provider,
+                    agent.getToolRegistry(),
+                    agent.config.model,
+                    agent.effectiveWorkspace,
+                    context.agentId,
+                  );
+                } catch (err: any) {
+                  log.error("[%s] Review agent crashed for %s: %s — allowing message through", params.groupId, context.agentId, err.message);
+                  group.postMessage(context.agentId, msg);
+                  ws?.emitReviewLog({ type: 'review_passed', agentId: context.agentId, groupId: group.id });
+                  return { toolCallId: "", content: "消息已发送到群组（审核跳过）。" };
+                }
+                const parsed = parseReviewOutput(toolResult.output);
+                retryCount = round + 1;
+                (context as any).reviewRetryCount = retryCount;
+
+                if (parsed.pass) {
+                  group.postMessage(context.agentId, msg);
+                  log.info("[%s] %s message passed review", params.groupId, context.agentId);
+                  ws?.emitReviewLog({ type: 'review_passed', agentId: context.agentId, groupId: group.id });
+                  return { toolCallId: "", content: "消息已发送到群组。" };
+                }
+
+                // 不通过 → 写入经验
+                await injectReviewExperience(agent, group, parsed.reason, false).catch(() => {});
+                log.info("[%s] %s message rejected by review (attempt %d/%d)", params.groupId, context.agentId, retryCount, maxRounds);
+                ws?.emitReviewLog({ type: 'review_failed', agentId: context.agentId, groupId: group.id, reason: parsed.reason, rounds: round });
+
+                if (retryCount >= maxRounds) break;
+                // 否则重试（Agent 会在同一唤醒周期内重新调用 group-send）
+                return {
+                  toolCallId: "",
+                  content: `【审核未通过】原因：${parsed.reason}。请根据反馈修正后重新发送消息。还可重试 ${maxRounds - retryCount} 次。`,
+                };
+              }
+
+              // 轮次耗尽 → 强制发布
+              await injectReviewExperience(agent, group, reviewInput.agentTrace.finalMessage ? "轮次耗尽" : "", true).catch(() => {});
+              group.postMessage(context.agentId, msg, { reviewOverridden: true });
+              log.warn("[%s] %s message force-published after review rounds exhausted", params.groupId, context.agentId);
+              ws?.emitReviewLog({ type: 'review_failed_override', agentId: context.agentId, groupId: group.id, rounds: retryCount });
+              return {
+                toolCallId: "",
+                content: `消息已强制发送（经 ${retryCount} 轮审核未通过）。`,
+              };
+            }
+          }
+        }
+      }
+
+      // 审核关闭或无法审核 → 直接发布
       group.postMessage(context.agentId, msg);
       log.info("[%s] %s sent proactive message via group-send", params.groupId, context.agentId);
-
       return { toolCallId: "", content: "消息已发送到群组。" };
     },
   };

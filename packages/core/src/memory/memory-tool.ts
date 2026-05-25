@@ -15,7 +15,7 @@ export function makeMemoryTool(store: MemoryStore): Tool {
 - user: 用户画像（偏好、习惯、沟通风格）
 - tools: 工具策略（场景→工具映射）
 
-操作：add（新增）、replace（替换，用 old_text 定位）、remove（删除）、read（查看）。
+操作：add（新增）、replace（替换，用 old_text 定位）、remove（删除）、read（查看）、feedback（对搜索到的记忆标记有用/无用）。
 
 写入前会检查安全性和容量。超限时需要合并旧条目或删除过时信息。`,
     parameters: {
@@ -23,7 +23,7 @@ export function makeMemoryTool(store: MemoryStore): Tool {
       properties: {
         action: {
           type: "string",
-          enum: ["add", "replace", "remove", "read"],
+          enum: ["add", "replace", "remove", "read", "feedback"],
           description: "操作类型",
         },
         target: {
@@ -38,6 +38,11 @@ export function makeMemoryTool(store: MemoryStore): Tool {
         old_text: {
           type: "string",
           description: "定位已有条目的短子串（replace 和 remove 必填）",
+        },
+        feedback_action: {
+          type: "string",
+          enum: ["helpful", "unhelpful"],
+          description: "反馈类型（仅 feedback 操作需要）",
         },
       },
       required: ["action", "target"],
@@ -66,8 +71,22 @@ export function makeMemoryTool(store: MemoryStore): Tool {
           const result = store.read(target);
           return { toolCallId: "", content: result.content! };
         }
+        case "feedback": {
+          const feedbackQuery = (params.content as string) || (params.old_text as string);
+          if (!feedbackQuery) return { toolCallId: "", content: "错误: feedback 操作需要 content 或 old_text 作为搜索词。" };
+          const fbAction = (params.feedback_action as string) || "helpful";
+          if (fbAction !== "helpful" && fbAction !== "unhelpful") {
+            return { toolCallId: "", content: `错误: feedback_action 必须是 "helpful" 或 "unhelpful"，收到: "${fbAction}"` };
+          }
+          const result = store.searchAndFeedback(
+            feedbackQuery,
+            params.target as MemoryTarget | undefined,
+            fbAction as "helpful" | "unhelpful",
+          );
+          return { toolCallId: "", content: result.success ? result.content! : `错误: ${result.error}` };
+        }
         default:
-          return { toolCallId: "", content: `错误: 未知操作 "${action}"。支持: add, replace, remove, read` };
+          return { toolCallId: "", content: `错误: 未知操作 "${action}"。支持: add, replace, remove, read, feedback` };
       }
     },
   };

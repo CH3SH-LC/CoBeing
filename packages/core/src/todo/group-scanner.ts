@@ -1,8 +1,9 @@
 // packages/core/src/todo/group-scanner.ts
-import { createLogger } from "@cobeing/shared";
+import { createLogger, DEFAULT_PROVIDER, DEFAULT_JUDGMENT_MODEL } from "@cobeing/shared";
 import type { TodoItem } from "./types.js";
 import { TodoStore } from "./store.js";
 import { OVERDUE_THRESHOLD_MS } from "./types.js";
+import { runMemoryAgent } from "../agent/tool-agent/memory.js";
 
 const log = createLogger("group-todo-scanner");
 
@@ -46,17 +47,23 @@ export class GroupTodoScanner {
     log.info("GroupTodoScanner stopped for %s", this.groupId);
   }
 
-  /** 扫描并触发到期 TODO — 不同 targetAgent 并行，同一 targetAgent 依次，逾期优先 */
+  /** 扫描并触发到期 TODO + 0time TODO */
   async scanOnce(): Promise<void> {
     const dueTodos = this.store.getDueTodos();
-    if (dueTodos.length === 0) return;
+    const zeroTimeTodos = this.store.getZeroTimeTodos();
 
-    // 逾期任务优先触发（triggerAt 越早越靠前）
+    if (dueTodos.length === 0 && zeroTimeTodos.length === 0) return;
+
+    // 逾期任务优先触发 + 0time 随后
     dueTodos.sort((a, b) => new Date(a.triggerAt).getTime() - new Date(b.triggerAt).getTime());
+    const allTodos = [
+      ...dueTodos,
+      ...zeroTimeTodos.filter(t => !t.triggeredAt || t.status === 'pending'),
+    ];
 
     // 按 targetAgentId 分组
     const grouped = new Map<string, TodoItem[]>();
-    for (const todo of dueTodos) {
+    for (const todo of allTodos) {
       const key = todo.targetAgentId || "__unassigned__";
       const arr = grouped.get(key) || [];
       arr.push(todo);
@@ -69,10 +76,30 @@ export class GroupTodoScanner {
     );
     await Promise.allSettled(promises);
 
-    // Completion detection: all TODOs done → mark group completed
+    // 0time 未完成的重建逻辑
+    for (const todo of zeroTimeTodos) {
+      if (todo.triggeredAt && todo.status !== 'completed') {
+        this.store.updateStatus(todo.id, 'expired');
+        this.store.add({
+          title: todo.title,
+          description: todo.description,
+          triggerMode: '0time',
+          triggerAt: '',
+          check: todo.check,
+          recurrenceHint: '不重复',
+          createdBy: 'TODOboard',
+          targetAgentId: todo.targetAgentId,
+          groupId: todo.groupId,
+          dependsOn: todo.dependsOn,
+        });
+        log.info("Group %s: 0time TODO %s expired, recreated", this.groupId, todo.id);
+      }
+    }
+
+    // Completion detection
     try {
-      const allTodos = this.store.list();
-      if (allTodos.length > 0 && allTodos.every(t => t.status === 'completed')) {
+      const allStoreItems = this.store.list();
+      if (allStoreItems.length > 0 && allStoreItems.every(t => t.status === 'completed')) {
         const gm = (globalThis as any).__cobeingGroupManager;
         if (gm) {
           const group = gm.get(this.groupId);
@@ -86,6 +113,38 @@ export class GroupTodoScanner {
     } catch (err: any) {
       log.error("Completion check failed for %s: %s", this.groupId, err.message);
     }
+  }
+
+  /** 当 Agent 在群组中发言时调用 — 检查 condition TODO */
+  async checkConditionTodos(speakerAgentId: string): Promise<void> {
+    const conditionTodos = this.store.getConditionTodos()
+      .filter(t => t.condition?.targetAgents?.includes(speakerAgentId));
+
+    for (const todo of conditionTodos) {
+      try {
+        const message = this.formatConditionTriggerMessage(todo, speakerAgentId);
+        log.info("Group %s: condition trigger for TODO %s (agent %s spoke)", this.groupId, todo.id, speakerAgentId);
+        await this.callbacks.onTrigger(this.groupId, todo, message);
+        this.store.markTriggered(todo.id);
+      } catch (err: any) {
+        log.error("Group %s: condition trigger failed for TODO %s: %s", this.groupId, todo.id, err.message);
+      }
+    }
+  }
+
+  private formatConditionTriggerMessage(todo: TodoItem, speakerId: string): string {
+    return `【系统通知 — 条件触发 @ ${this.groupId}】
+标题: ${todo.title}
+触发原因: ${speakerId} 在群组中发言了
+条件描述: ${todo.condition?.check || '检查接口是否就位'}
+指派给: ${todo.targetAgentId || "未指定"}
+条件不满足时的行为: ${todo.condition?.onFail || 'remind'}
+
+请检查以上条件是否满足：
+- 满足 → 调用 todo-complete 完成此 TODO
+- 不满足 → ${todo.condition?.onFail === 'recreate' ? '此 TODO 将被重建' : '请 @mention 对方提醒补充'}
+如需续期，先调用 todo-add 创建新 TODO，再调用 todo-complete。
+`;
   }
 
   private async triggerTodosSequentially(todos: TodoItem[]): Promise<void> {
@@ -143,7 +202,75 @@ export class GroupTodoScanner {
       }
     }
 
+    // 3. TODO 完成时触发群组记忆智能体（异步，不阻塞返回）
+    setImmediate(async () => {
+      try {
+        const gm = (globalThis as any).__cobeingGroupManager;
+        if (!gm) return;
+        const group = gm.get(this.groupId);
+        if (!group) return;
+
+        const getProvider = (globalThis as any).__cobeingGetProvider as ((id: string) => import("@cobeing/providers").LLMProvider | undefined) | undefined;
+        const provider = getProvider?.(DEFAULT_PROVIDER)
+          ?? (() => {
+            const providers: Map<string, import("@cobeing/providers").LLMProvider> | undefined =
+              (globalThis as any).__cobeingRuntime?.providersMap;
+            if (providers && providers.size > 0) return providers.values().next().value;
+            return undefined;
+          })();
+        if (!provider) return;
+
+        const model = (globalThis as any).__cobeingConfig?.judgmentModel ?? DEFAULT_JUDGMENT_MODEL;
+        const memoryResult = await runMemoryAgent(
+          "group",
+          {
+            groupName: group.config.name,
+            groupId: group.id,
+            phasePlan: group.workspace.readPlan() ?? "",
+            progressMd: group.workspace.readProgress() ?? "",
+            interfaceMd: group.workspace.readInterface() ?? "",
+            memberContributions: [],
+          },
+          provider,
+          model,
+          group.workspace.paths.root,
+        );
+
+        if (memoryResult.entries.length > 0) {
+          for (const entry of memoryResult.entries) {
+            const section = this.mapCategoryToSection(entry.category);
+            group.workspace.appendExperience(section, `${entry.summary}${entry.detail ? ' — ' + entry.detail : ''}`);
+          }
+          log.info("Group %s: memory saved %d entries", this.groupId, memoryResult.entries.length);
+        }
+
+        // interfaceUpdates 因 GroupWorkspace.appendInterfaceSection 仅接受 agentName，
+        // 将接口更新建议作为经验条目写入
+        if (memoryResult.interfaceUpdates && memoryResult.interfaceUpdates.length > 0) {
+          for (const update of memoryResult.interfaceUpdates) {
+            group.workspace.appendExperience("协作教训", `接口更新建议 — ${update.agentId}/${update.section}: ${update.entry}`);
+          }
+        }
+      } catch (err) {
+        // Non-blocking — memory failure doesn't affect phase completion
+        log.debug("Group %s memory agent error (non-blocking): %s", this.groupId, err);
+      }
+    });
+
     return item;
+  }
+
+  /** 将内存条目类别映射到群组经验区块 */
+  private mapCategoryToSection(category: string): "关键决策" | "协作教训" | "有效模式" {
+    switch (category) {
+      case "架构决策": return "关键决策";
+      case "用户偏好":
+      case "协作模式":
+      case "错误教训": return "协作教训";
+      case "工具发现":
+      case "最佳实践": return "有效模式";
+      default: return "有效模式";
+    }
   }
 
   private formatTriggerMessage(todo: TodoItem): string {

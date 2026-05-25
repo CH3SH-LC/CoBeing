@@ -71,13 +71,27 @@ export function readMasterRegistry(dataRoot: string): MasterRegistry {
     if (!parsed.groups) parsed.groups = {};
     // 防御：如果文件存在但内容损坏，不要返回空 registry（会导致所有目录被当作孤儿删除）
     if (Object.keys(parsed.agents).length === 0 && Object.keys(parsed.groups).length === 0 && raw.trim().length > 10) {
-      log.error("Registry file exists but parsed empty — possible corruption, keeping file content");
-      // 返回原始读取结果而非空 registry
+      log.error("Registry file exists but parsed empty — possible corruption. Renaming to .corrupted backup to prevent data loss.");
+      try {
+        const backup = rp + ".corrupted." + Date.now();
+        fs.renameSync(rp, backup);
+        log.error("Corrupted registry backed up to %s — starting with empty registry. Restore from backup if needed.", backup);
+      } catch (renameErr: any) {
+        log.error("Failed to backup corrupted registry: %s", renameErr.message);
+      }
+      return emptyRegistry();
     }
     return parsed;
   } catch (err: any) {
-    log.error("Failed to read registry.json: %s — keeping existing (treating as empty to prevent data loss)", err.message);
-    // 不要返回空 registry，这会导致所有目录被当作孤儿清理
+    log.error("Failed to read/parse registry.json: %s — renaming to .corrupted to prevent data loss", err.message);
+    // 重命名损坏文件，防止后续启动时被 emptyRegistry 触发孤儿清理
+    try {
+      const backup = rp + ".corrupted." + Date.now();
+      fs.renameSync(rp, backup);
+      log.error("Corrupted registry backed up to %s", backup);
+    } catch (renameErr: any) {
+      log.error("Failed to backup corrupted registry: %s", renameErr.message);
+    }
     return emptyRegistry();
   }
 }
@@ -294,12 +308,32 @@ export function cleanupOrphanDirectories(dataRoot: string): void {
             try { rmDirRecursive(path.join(agentsDir, entry.name)); } catch { /* ignore */ }
           }
         } else {
-          // 无 config.json → 真正的残留目录
-          log.warn("Cleaning up orphan agent directory (no config.json): %s", entry.name);
-          try {
-            rmDirRecursive(path.join(agentsDir, entry.name));
-          } catch (e: any) {
-            log.error("Failed to delete orphan agent dir %s: %s", entry.name, e.message);
+          // 无 config.json → 可能是半成品 Agent（如 reviewer）或真正的残留目录
+          // 防御：如果目录中包含 agent 典型文件（memory.db / CHARACTER.md / JOB.md），
+          // 视为需要收养的半成品 Agent 而非孤儿，以免删除活跃的 SQLite 数据库导致原生崩溃
+          const hasAgentFiles = fs.existsSync(path.join(agentsDir, entry.name, "CHARACTER.md"))
+            || fs.existsSync(path.join(agentsDir, entry.name, "JOB.md"))
+            || fs.existsSync(path.join(agentsDir, entry.name, "memory.db"));
+          if (hasAgentFiles) {
+            // 收养：生成最小 config.json 并加入 registry（下次 create 会补全）
+            log.warn("Adopting orphan agent (no config.json but has agent files): %s", entry.name);
+            const minConfig = { id: entry.name, name: entry.name, role: "auto-adopted", provider: "deepseek", model: "deepseek-v4-flash", tools: [], permissions: { mode: "read-only" as const }, sandbox: { enabled: false } };
+            try { fs.writeFileSync(path.join(agentsDir, entry.name, "config.json"), JSON.stringify(minConfig, null, 2), "utf-8"); } catch { /* can't adopt, skip */ }
+            registry.agents[entry.name] = {
+              id: entry.name,
+              name: entry.name,
+              role: "auto-adopted",
+              status: "active",
+              createdAt: new Date().toISOString(),
+            };
+            modified = true;
+          } else {
+            log.warn("Cleaning up orphan agent directory (no config.json): %s", entry.name);
+            try {
+              rmDirRecursive(path.join(agentsDir, entry.name));
+            } catch (e: any) {
+              log.error("Failed to delete orphan agent dir %s: %s", entry.name, e.message);
+            }
           }
         }
       }
@@ -368,4 +402,46 @@ export function cleanupOrphanDirectories(dataRoot: string): void {
     }
   }
   if (modified) writeMasterRegistry(dataRoot, registry);
+}
+
+// ─── 权限模式旧→新自动迁移 ───
+
+/** 旧权限模式 → 新 5 级体系的迁移映射 */
+const PERMISSION_MIGRATION_MAP: Record<string, string> = {
+  "full-access": "full-access",
+  "workspace-write": "workspace-readwrite",
+  "read-only": "read-only",
+  "ask": "workspace-readwrite",
+};
+
+/**
+ * 迁移 Agent config.json 中的旧权限模式到新 5 级体系。
+ * 返回 true 表示执行了迁移（config.json 已重写）。
+ */
+export function migratePermissionMode(agentDir: string): boolean {
+  const configPath = path.join(agentDir, "config.json");
+  if (!fs.existsSync(configPath)) return false;
+
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  } catch {
+    return false;
+  }
+
+  const perms = config.permissions as Record<string, unknown> | undefined;
+  if (!perms || typeof perms.mode !== "string") return false;
+
+  const oldMode = perms.mode;
+  const newMode = PERMISSION_MIGRATION_MAP[oldMode];
+  if (!newMode || newMode === oldMode) return false;
+
+  perms.mode = newMode;
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+    log.info("Migrated permission mode for %s: %s → %s", path.basename(agentDir), oldMode, newMode);
+    return true;
+  } catch {
+    return false;
+  }
 }

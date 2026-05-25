@@ -291,12 +291,20 @@ export class ContainerPool {
         return;
       }
       const rules = buildWhitelistRules(containerIp, allowDomains);
+      // 在宿主机上执行 iptables 规则（DOCKER-USER 是宿主机链，非容器内链）
+      const { spawn } = await import("node:child_process");
       for (const rule of rules) {
         try {
-          const escaped = rule.replace(/"/g, '\\"');
-          await this.dockerCmd(["exec", containerId, "sh", "-c", escaped]);
+          await new Promise<void>((resolve, reject) => {
+            const proc = spawn("iptables", rule.split(" ").slice(1), { timeout: 5000 });
+            proc.on("close", (code) => {
+              if (code === 0 || code === null) resolve();
+              else reject(new Error(`iptables exit ${code}`));
+            });
+            proc.on("error", reject);
+          });
         } catch {
-          // iptables 不可用（如容器内无 iptables），静默忽略
+          // iptables 不可用（如非 Linux 或无 root 权限），静默忽略
         }
       }
       log.info("Applied %d iptables whitelist rules to container %s", rules.length, containerId);

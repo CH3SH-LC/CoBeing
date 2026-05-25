@@ -124,6 +124,9 @@ export function GroupMessageBubble({ msg, senderName }: GroupMessageBubbleProps)
           <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
             <span className="text-xs font-medium text-accent">你</span>
             <span className="text-xs text-txt-muted">{formatTime(msg.timestamp)}</span>
+            {msg.metadata?.reviewOverridden === true && (
+              <span className="text-warning text-xs font-medium" title="审核未通过，已强制发布">⚠</span>
+            )}
             {msg.status && msg.status !== "done" && (
               <span className={`text-xs ${statusStyle(msg.status)}`}>
                 {statusLabel[msg.status]}
@@ -156,6 +159,9 @@ export function GroupMessageBubble({ msg, senderName }: GroupMessageBubbleProps)
             <span className="text-sm font-bold" style={{ color }}>
               {senderName ?? senderId}
             </span>
+            {msg.metadata?.reviewOverridden === true && (
+              <span className="text-warning text-xs font-medium" title="审核未通过，已强制发布">⚠</span>
+            )}
             <span className="text-xs text-txt-muted">{formatTime(msg.timestamp)}</span>
           </div>
           {msg.toolCalls && msg.toolCalls.length > 0 && (

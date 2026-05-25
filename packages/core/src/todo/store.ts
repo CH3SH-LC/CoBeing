@@ -30,6 +30,8 @@ export class TodoStore {
   add(input: Omit<TodoItem, "id" | "createdAt" | "status">): TodoItem {
     const item: TodoItem = {
       ...input,
+      triggerMode: input.triggerMode || "time",
+      recurrenceHint: input.recurrenceHint || "不重复",
       id: randomUUID(),
       status: "pending",
       createdAt: new Date().toISOString(),
@@ -65,13 +67,29 @@ export class TodoStore {
     return true;
   }
 
-  /** 获取所有到期 TODO（pending 且 triggerAt <= now 且尚未触发） */
+  /** 获取所有到期 TODO（pending 且 triggerAt <= now 且尚未触发。默认 time 模式） */
   getDueTodos(): TodoItem[] {
     const now = Date.now();
+    return this.readAll().filter(i => {
+      const mode = i.triggerMode || "time";
+      return i.status === "pending" &&
+        mode === "time" &&
+        !i.triggeredAt &&
+        new Date(i.triggerAt).getTime() <= now;
+    });
+  }
+
+  /** 获取 0time 模式的 pending TODO（扫描即触发） */
+  getZeroTimeTodos(): TodoItem[] {
     return this.readAll().filter(i =>
-      i.status === "pending" &&
-      !i.triggeredAt &&
-      new Date(i.triggerAt).getTime() <= now,
+      i.triggerMode === "0time" && i.status === "pending"
+    );
+  }
+
+  /** 获取 condition 模式的 pending TODO */
+  getConditionTodos(): TodoItem[] {
+    return this.readAll().filter(i =>
+      i.triggerMode === "condition" && i.status === "pending"
     );
   }
 

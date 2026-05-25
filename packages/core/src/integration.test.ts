@@ -11,7 +11,7 @@ import { AgentRegistry } from "./agent/registry.js";
 import { AgentEventBus } from "./agent/event-bus.js";
 import { MemoryWriter } from "./memory/writer.js";
 import { MemoryReader } from "./memory/reader.js";
-import { ButlerRegistry } from "./butler/registry.js";
+import { ButlerRegistry } from "./agent/butler-registry.js";
 import { GroupManager } from "./group/manager.js";
 import { GroupContextV2 } from "./group/group-context-v2.js";
 import { AgentPaths, AgentFiles } from "./agent/paths.js";

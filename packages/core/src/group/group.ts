@@ -153,16 +153,19 @@ export class Group {
   /**
    * 用户或群主发消息到 main 频道（触发唤醒起点）
    */
-  postMessage(fromAgentId: string, content: string): GroupMessageV2 {
+  postMessage(fromAgentId: string, content: string, metadata?: Record<string, unknown>): GroupMessageV2 {
     if (this.config.status === 'archived') {
       throw new Error(`群组 ${this.config.name} 已归档，无法发送消息`);
     }
     if (this.config.status === 'completed') {
       throw new Error(`群组 ${this.config.name} 已完成，无法发送消息。如需继续请先恢复为活跃状态`);
     }
-    const msg = this.ctxV2.append(fromAgentId, content, "main");
+    const msg = this.ctxV2.append(fromAgentId, content, "main", metadata);
     this.persistMessage(msg, "main");
     this.writeToGroupDb(msg, "main");
+    this._onMessageBroadcast?.(this.id, msg);
+    // 触发 condition TODO 扫描（检查是否有 condition TODO 监控该发言 Agent）
+    this._onMessage?.(this.id, fromAgentId);
     return msg;
   }
 
@@ -225,6 +228,20 @@ export class Group {
   /** 注入 Agent 响应回调到 WakeSystem（用于广播到前端） */
   setOnAgentResponse(cb: (groupId: string, agentId: string, content: string, tag: string) => void): void {
     this.wakeSystem.setOnAgentResponse(cb);
+  }
+
+  /** 消息广播回调 — postMessage 时通知 WS server */
+  private _onMessageBroadcast?: (groupId: string, msg: GroupMessageV2) => void;
+
+  setOnMessageBroadcast(cb: (groupId: string, msg: GroupMessageV2) => void): void {
+    this._onMessageBroadcast = cb;
+  }
+
+  /** 消息回调 — postMessage 时触发 condition TODO 扫描 */
+  private _onMessage?: (groupId: string, fromAgentId: string) => void;
+
+  setOnMessage(cb: (groupId: string, fromAgentId: string) => void): void {
+    this._onMessage = cb;
   }
 
   setOnAgentEvent(cb: import("./wake-system.js").WakeSystemConfig["onAgentEvent"]): void {
@@ -334,6 +351,19 @@ export class Group {
     }));
   }
 
+  /** 获取最近 N 条群组消息（用于审核上下文） */
+  getRecentMessages(count: number): GroupMessageV2[] {
+    const all = this.ctxV2.getMessages()
+    return all.slice(-count)
+  }
+
+  /** 获取 @ 指定 Agent 的消息（用于审核上下文） */
+  getMentionsFor(agentId: string): GroupMessageV2[] {
+    return this.ctxV2.getMessages().filter(msg =>
+      msg.mentions.includes(agentId) || msg.mentions.includes("all")
+    )
+  }
+
   injectMessage(fromAgentId: string, content: string): void {
     const msg = this.ctxV2.append(fromAgentId, content, "main");
     this.persistMessage(msg, "main");
@@ -371,6 +401,9 @@ export class Group {
         this.config.members.map(id => this.resolveAgentName(id)),
         this.resolveAgentName(this.config.owner),
       );
+
+      // 在 INTERFACE.md 中追加新成员的章节
+      this.workspace.appendInterfaceSection(this.resolveAgentName(agentId));
     }
   }
 
@@ -529,8 +562,7 @@ export class Group {
   }
 
   dispose(): void {
-    this.wakeSystem?.pause();
-    this.wakeSystem?.clearQueue();
+    this.wakeSystem?.dispose();
     // Close all per-agent SQLite databases before closing the main GroupDB
     for (const [, mem] of this.agentMemories) {
       try { mem.close(); } catch { /* ignore */ }

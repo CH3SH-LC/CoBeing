@@ -4,8 +4,10 @@
 import { exec } from "node:child_process";
 import os from "node:os";
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
+import { MAX_BASH_OUTPUT } from "@cobeing/shared";
 
 const isWindows = os.platform() === "win32";
+const MAX_OUTPUT = MAX_BASH_OUTPUT;
 
 export const bashTool: Tool = {
   name: "bash",
@@ -82,17 +84,27 @@ function executeLocal(command: string, timeout: number, cwd: string): Promise<To
   return new Promise((resolve) => {
     exec(finalCmd, { cwd, timeout, maxBuffer: 1024 * 1024, shell }, (error, stdout, stderr) => {
       if (error) {
-        resolve({
-          toolCallId: "",
-          content: stderr || error.message,
-          isError: true,
-        });
+        const errContent = stderr || error.message;
+        if (errContent.length > MAX_OUTPUT) {
+          resolve({
+            toolCallId: "",
+            content: errContent.slice(0, MAX_OUTPUT) + `\n[output truncated — exceeded ${MAX_OUTPUT} bytes]`,
+            isError: true,
+          });
+        } else {
+          resolve({ toolCallId: "", content: errContent, isError: true });
+        }
         return;
       }
-      resolve({
-        toolCallId: "",
-        content: stdout || "(no output)",
-      });
+      const output = stdout || "(no output)";
+      if (output.length > MAX_OUTPUT) {
+        resolve({
+          toolCallId: "",
+          content: output.slice(0, MAX_OUTPUT) + `\n[output truncated — exceeded ${MAX_OUTPUT} bytes]`,
+        });
+      } else {
+        resolve({ toolCallId: "", content: output });
+      }
     });
   });
 }

@@ -2,14 +2,15 @@
 title CoBeing v2
 
 set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 cd /d "%ROOT%"
 
 echo ===================================
 echo   CoBeing v2 Launcher
 echo ===================================
-echo.
+echo/
 
-:: --- Check prerequisites ---
+REM --- Check prerequisites ---
 where pnpm >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] pnpm not found. Please install pnpm first.
@@ -25,7 +26,7 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: --- Install dependencies if needed ---
+REM --- Install dependencies if needed ---
 if not exist "node_modules\ws" (
     echo [INFO] Installing dependencies...
     call pnpm install
@@ -34,38 +35,50 @@ if not exist "node_modules\ws" (
         pause
         exit /b 1
     )
-    echo.
+    echo/
 )
 
-:: --- Kill any existing CoBeing process on port 18765 ---
+REM --- Kill any existing CoBeing process on port 18765 ---
 echo [INFO] Checking for existing CoBeing process on port 18765...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":18765.*LISTENING" 2^>nul') do (
-    echo [INFO] Killing existing process PID %%a ...
-    taskkill /PID %%a /F >nul 2>&1
-    timeout /t 2 /nobreak >nul
-)
-
-:: --- Build if needed (skip if pre-built dist exists) ---
-if not exist "packages\core\dist\index.js" (
-    echo [INFO] Building packages...
-    call pnpm build
-    if %errorlevel% neq 0 (
-        echo [ERROR] Build failed.
-        pause
-        exit /b 1
-    )
-    echo.
+set "COBEING_PORT=18765"
+set "PORT_IN_USE=0"
+netstat -ano -p TCP > "%TEMP%\cobeing-port.tmp" 2>nul
+findstr /C:":%COBEING_PORT% " "%TEMP%\cobeing-port.tmp" >nul 2>&1
+if not errorlevel 1 set "PORT_IN_USE=1"
+del "%TEMP%\cobeing-port.tmp" >nul 2>&1
+if "%PORT_IN_USE%"=="1" (
+    echo [INFO] Port %COBEING_PORT% is in use, killing existing process...
+    powershell -ExecutionPolicy Bypass -File "%~dp0scripts\kill-cobeing-port.ps1" -Port %COBEING_PORT%
 ) else (
-    echo [INFO] Using pre-built packages (dist/ found, skipping build).
-    echo.
+    echo [INFO] Port %COBEING_PORT% is free.
+)
+echo/
+
+REM --- Build (skip with /fast flag) ---
+if /i "%1"=="/fast" (
+    if exist "packages\core\dist\index.js" (
+        echo [INFO] Fast mode: using pre-built dist/, skipping build.
+        echo/
+        goto :build_done
+    )
+)
+echo [INFO] Building packages...
+call pnpm build
+if %errorlevel% neq 0 (
+    echo [ERROR] Build failed.
+    pause
+    exit /b 1
+)
+echo/
+:build_done
 )
 
-:: --- Choose mode ---
+REM --- Choose mode ---
 echo Select launch mode:
 echo   1. CLI  (Terminal interactive mode)
 echo   2. GUI  (React + Tauri desktop app)  [recommended]
 echo   3. Both (CLI + GUI)
-echo.
+echo/
 set /p MODE="Enter choice [1/2/3] (default 2): "
 
 if "%MODE%"=="" set MODE=2
@@ -73,24 +86,24 @@ if "%MODE%"=="" set MODE=2
 if "%MODE%"=="2" goto :gui
 if "%MODE%"=="3" goto :both
 
-:: --- CLI mode ---
+REM --- CLI mode ---
 :cli
-echo.
+echo/
 echo [INFO] Starting CoBeing CLI...
 call pnpm dev
 goto :end
 
-:: --- GUI mode ---
+REM --- GUI mode ---
 :gui
-echo.
+echo/
 echo [INFO] Starting CoBeing Core + GUI (Tauri)...
 
-:: Start Core backend first
+REM Start Core backend first
 echo [INFO] Starting Core backend...
 start "CoBeing Core" cmd /k "cd /d "%ROOT%" && call pnpm dev"
 echo [INFO] Core started. Waiting for WS server on port 18765...
 
-:: Wait for WS server
+REM Wait for WS server
 set WAIT_COUNT=0
 :wait_ws
 powershell -Command "try { $tcp = New-Object System.Net.Sockets.TcpClient; $tcp.Connect('127.0.0.1', 18765); $tcp.Close(); exit 0 } catch { exit 1 }" >nul 2>&1
@@ -105,7 +118,7 @@ goto :wait_ws
 :ws_ready
 echo [INFO] WS server is ready.
 
-:: Install gui-v2 deps if needed
+REM Install gui-v2 deps if needed
 if not exist "gui-v2\node_modules" (
     echo [INFO] Installing GUI dependencies...
     cd gui-v2
@@ -128,16 +141,16 @@ if %errorlevel% equ 0 (
 )
 goto :end
 
-:: --- Both mode ---
+REM --- Both mode ---
 :both
-echo.
+echo/
 echo [INFO] Starting CoBeing CLI + GUI...
 
-:: Start CLI in background
+REM Start CLI in background
 start "CoBeing CLI" cmd /k "cd /d "%ROOT%" && call pnpm dev"
 echo [INFO] CLI started in a new window.
 
-:: Wait for WS server
+REM Wait for WS server
 echo [INFO] Waiting for WS server on port 18765...
 set WAIT_COUNT2=0
 :wait_ws2
@@ -176,6 +189,6 @@ if %errorlevel% equ 0 (
 goto :end
 
 :end
-echo.
+echo/
 echo [INFO] CoBeing stopped.
 pause

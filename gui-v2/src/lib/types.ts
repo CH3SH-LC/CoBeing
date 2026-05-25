@@ -3,7 +3,8 @@
 export type ViewType = "butler" | "agents" | "groups" | "skills" | "settings" | "dashboard";
 export type AgentStatus = "idle" | "running" | "error";
 export type MessageDirection = "in" | "out" | "system" | "tool";
-export type PermissionMode = "full-access" | "workspace-write" | "read-only" | "ask";
+export type PermissionMode = "read-only" | "workspace-readwrite"
+  | "workspace-access" | "basic-access" | "full-access";
 
 // ── Agent ──
 
@@ -14,6 +15,7 @@ export interface AgentInfo {
   status: AgentStatus;
   model: string;
   provider: string;
+  bindings?: WorkspaceBinding[];
 }
 
 export interface AgentConfig {
@@ -35,6 +37,12 @@ export interface AgentDetail {
   status: AgentStatus;
   config: AgentConfig;
   files: AgentFileInfo[];
+}
+
+export interface WorkspaceBinding {
+  path: string;
+  mode: "readonly" | "readwrite";
+  label?: string;
 }
 
 export interface AgentFileInfo {
@@ -101,6 +109,8 @@ export interface LogMessage {
   errorMessage?: string;
   /** Tool calls that happened during this response (attached at finalizeStream) */
   toolCalls?: ToolEvent[];
+  /** Additional metadata (e.g., reviewOverridden) */
+  metadata?: Record<string, unknown>;
 }
 
 export interface ToolEvent {

@@ -3,6 +3,7 @@
  */
 import path from "node:path";
 import fs from "node:fs";
+import { maintainExperienceSummarySync } from "../conversation/prompt-builder.js";
 
 export class AgentPaths {
   constructor(private baseDir: string) {}
@@ -144,6 +145,16 @@ export class AgentFiles {
     return content;
   }
 
+  /** 追加内容到 MEMORY.md（经验索引） */
+  appendMemoryIndex(entry: string): void {
+    const existing = this.readMemoryIndex();
+    if (!existing) {
+      this.writeMemoryIndex(entry);
+    } else {
+      fs.appendFileSync(this.paths.memoryIndexPath, entry + "\n", "utf-8");
+    }
+  }
+
   /** 读取 TOOLS.md */
   readTools(): string {
     return this.readFile(this.paths.toolsPath);
@@ -166,10 +177,20 @@ export class AgentFiles {
       "",
     ].join("\n");
 
+    const summaryLine = `- [${date}] ${entry.task.slice(0, 100)}`;
+
     if (!existing) {
-      this.writeExperience(`# EXPERIENCE.md\n\n> Agent 在工程过程中积累的经验${block}`);
+      const initial = `# EXPERIENCE.md\n\n> Agent 在工程过程中积累的经验\n\n<!-- EXPERIENCE_SUMMARY_START -->\n## 经验概要\n${summaryLine}\n<!-- EXPERIENCE_SUMMARY_END -->\n\n## 详细经验\n${block}`;
+      this.writeExperience(initial);
     } else {
+      // 追加详细经验
       fs.appendFileSync(this.paths.experiencePath, block + "\n", "utf-8");
+      // 重新读取完整文件以维护概要区
+      const full = this.readExperience();
+      const updated = maintainExperienceSummarySync(full, summaryLine);
+      if (updated !== full) {
+        this.writeExperience(updated);
+      }
     }
   }
 

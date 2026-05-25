@@ -237,6 +237,10 @@ export class ObservabilityDB {
   }
 
   close(): void {
-    try { this.db.close(); } catch { /* ignore */ }
+    try {
+      this.db.pragma("wal_checkpoint(TRUNCATE)");
+      this.db.pragma("journal_mode = DELETE");
+      this.db.close();
+    } catch { /* ignore */ }
   }
 }

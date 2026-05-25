@@ -127,10 +127,12 @@ export interface AgentConfig {
   tools?: string[];
   toolsConfig?: ToolsConfig;
   permissions?: PermissionPolicy;
+  bindings?: WorkspaceBinding[];
   sandbox?: SandboxConfig;
   skillsDir?: string;
   skills?: string[];         // 要装载的技能名称列表（按名称匹配 skills/ 目录下的技能）
   maxToolRounds?: number;    // 单次对话最大工具调用轮数
+  isReviewer?: boolean;      // 标记为审核 Agent（跳过 @mention 唤醒等逻辑）
 }
 
 export interface AgentResponse {
@@ -152,12 +154,19 @@ export interface TokenUsage {
 // Permission 相关类型
 // ============================================================
 
-export type PermissionMode = "full-access" | "workspace-write" | "read-only" | "ask";
+export type PermissionMode = "read-only" | "workspace-readwrite"
+  | "workspace-access" | "basic-access" | "full-access";
 
 export interface PermissionPolicy {
   mode: PermissionMode;
   allow?: string[];
   deny?: string[];
+}
+
+export interface WorkspaceBinding {
+  path: string;
+  mode: "readonly" | "readwrite";
+  label?: string;
 }
 
 // ============================================================
@@ -287,6 +296,8 @@ export interface MCPResource {
   mimeType?: string;
 }
 
+import { ReviewerConfig } from './review.js';
+
 // ============================================================
 // Group 相关类型
 // ============================================================
@@ -298,6 +309,7 @@ export interface GroupConfig {
   owner?: string;          // 群主 Agent ID（可选，未指定时由 Butler 充当）
   topic?: string;
   status?: 'active' | 'completed' | 'archived';
+  reviewer?: ReviewerConfig;
 }
 
 export interface GroupMessage {

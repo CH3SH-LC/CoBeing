@@ -18,8 +18,18 @@ export interface EntryRow {
   content: string;
   created_at: number;
   updated_at: number;
-  /** 搜索结果截断预览（可选，仅 search 时填充） */
+  trust: number;
+  half_life_days: number;
+  helpful_count: number;
+  unhelpful_count: number;
+  last_accessed_at: number | null;
+  hrr_vector: Buffer | null;
   snippet?: string;
+  // Scoring fields (only populated by searchEntries)
+  fts_score?: number;
+  jaccard_sim?: number;
+  temporal_decay?: number;
+  final_score?: number;
 }
 
 export interface HistoryRow {
@@ -64,6 +74,49 @@ function buildMatchExpr(query: string): string {
     .filter(t => t.length > 0)
     .map(t => `"${t.replace(/"/g, '""')}"`)
     .join(" ");
+}
+
+// ─── Scoring utilities ───
+
+/** Tokenize text into a Set for Jaccard computation */
+function tokenizeSet(text: string): Set<string> {
+  if (!text) return new Set();
+  return new Set(
+    [...segmenter.segment(text)]
+      .filter(s => s.isWordLike)
+      .map(s => s.segment)
+  );
+}
+
+/** Jaccard similarity between query and entry content */
+function computeJaccard(query: string, content: string): number {
+  const qTokens = tokenizeSet(query);
+  const cTokens = tokenizeSet(content);
+  if (qTokens.size === 0 && cTokens.size === 0) return 1;
+  let intersection = 0;
+  for (const t of qTokens) {
+    if (cTokens.has(t)) intersection++;
+  }
+  const union = qTokens.size + cTokens.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+/** Temporal decay: 0.5^(age_days / half_life_days)，halfLifeDays=0 时返回 1 */
+function computeTemporalDecay(createdAt: number, halfLifeDays: number): number {
+  const ageMs = Date.now() - createdAt;
+  const ageDays = ageMs / 86400000;
+  const effectiveHalfLife = halfLifeDays > 0 ? halfLifeDays : 30;
+  return Math.pow(0.5, ageDays / effectiveHalfLife);
+}
+
+/** Normalize FTS5 rank: lower rank = better match → higher score */
+function normalizeFtsRank(rank: number): number {
+  return 1 / (1 + rank);
+}
+
+/** Combine FTS5 and Jaccard into relevance score */
+function computeRelevance(ftsScore: number, jaccardSim: number): number {
+  return 0.5 * ftsScore + 0.5 * jaccardSim;
 }
 
 // ─── SqliteAdapter ───
@@ -157,21 +210,46 @@ export class SqliteAdapter {
       );
     `);
 
+    this.migrateSchema();
     return fts5;
+  }
+
+  private migrateSchema(): void {
+    const columns: Array<[string, string]> = [
+      ["trust", "REAL DEFAULT 0.5"],
+      ["half_life_days", "INTEGER DEFAULT 30"],
+      ["helpful_count", "INTEGER DEFAULT 0"],
+      ["unhelpful_count", "INTEGER DEFAULT 0"],
+      ["last_accessed_at", "INTEGER"],
+      ["hrr_vector", "BLOB"],
+    ];
+
+    const existing = this.db.prepare("PRAGMA table_info(entries)").all() as Array<{ name: string }>;
+    const existingNames = new Set(existing.map(c => c.name));
+
+    for (const [name, def] of columns) {
+      if (!existingNames.has(name)) {
+        try {
+          this.db.exec(`ALTER TABLE entries ADD COLUMN ${name} ${def}`);
+        } catch (err) {
+          log.warn("Failed to add column %s: %s", name, err);
+        }
+      }
+    }
   }
 
   /** 预编译常用语句 */
   private initStatements(): void {
     this.stmts = {
       insertEntry: this.db.prepare(
-        "INSERT INTO entries (target, content, created_at, updated_at) VALUES (?, ?, ?, ?)"
+        "INSERT INTO entries (target, content, created_at, updated_at, trust, half_life_days) VALUES (?, ?, ?, ?, 0.5, 30)"
       ),
       updateEntry: this.db.prepare(
         "UPDATE entries SET content = ?, updated_at = ? WHERE id = ?"
       ),
       deleteEntry: this.db.prepare("DELETE FROM entries WHERE id = ?"),
       getEntries: this.db.prepare(
-        "SELECT * FROM entries WHERE target = ? ORDER BY created_at ASC"
+        "SELECT id, target, content, created_at, updated_at, trust, half_life_days, helpful_count, unhelpful_count, last_accessed_at, hrr_vector FROM entries WHERE target = ? ORDER BY created_at ASC"
       ),
       getCharCount: this.db.prepare(
         "SELECT COALESCE(SUM(LENGTH(content)), 0) as total FROM entries WHERE target = ?"
@@ -284,6 +362,36 @@ export class SqliteAdapter {
     return row?.total ?? 0;
   }
 
+  // ─── Trust 反馈 ───
+
+  /** 调整条目的信任分数，返回新值 */
+  adjustTrust(id: number, delta: number, min = 0, max = 1): number {
+    const row = this.db.prepare(
+      "SELECT trust FROM entries WHERE id = ?"
+    ).get(id) as { trust: number } | undefined;
+    if (!row) return 0;
+
+    const newTrust = Math.max(min, Math.min(max, row.trust + delta));
+    this.db.prepare("UPDATE entries SET trust = ? WHERE id = ?").run(newTrust, id);
+    return newTrust;
+  }
+
+  /** 标记条目为有用，trust +0.1（默认） */
+  markHelpful(id: number): number {
+    this.db.prepare(
+      "UPDATE entries SET helpful_count = helpful_count + 1 WHERE id = ?"
+    ).run(id);
+    return this.adjustTrust(id, 0.1);
+  }
+
+  /** 标记条目为无用，trust -0.15（默认） */
+  markUnhelpful(id: number): number {
+    this.db.prepare(
+      "UPDATE entries SET unhelpful_count = unhelpful_count + 1 WHERE id = ?"
+    ).run(id);
+    return this.adjustTrust(id, -0.15);
+  }
+
   // ─── 搜索 ───
 
   /** 以匹配位置为中心截断内容，返回上下文窗口 */
@@ -303,48 +411,86 @@ export class SqliteAdapter {
     return snippet;
   }
 
-  /** 搜索记忆条目（FTS5 with CJK tokenization，降级 LIKE） */
+  /** 搜索记忆条目（多策略：FTS5 + Jaccard + temporal decay + trust） */
   searchEntries(query: string, target?: string, limit = 10): EntryRow[] {
-    let results: EntryRow[] = [];
+    if (!query || query.trim().length === 0) return [];
+
+    const CANDIDATE_LIMIT = 50;
+
+    // Phase 1: FTS5/LIKE coarse filter
+    let candidates: EntryRow[] = [];
 
     if (this.hasFts5) {
       try {
         const matchExpr = buildMatchExpr(query);
-        let sql = `SELECT e.* FROM entries e
+        let sql = `SELECT e.*, fts.rank FROM entries e
           JOIN entries_fts fts ON e.id = fts.rowid
           WHERE entries_fts MATCH ?`;
         const params: unknown[] = [matchExpr];
+        if (target) { sql += " AND e.target = ?"; params.push(target); }
+        sql += " ORDER BY rank LIMIT ?";
+        params.push(CANDIDATE_LIMIT);
 
-        if (target) {
-          sql += ` AND e.target = ?`;
-          params.push(target);
-        }
-        sql += ` ORDER BY rank LIMIT ?`;
-        params.push(limit);
-
-        results = this.db.prepare(sql).all(...params) as EntryRow[];
+        const rows = this.db.prepare(sql).all(...params) as Array<EntryRow & { rank: number }>;
+        candidates = rows.map(r => ({ ...r, fts_score: normalizeFtsRank(r.rank) }));
       } catch {
-        // FTS5 查询语法错误，降级为 LIKE
+        // FTS5 syntax error, fall back to LIKE
       }
     }
 
-    if (results.length === 0) {
+    if (candidates.length === 0) {
       let sql = "SELECT * FROM entries WHERE content LIKE ?";
       const params: unknown[] = [`%${query}%`];
-      if (target) {
-        sql += " AND target = ?";
-        params.push(target);
-      }
-      sql += " ORDER BY created_at ASC LIMIT ?";
-      params.push(limit);
-      results = this.db.prepare(sql).all(...params) as EntryRow[];
+      if (target) { sql += " AND target = ?"; params.push(target); }
+      sql += " ORDER BY created_at DESC LIMIT ?";
+      params.push(CANDIDATE_LIMIT);
+      const rows = this.db.prepare(sql).all(...params) as EntryRow[];
+      candidates = rows.map(r => ({
+        ...r,
+        // LIKE 回退：使用 Jaccard 相似度代替无意义的 query/content 长度比
+        fts_score: computeJaccard(query, r.content),
+      }));
     }
 
-    // 为每条结果生成截断预览
-    for (const row of results) {
+    if (candidates.length === 0) return [];
+
+    // Phase 2: Per-entry scoring
+    // temporal decay 作为衰减因子而非乘数：即使很旧的记忆也保留 30% 基础分
+    const scored = candidates.map(entry => {
+      const jaccardSim = computeJaccard(query, entry.content);
+      const temporalDecay = computeTemporalDecay(entry.created_at, entry.half_life_days);
+      const relevance = computeRelevance(entry.fts_score!, jaccardSim);
+      const ageFactor = 0.3 + 0.7 * temporalDecay;
+      const finalScore = relevance * (entry.trust ?? 0.5) * ageFactor;
+
+      return {
+        ...entry,
+        jaccard_sim: Math.round(jaccardSim * 1000) / 1000,
+        temporal_decay: Math.round(temporalDecay * 1000) / 1000,
+        final_score: Math.round(finalScore * 1000) / 1000,
+      };
+    });
+
+    // Phase 3: Sort + truncate + snippet
+    scored.sort((a, b) => b.final_score! - a.final_score!);
+    const top = scored.slice(0, limit);
+
+    // Batch update last_accessed_at for top results
+    if (top.length > 0) {
+      try {
+        const ids = top.map(r => r.id);
+        const placeholders = ids.map(() => "?").join(",");
+        this.db.prepare(
+          `UPDATE entries SET last_accessed_at = ? WHERE id IN (${placeholders})`
+        ).run(Date.now(), ...ids);
+      } catch { /* ignore */ }
+    }
+
+    for (const row of top) {
       row.snippet = this.snippetAroundMatch(row.content, query);
     }
-    return results;
+
+    return top;
   }
 
   /** 搜索对话历史（FTS5 with CJK tokenization，降级 LIKE） */

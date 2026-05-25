@@ -138,3 +138,91 @@ describe("SqliteAdapter — sync state", () => {
     expect(db.getSyncMtime("memory")).toBe(12345);
   });
 });
+
+describe("SqliteAdapter — multi-strategy search", () => {
+  it("returns results with scoring fields for matching query", () => {
+    db.insertEntry("memory", "今天学习了 TypeScript 泛型编程");
+    db.insertEntry("memory", "修复了数据库连接池泄漏的 bug");
+    db.insertEntry("memory", "用户偏好使用中文回复");
+
+    const results = db.searchEntries("数据库 连接", "memory", 3);
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].content).toContain("数据库");
+    expect(results[0].final_score).toBeDefined();
+    expect(results[0].jaccard_sim).toBeDefined();
+    expect(results[0].fts_score).toBeDefined();
+    expect(results[0].temporal_decay).toBeDefined();
+  });
+
+  it("scores exact matches higher than unrelated entries", () => {
+    db.insertEntry("memory", "TypeScript 类型系统详解");
+    db.insertEntry("memory", "今天天气不错 TypeScript 类型无关");
+
+    const results = db.searchEntries("TypeScript 类型", "memory", 3);
+
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    expect(results[0].content).toContain("TypeScript");
+    expect(results[0].final_score!).toBeGreaterThan(results[1].final_score!);
+  });
+
+  it("has temporal_decay scores in valid range", () => {
+    db.insertEntry("memory", "TypeScript 入门教程");
+    db.insertEntry("memory", "TypeScript 高级类型");
+
+    const results = db.searchEntries("TypeScript", "memory", 3);
+
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    results.forEach(r => {
+      expect(r.temporal_decay).toBeDefined();
+      expect(r.temporal_decay!).toBeGreaterThan(0);
+      expect(r.temporal_decay!).toBeLessThanOrEqual(1);
+    });
+  });
+
+  it("returns empty array for no matches", () => {
+    db.insertEntry("memory", "some content");
+    const results = db.searchEntries("xyzNOTFOUNDxyz", "memory", 3);
+    expect(results).toHaveLength(0);
+  });
+
+  it("respects limit parameter", () => {
+    for (let i = 0; i < 10; i++) {
+      db.insertEntry("memory", `测试内容 ${i} TypeScript`);
+    }
+    const results = db.searchEntries("TypeScript", "memory", 3);
+    expect(results.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("SqliteAdapter — trust feedback", () => {
+  it("adjusts trust score up for helpful", () => {
+    const id = db.insertEntry("memory", "有用的提示");
+    const newTrust = db.markHelpful(id);
+    expect(newTrust).toBeGreaterThan(0.5);
+  });
+
+  it("adjusts trust score down for unhelpful", () => {
+    const id = db.insertEntry("memory", "过时的信息");
+    const newTrust = db.markUnhelpful(id);
+    expect(newTrust).toBeLessThan(0.5);
+  });
+
+  it("clamps trust to 0 at minimum", () => {
+    const id = db.insertEntry("memory", "测试条目");
+    for (let i = 0; i < 10; i++) db.markUnhelpful(id);
+    const newTrust = db.markUnhelpful(id);
+    expect(newTrust).toBe(0);
+  });
+
+  it("increments helpful/unhelpful counters", () => {
+    const id = db.insertEntry("memory", "计数器测试");
+    db.markHelpful(id);
+    db.markHelpful(id);
+    db.markUnhelpful(id);
+
+    const results = db.searchEntries("计数器测试", "memory", 1);
+    expect(results[0].helpful_count).toBe(2);
+    expect(results[0].unhelpful_count).toBe(1);
+  });
+});

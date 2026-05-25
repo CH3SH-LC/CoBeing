@@ -74,6 +74,11 @@
     "enabled": true,
     "wsPort": 18765
   },
+  "reviewer": {
+    "enabled": true,
+    "maxRounds": 3
+  },
+  "judgmentModel": "deepseek-chat",
   "groups": [],
   "mcpServers": {
     "qqbot": {

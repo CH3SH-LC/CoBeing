@@ -3,6 +3,7 @@
  */
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 import type { AgentRegistry } from "../agent/registry.js";
+import { scanContent } from "../memory/security-scan.js";
 
 export function makeAgentMessageTool(registry: AgentRegistry): Tool {
   return {
@@ -27,6 +28,13 @@ export function makeAgentMessageTool(registry: AgentRegistry): Tool {
           content: `调用深度超限 (${currentDepth})，防止无限循环`,
           isError: true,
         };
+      }
+
+      // 安全扫描：检测消息中的注入/劫持/泄露威胁
+      const msg = params.message as string;
+      const scan = scanContent(msg);
+      if (!scan.safe) {
+        return { toolCallId: "", content: `消息被安全策略拦截（检测到: ${scan.threat}）`, isError: true };
       }
 
       const targetAgent = registry.get(params.target as string);

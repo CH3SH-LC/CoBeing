@@ -1,6 +1,6 @@
 {
   "name": "@cobeing/core",
-  "version": "0.0.1",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@cobeing/channels": "workspace:*",
+    "@cobeing/plugin-sdk": "workspace:*",
     "@cobeing/providers": "workspace:*",
     "@cobeing/shared": "workspace:*",
     "js-yaml": "^4.1.1",

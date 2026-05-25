@@ -9,7 +9,7 @@ const log = createLogger("workflow-engine");
 
 export interface WorkflowConfig {
   provider?: LLMProvider;
-  butlerRegistry?: import("../butler/registry.js").ButlerRegistry;
+  butlerRegistry?: import("../agent/butler-registry.js").ButlerRegistry;
   agentRegistry?: import("../agent/registry.js").AgentRegistry;
   groupManager?: import("../group/manager.js").GroupManager;
 }

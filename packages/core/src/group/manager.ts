@@ -8,6 +8,7 @@
 import type { GroupConfig } from "@cobeing/shared";
 import type { AgentRegistry } from "../agent/registry.js";
 import { Group } from "./group.js";
+import type { LLMProvider } from "@cobeing/providers";
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
@@ -27,8 +28,14 @@ export class GroupManager {
   private _onAgentResponse?: (groupId: string, agentId: string, content: string, tag: string) => void;
   private _onAgentEvent?: import("./wake-system.js").WakeSystemConfig["onAgentEvent"];
   private _onQueueChange?: import("./wake-system.js").WakeSystemConfig["onQueueChange"];
+  private _onMessageBroadcast?: (groupId: string, msg: import("./group-context-v2.js").GroupMessageV2) => void;
+  private _onMessage?: (groupId: string, fromAgentId: string) => void;
 
-  constructor(private registry: AgentRegistry, dataRoot?: string) {
+  constructor(
+    private registry: AgentRegistry,
+    dataRoot?: string,
+    private getProvider?: (providerId?: string) => LLMProvider | undefined,
+  ) {
     this.dataRoot = dataRoot ?? "data";
     this.groupsDir = path.join(this.dataRoot, "groups");
     (globalThis as any).__cobeingGroupManager = this;
@@ -57,6 +64,13 @@ export class GroupManager {
     if (this._onQueueChange) {
       group.setOnQueueChange(this._onQueueChange);
     }
+    if (this._onMessageBroadcast) {
+      group.setOnMessageBroadcast(this._onMessageBroadcast);
+    }
+    if (this._onMessage) {
+      group.setOnMessage(this._onMessage);
+    }
+
     this.groups.set(config.id, group);
     this.saveGroup(config.id);
 
@@ -133,6 +147,22 @@ export class GroupManager {
     this._onQueueChange = cb;
     for (const group of this.groups.values()) {
       group.setOnQueueChange(cb);
+    }
+  }
+
+  /** 设置消息广播回调（自动应用到所有群组） */
+  setOnMessageBroadcast(cb: (groupId: string, msg: import("./group-context-v2.js").GroupMessageV2) => void): void {
+    this._onMessageBroadcast = cb;
+    for (const group of this.groups.values()) {
+      group.setOnMessageBroadcast(cb);
+    }
+  }
+
+  /** 设置消息回调（condition TODO 扫描用，自动应用到所有群组） */
+  setOnMessage(cb: (groupId: string, fromAgentId: string) => void): void {
+    this._onMessage = cb;
+    for (const group of this.groups.values()) {
+      group.setOnMessage(cb);
     }
   }
 
@@ -223,6 +253,7 @@ export class GroupManager {
 
     updateGroupStatus(this.dataRoot, groupId, 'archived');
     group.setStatus('archived');
+
     group.dispose();
     this.groupScanners.get(groupId)?.stop();
     this.groupScanners.delete(groupId);
@@ -265,6 +296,9 @@ export class GroupManager {
     if (this._onAgentResponse) group.setOnAgentResponse(this._onAgentResponse);
     if (this._onAgentEvent) group.setOnAgentEvent(this._onAgentEvent);
     if (this._onQueueChange) group.setOnQueueChange(this._onQueueChange);
+    if (this._onMessageBroadcast) group.setOnMessageBroadcast(this._onMessageBroadcast);
+    if (this._onMessage) group.setOnMessage(this._onMessage);
+
     this.groups.set(groupId, group);
     this.saveGroup(groupId);
 
@@ -330,6 +364,7 @@ export class GroupManager {
       owner: group.config.owner,
       topic: group.config.topic,
       status: group.config.status || 'active',
+      reviewer: group.config.reviewer,
     };
     fs.writeFileSync(configPath, JSON.stringify(data, null, 2) + "\n", "utf-8");
   }
@@ -425,6 +460,12 @@ export class GroupManager {
         }
         if (this._onQueueChange) {
           group.setOnQueueChange(this._onQueueChange);
+        }
+        if (this._onMessageBroadcast) {
+          group.setOnMessageBroadcast(this._onMessageBroadcast);
+        }
+        if (this._onMessage) {
+          group.setOnMessage(this._onMessage);
         }
         this.groups.set(config.id, group);
         group.pauseWakeSystem();

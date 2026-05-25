@@ -13,13 +13,25 @@ export function makeTodoAddTool(
 ): Tool {
   return {
     name: "todo-add",
-    description: "创建定时 TODO。到达触发时间后系统会以 TODOboard 身份唤醒你执行任务。支持父子任务和依赖管理。",
+    description: "创建 TODO。支持三种触发：time（定时）/ 0time（扫描即触发）/ condition（条件触发）。",
     parameters: {
       type: "object",
       properties: {
         title: { type: "string", description: "简短标题" },
         description: { type: "string", description: "触发时告诉你要做什么" },
-        triggerAt: { type: "string", description: "触发时间 (ISO 8601，如 2026-04-25T09:00:00+08:00)" },
+        triggerMode: {
+          type: "string",
+          enum: ["time", "0time", "condition"],
+          description: "触发模式。time=定时（默认）, 0time=扫描即触发, condition=条件触发",
+        },
+        triggerAt: { type: "string", description: "触发时间 ISO 8601。triggerMode=time 时必填" },
+        check: { type: "string", description: "完成条件描述。0time 或 condition 模式使用" },
+        conditionType: { type: "string", enum: ["agent_speak"], description: "条件类型。triggerMode=condition 时必填" },
+        targetAgents: {
+          type: "array", items: { type: "string" },
+          description: "监视的 Agent ID 列表。condition 模式必填",
+        },
+        onFail: { type: "string", enum: ["remind", "recreate"], description: "条件不满足时的行为" },
         recurrenceHint: { type: "string", description: "续期提示（每天9:00 / 每周一10:00 / 不重复）" },
         scope: { type: "string", description: "agent 或 group（默认 agent）" },
         groupId: { type: "string", description: "群组级时必填" },
@@ -39,30 +51,57 @@ export function makeTodoAddTool(
           },
         },
       },
-      required: ["title", "description", "triggerAt", "recurrenceHint"],
+      required: ["title", "description"],
     },
     async execute(params, context: ToolContext): Promise<ToolResult> {
       const scope = (params.scope as TodoScope) || "agent";
       const store = resolveStore(scope, params.groupId as string, agentDataRoot, context, groupStoreGetter);
       if (!store) return { toolCallId: "", content: "无法确定 TODO 存储", isError: true };
 
-      const item = store.add({
+      const triggerMode = (params.triggerMode as string) || "time";
+
+      // 验证必填参数
+      if (triggerMode === "time" && !params.triggerAt) {
+        return { toolCallId: "", content: "triggerMode=time 时必须提供 triggerAt", isError: true };
+      }
+      if (triggerMode === "condition" && !params.conditionType) {
+        return { toolCallId: "", content: "triggerMode=condition 时必须提供 conditionType", isError: true };
+      }
+      if (triggerMode === "condition" && (!params.targetAgents || (params.targetAgents as string[]).length === 0)) {
+        return { toolCallId: "", content: "triggerMode=condition 时必须提供 targetAgents（至少一个监视 Agent）", isError: true };
+      }
+
+      const todoInput: Omit<TodoItem, "id" | "createdAt" | "status"> = {
         title: params.title as string,
         description: params.description as string,
-        triggerAt: params.triggerAt as string,
-        recurrenceHint: params.recurrenceHint as string,
+        triggerMode: triggerMode as TodoItem["triggerMode"],
+        triggerAt: params.triggerAt as string || "",
+        check: params.check as string,
+        recurrenceHint: (params.recurrenceHint as string) || "不重复",
         createdBy: context.agentId || "unknown",
         agentId: scope === "agent" ? context.agentId : undefined,
         targetAgentId: scope === "group" ? params.targetAgentId as string : undefined,
         parentId: params.parentId as string | undefined,
         dependsOn: params.dependsOn as string[] | undefined,
         onComplete: params.onComplete as any,
-      });
+      };
 
-      log.info("TODO added: %s (%s) triggerAt=%s", item.id, item.title, item.triggerAt);
+      if (triggerMode === "condition" && params.conditionType) {
+        todoInput.condition = {
+          type: params.conditionType as "agent_speak",
+          targetAgents: params.targetAgents as string[] || [],
+          check: (params.check as string) || "",
+          onFail: (params.onFail as "remind" | "recreate") || "remind",
+        };
+      }
+
+      const item = store.add(todoInput);
+
+      log.info("TODO added: %s (%s) mode=%s", item.id, item.title, triggerMode);
+      const modeLabel = triggerMode === "0time" ? "立即触发" : triggerMode === "condition" ? "条件触发" : `时间: ${item.triggerAt}`;
       return {
         toolCallId: "",
-        content: `已创建 TODO "${item.title}" (ID: ${item.id})，触发时间: ${item.triggerAt}`,
+        content: `已创建 TODO "${item.title}" (ID: ${item.id})，${modeLabel}`,
       };
     },
   };
