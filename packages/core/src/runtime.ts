@@ -13,7 +13,7 @@ import { LLMGateway } from "./gateway/llm-gateway.js";
 import { OpenAICompatProvider, PROVIDER_CATALOGS, registerProvider, getProvider } from "@cobeing/providers";
 import type { LLMProvider } from "@cobeing/providers";
 import type { ChannelAdapter } from "@cobeing/channels";
-import { QQBotChannel, registerChannel } from "@cobeing/channels";
+import { registerChannel, getChannel } from "@cobeing/channels";
 import { PluginLoader } from "@cobeing/plugin-sdk";
 import type { CoBeingPluginApi } from "@cobeing/plugin-sdk";
 import { ButlerRegistry } from "./agent/butler-registry.js";
@@ -549,11 +549,33 @@ export class CoBeingRuntime {
 
   /** 启动配置中启用的 Channel */
   private async startChannels(): Promise<void> {
+    // 扫描 channel 插件目录
+    const channelsDir = path.resolve("plugins/channels");
+    const configuredChannelIds = Object.keys(this.config.channels).filter(k => this.config.channels[k]?.enabled);
+    const discovered = this.pluginLoader.discoverSync(channelsDir, configuredChannelIds);
+
+    if (discovered.length > 0) {
+      for (const id of discovered) {
+        if (!this.config.channels[id]) {
+          (this.config.channels as any)[id] = { enabled: true, type: "qqbot" as const };
+        }
+      }
+      log.info("Auto-registered %d new channel plugin(s): %s", discovered.length, discovered.join(", "));
+    }
+
+    // 加载所有启用的 channel 插件
+    const allChannelIds = Object.keys(this.config.channels).filter(k => this.config.channels[k]?.enabled);
+    await this.pluginLoader.loadAll(allChannelIds, channelsDir);
+
     for (const [id, cfg] of Object.entries(this.config.channels)) {
       if (!cfg || !cfg.enabled) continue;
 
       try {
-        const channel = this.createChannel(id, cfg);
+        const channel = getChannel(id);
+        if (!channel) {
+          log.warn("Channel '%s' configured but plugin not loaded", id);
+          continue;
+        }
         channel.onMessage(async (msg) => {
           // 确定目标 agentId（用于 GUI 消息归位）
           const binding = this.router.getBinding(id);
@@ -625,17 +647,6 @@ export class CoBeingRuntime {
     if (Object.keys(bindings).length > 0) {
       this.router.loadBindings(bindings);
     }
-  }
-
-  private createChannel(_id: string, cfg: AppConfig["channels"][string]): ChannelAdapter {
-    if (cfg.type === "qqbot") {
-      return new QQBotChannel({
-        appId: cfg.qqbotAppId!,
-        appSecret: cfg.qqbotAppSecret!,
-        intents: cfg.qqbotIntents,
-      });
-    }
-    throw new Error(`Unknown channel type: ${cfg.type}`);
   }
 
   /** 处理用户输入（交互式） */
