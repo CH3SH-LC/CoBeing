@@ -34,7 +34,7 @@ import { AgentEventBus } from "./event-bus.js";
 import { makeTodoAddTool, makeTodoListTool, makeTodoCompleteTool, makeTodoRemoveTool, makeTodoReviewTool, makeTodoBatchCompleteTool, makeTodoBatchRemoveTool, makeTodoBatchUpdateTool } from "../todo/tools.js";
 import { currentTimeTool } from "../todo/time-tool.js";
 import { makeVoteCreateTool, makeVoteCastTool, makeVoteResultTool } from "../vote/tools.js";
-import { buildSystemPromptFromFiles, buildCacheablePrompt } from "../conversation/prompt-builder.js";
+import { buildSystemPromptFromFiles, buildCacheablePrompt, GROUP_MECHANICS_NOTICE } from "../conversation/prompt-builder.js";
 import { makeGroupMemorySearchTool } from "../tools/group-memory-search.js";
 import { makeExperienceReflectTool } from "../tools/experience-reflect.js";
 import type { ObservabilityDB } from "../observability/observability-db.js";
@@ -368,7 +368,7 @@ export class Agent {
           undefined,
           snapshot.context, // 读取 snapshot 对象的最新值，而非闭包捕获的旧值
         );
-        const parts = [this._sharedPrefix, this._agentPrefix];
+        const parts = [this._sharedPrefix, GROUP_MECHANICS_NOTICE, this._agentPrefix];
         if (volatile) parts.push(volatile);
         return parts.join("\n\n");
       },
