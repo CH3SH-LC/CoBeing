@@ -3,12 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { AgentPaths, AgentFiles } from "../agent/paths.js";
-import { buildSystemPromptFromFiles } from "./prompt-builder.js";
+import { buildSystemPromptFromFiles, buildCacheablePrompt, buildStaticLayer, GROUP_MECHANICS_NOTICE } from "./prompt-builder.js";
 
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "myagents-prompt-"));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cobeing-prompt-"));
 });
 
 afterEach(() => {
@@ -27,21 +27,24 @@ describe("buildSystemPromptFromFiles", () => {
     expect(result).toContain("你是助手。");
   });
 
-  it("prepends SOUL.md at the very top", () => {
+  it("STATIC layer comes first, then AGENTS.md, then SOUL.md", () => {
     const paths = new AgentPaths(tmpDir);
     const files = new AgentFiles(paths);
+    files.writeAgents("工作空间指南");
     files.writeSoul("你是一个严谨的工程师。");
     const result = buildSystemPromptFromFiles(files, {
       name: "助手",
       role: "通用助手",
       systemPrompt: "你是助手。",
     });
+    const staticIdx = result.indexOf("# Identity");
+    const agentsIdx = result.indexOf("工作空间指南");
     const soulIdx = result.indexOf("你是一个严谨的工程师");
-    const promptIdx = result.indexOf("你是助手。");
-    expect(soulIdx).toBeLessThan(promptIdx);
+    expect(staticIdx).toBeLessThan(agentsIdx);
+    expect(agentsIdx).toBeLessThan(soulIdx);
   });
 
-  it("includes BOOTSTRAP.md and deletes the file", () => {
+  it("includes BOOTSTRAP.md and keeps the file", () => {
     const paths = new AgentPaths(tmpDir);
     const files = new AgentFiles(paths);
     files.writeBootstrap("请先检查工作空间。");
@@ -51,7 +54,8 @@ describe("buildSystemPromptFromFiles", () => {
       systemPrompt: "你是助手。",
     });
     expect(result).toContain("请先检查工作空间。");
-    expect(fs.existsSync(paths.bootstrapPath)).toBe(false);
+    // BOOTSTRAP 不再删除 — 每次构建 prompt 时都会读取
+    expect(fs.existsSync(paths.bootstrapPath)).toBe(true);
   });
 
   it("appends USER.md preferences", () => {
@@ -115,32 +119,157 @@ describe("buildSystemPromptFromFiles", () => {
     expect(result).toContain("历史记忆");
   });
 
-  it("full chain order is correct", () => {
+  it("full chain order is correct (AGENTS first, BOOTSTRAP after JOB)", () => {
     const paths = new AgentPaths(tmpDir);
     const files = new AgentFiles(paths);
-    files.writeSoul("AAA_SOUL");
-    files.writeBootstrap("BBB_BOOTSTRAP");
-    files.writeAgents("DDD_AGENTS");
-    files.writeUser("EEE_USER");
+    files.writeAgents("AAA_AGENTS");
+    files.writeSoul("BBB_SOUL");
+    files.writeBootstrap("EEE_BOOTSTRAP");
+    files.writeUser("FFF_USER");
     files.writeMemoryIndex("GGG_MEMORY");
 
     const result = buildSystemPromptFromFiles(files, {
       name: "助手",
       role: "通用助手",
-      systemPrompt: "CCC_PROMPT",
+      systemPrompt: "DDD_PROMPT",
     });
 
-    const soulIdx = result.indexOf("AAA_SOUL");
-    const bootIdx = result.indexOf("BBB_BOOTSTRAP");
-    const promptIdx = result.indexOf("CCC_PROMPT");
-    const agentsIdx = result.indexOf("DDD_AGENTS");
-    const userIdx = result.indexOf("EEE_USER");
+    const staticIdx = result.indexOf("# Identity");
+    const agentsIdx = result.indexOf("AAA_AGENTS");
+    expect(staticIdx).toBeLessThan(agentsIdx);
+    const soulIdx = result.indexOf("BBB_SOUL");
+    const promptIdx = result.indexOf("DDD_PROMPT");
+    const bootIdx = result.indexOf("EEE_BOOTSTRAP");
+    const userIdx = result.indexOf("FFF_USER");
     const memIdx = result.indexOf("GGG_MEMORY");
 
-    expect(soulIdx).toBeLessThan(bootIdx);
-    expect(bootIdx).toBeLessThan(promptIdx);
-    expect(promptIdx).toBeLessThan(agentsIdx);
-    expect(agentsIdx).toBeLessThan(userIdx);
+    // 新顺序：STATIC → AGENTS → SOUL → systemPrompt → BOOTSTRAP → USER → MEMORY
+    expect(agentsIdx).toBeLessThan(soulIdx);
+    expect(soulIdx).toBeLessThan(promptIdx);
+    expect(promptIdx).toBeLessThan(bootIdx);
+    expect(bootIdx).toBeLessThan(userIdx);
     expect(userIdx).toBeLessThan(memIdx);
+  });
+});
+
+describe("buildStaticLayer", () => {
+  it("returns string containing all 5 sections", () => {
+    const result = buildStaticLayer();
+    expect(result).toContain("# Identity");
+    expect(result).toContain("# System");
+    expect(result).toContain("# Doing tasks");
+    expect(result).toContain("# Executing actions with care");
+    expect(result).toContain("# Speaking style");
+  });
+
+  it("does not contain group environment mechanics", () => {
+    const result = buildStaticLayer();
+    expect(result).not.toContain("群组协作环境");
+    expect(result).not.toContain("group-send");
+  });
+
+  it("returns identical results on every call", () => {
+    const r1 = buildStaticLayer();
+    const r2 = buildStaticLayer();
+    expect(r1).toBe(r2);
+  });
+
+  it("contains behavior rules from claw-code", () => {
+    const result = buildStaticLayer();
+    expect(result).toContain("Three similar lines beats a premature abstraction");
+    expect(result).toContain("Prefer editing existing files over creating new ones");
+    expect(result).toContain("Default to no comments");
+    expect(result).toContain("Do not narrate what you are about to do");
+  });
+
+  it("contains execution safety rules", () => {
+    const result = buildStaticLayer();
+    expect(result).toContain("Carefully consider reversibility and blast radius");
+    expect(result).toContain("High-blast-radius actions");
+  });
+
+  it("contains speaking style rules", () => {
+    const result = buildStaticLayer();
+    expect(result).toContain("When executing tasks: be direct and efficient");
+    expect(result).toContain("Speak AS the character, not ABOUT the character");
+  });
+});
+
+describe("GROUP_MECHANICS_NOTICE", () => {
+  it("is a non-empty string", () => {
+    expect(typeof GROUP_MECHANICS_NOTICE).toBe("string");
+    expect(GROUP_MECHANICS_NOTICE.length).toBeGreaterThan(50);
+  });
+
+  it("contains group collaboration keywords", () => {
+    expect(GROUP_MECHANICS_NOTICE).toContain("群组协作环境");
+    expect(GROUP_MECHANICS_NOTICE).toContain("group-send");
+    expect(GROUP_MECHANICS_NOTICE).toContain("@mention");
+  });
+});
+
+describe("buildCacheablePrompt", () => {
+  it("sharedPrefix is identical for different agents", () => {
+    const paths1 = new AgentPaths(fs.mkdtempSync(path.join(os.tmpdir(), "agent1-")));
+    const paths2 = new AgentPaths(fs.mkdtempSync(path.join(os.tmpdir(), "agent2-")));
+    const files1 = new AgentFiles(paths1);
+    const files2 = new AgentFiles(paths2);
+
+    files1.writeSoul("Agent 1 的性格");
+    files2.writeSoul("Agent 2 的性格");
+
+    const result1 = buildCacheablePrompt(files1, { name: "A1", role: "角色1", systemPrompt: "prompt1" });
+    const result2 = buildCacheablePrompt(files2, { name: "A2", role: "角色2", systemPrompt: "prompt2" });
+
+    // 共享前缀必须完全一致
+    expect(result1.sharedPrefix).toBe(result2.sharedPrefix);
+    // Agent 前缀必须不同
+    expect(result1.agentPrefix).not.toBe(result2.agentPrefix);
+
+    fs.rmSync(paths1.directory, { recursive: true, force: true });
+    fs.rmSync(paths2.directory, { recursive: true, force: true });
+  });
+
+  it("sharedPrefix (static layer + AGENTS.md) comes before agent content in full prompt", () => {
+    const paths = new AgentPaths(fs.mkdtempSync(path.join(os.tmpdir(), "cache-")));
+    const files = new AgentFiles(paths);
+    files.writeAgents("共享的工作空间指南");
+    files.writeSoul("我的性格");
+    files.writeJob("我的工作");
+
+    const { sharedPrefix, agentPrefix } = buildCacheablePrompt(files, {
+      name: "测试", role: "测试角色", systemPrompt: "测试prompt",
+    });
+
+    // 共享前缀包含 STATIC 层和 AGENTS.md 的内容
+    expect(sharedPrefix).toContain("# Identity");
+    expect(sharedPrefix).toContain("共享的工作空间指南");
+
+    // Agent 前缀包含角色特有内容
+    expect(agentPrefix).toContain("我的性格");
+    expect(agentPrefix).toContain("我的工作");
+
+    // 完整拼接时共享前缀在最前面
+    const full = [sharedPrefix, agentPrefix].join("\n\n");
+    const sharedIdx = full.indexOf("共享的工作空间指南");
+    const soulIdx = full.indexOf("我的性格");
+    expect(sharedIdx).toBeLessThan(soulIdx);
+
+    fs.rmSync(paths.directory, { recursive: true, force: true });
+  });
+
+  it("volatile contains memory and group context", () => {
+    const paths = new AgentPaths(fs.mkdtempSync(path.join(os.tmpdir(), "volatile-")));
+    const files = new AgentFiles(paths);
+    files.writeUser("用户偏好：简洁回答");
+
+    const { volatile } = buildCacheablePrompt(files, {
+      name: "测试", role: "测试角色", systemPrompt: "prompt",
+    }, undefined, "# 群组上下文\n队友信息...");
+
+    expect(volatile).toContain("用户偏好：简洁回答");
+    expect(volatile).toContain("群组上下文");
+
+    fs.rmSync(paths.directory, { recursive: true, force: true });
   });
 });

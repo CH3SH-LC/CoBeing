@@ -5,7 +5,7 @@
  * Agent 特有内容（SOUL/CHARACTER/JOB/BOOTSTRAP）后移，
  * 确保 DeepSeek 前缀缓存在多智能体切换时命中。
  *
- * 前缀顺序：AGENTS.md（共享） → SOUL → CHARACTER → ROLE_PLAY → JOB → BOOTSTRAP → volatile
+ * 前缀顺序：STATIC 层 → AGENTS.md（共享） → SOUL → CHARACTER → ROLE_PLAY → JOB → BOOTSTRAP → volatile
  */
 import type { AgentConfig } from "@cobeing/shared";
 import type { AgentFiles } from "../agent/paths.js";
