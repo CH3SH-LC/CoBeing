@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { AgentPaths, AgentFiles } from "../agent/paths.js";
-import { buildSystemPromptFromFiles, buildCacheablePrompt, buildStaticLayer, GROUP_MECHANICS_NOTICE } from "./prompt-builder.js";
+import { buildSystemPromptFromFiles, buildCacheablePrompt, buildStaticLayer, GROUP_MECHANICS_NOTICE, extractExperienceSummary, maintainExperienceSummarySync } from "./prompt-builder.js";
 
 let tmpDir: string;
 
@@ -271,5 +271,55 @@ describe("buildCacheablePrompt", () => {
     expect(volatile).toContain("群组上下文");
 
     fs.rmSync(paths.directory, { recursive: true, force: true });
+  });
+});
+
+describe("extractExperienceSummary", () => {
+  it("returns content between summary markers", () => {
+    const content = `# EXPERIENCE\n<!-- EXPERIENCE_SUMMARY_START -->\n## 概要\n- [2026-05-25] 测试经验\n<!-- EXPERIENCE_SUMMARY_END -->\n\n## 正文\n详细内容`;
+    const result = extractExperienceSummary(content);
+    expect(result).toContain("## 概要");
+    expect(result).toContain("测试经验");
+    expect(result).not.toContain("详细内容");
+  });
+
+  it("returns full content when no markers present (backward compat)", () => {
+    const content = "# 旧格式 EXPERIENCE\n\n- 没有标记的经验";
+    const result = extractExperienceSummary(content);
+    expect(result).toContain("旧格式");
+  });
+
+  it("returns empty string for empty input", () => {
+    expect(extractExperienceSummary("")).toBe("");
+  });
+
+  it("truncates from end when over maxChars (keeps newest)", () => {
+    const lines: string[] = [];
+    for (let i = 1; i <= 50; i++) {
+      lines.push(`- [2026-01-${String(i).padStart(2, "0")}] 经验条目 ${i}`);
+    }
+    const content = `<!-- EXPERIENCE_SUMMARY_START -->\n## 经验概要\n${lines.join("\n")}\n<!-- EXPERIENCE_SUMMARY_END -->`;
+    const result = extractExperienceSummary(content, 300);
+    expect(result).toContain("经验条目 50");
+    expect(result).not.toContain("经验条目 1");
+    expect(result.length).toBeLessThanOrEqual(400);
+  });
+});
+
+describe("maintainExperienceSummarySync", () => {
+  it("inserts summary line into file with existing markers", () => {
+    const content = `# EXPERIENCE\n<!-- EXPERIENCE_SUMMARY_START -->\n## 经验概要\n- [2026-05-24] 旧经验\n<!-- EXPERIENCE_SUMMARY_END -->\n\n## 详细\n正文`;
+    const result = maintainExperienceSummarySync(content, "- [2026-05-25] 新经验");
+    expect(result).toContain("新经验");
+    expect(result).toContain("旧经验");
+    expect(result).toContain("正文");
+  });
+
+  it("creates markers when file has no markers", () => {
+    const content = "# 没有标记的旧文件\n\n## 正文\n内容";
+    const result = maintainExperienceSummarySync(content, "- [2026-05-25] 第一条");
+    expect(result).toContain("<!-- EXPERIENCE_SUMMARY_START -->");
+    expect(result).toContain("第一条");
+    expect(result).toContain("没有标记的旧文件");
   });
 });

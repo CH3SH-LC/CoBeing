@@ -7,6 +7,8 @@
 
 ## 2026-05-25
 
+- [New Feature] Task 6: EXPERIENCE.md 模板更新 + 6 单元测试 — extractExperienceSummary (4测试) + maintainExperienceSummarySync (2测试)，模板加入概要标记
+- [New Feature] Task 5: appendExperience 接入 maintainExperienceSummarySync — AgentFiles 和 GroupWorkspace 追加经验时自动维护概要区
 - [New Feature] Task 3: extractExperienceSummary + maintainExperienceSummarySync — EXPERIENCE.md 概要区提取/维护工具函数
 - [New Feature] Task 2: GUIDE.md 注入到 createGroupLoop volatile — Agent 群组对话时自动将群组规则（GUIDE.md 前 4000 字符）注入 system prompt
 - [Change] System Prompt 三层架构 Step 5：新增 buildStaticLayer（6 测试）和 GROUP_MECHANICS_NOTICE（2 测试）测试，更新 3 个已有测试排序断言，修复过时文件头注释

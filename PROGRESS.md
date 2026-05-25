@@ -2,6 +2,23 @@
 
 ## 2026-05-25
 
+### Task 6: EXPERIENCE.md 模板更新 + 单元测试
+
+**变更原因**：Task 3 添加了 `extractExperienceSummary` 和 `maintainExperienceSummarySync` 工具函数。Task 6 更新 EXPERIENCE.md 模板（个人和群组）加入概要标记区，并为两个工具函数各添加 4+2 共 6 个单元测试。
+
+**修改文件**：
+- `config/templates/EXPERIENCE.md` — 在标题后插入 `<!-- EXPERIENCE_SUMMARY_START/END -->` 概要标记和 `## 经验概要` 节
+- `config/templates/groups/EXPERIENCE.md` — 同上，在描述行后插入概要标记
+- `packages/core/src/conversation/prompt-builder.test.ts` — 新增 `extractExperienceSummary` describe（4 tests）和 `maintainExperienceSummarySync` describe（2 tests）；import 中新增导入两个函数
+
+### Task 5: appendExperience 接入 maintainExperienceSummarySync
+
+**变更原因**：Task 3 添加了 `maintainExperienceSummarySync()` 概要维护工具函数。Task 5 将其接入 `AgentFiles.appendExperience()` 和 `GroupWorkspace.appendExperience()`，使每次追加经验条目时自动更新 EXPERIENCE.md 的概要区。
+
+**修改文件**：
+- `packages/core/src/agent/paths.ts` — `AgentFiles.appendExperience()` 重构：新建文件时写入 SUMMARY_START/SUMMARY_END 标记和概要行；追加时先 appendFileSync 再调用 `maintainExperienceSummarySync()` 重写概要；新增 import `maintainExperienceSummarySync`
+- `packages/core/src/group/workspace.ts` — `GroupWorkspace.appendExperience()` 重构：section header 未找到时追加到末尾；写入后调用 `maintainExperienceSummarySync()` 维护概要区；新增 import `maintainExperienceSummarySync`
+
 ### Task 3: extractExperienceSummary + maintainExperienceSummarySync 工具函数
 
 **变更原因**：为 EXPERIENCE.md 概要机制新增两个工具函数。`extractExperienceSummary` 从 EXPERIENCE.md 中提取概要区（有标记→标记间内容，无标记→回退全量兼容旧文件，超长时倒序截断保留最新条目）。`maintainExperienceSummarySync` 在概要区最前面插入新摘要行（无标记→自动创建标记包裹现有内容）。
