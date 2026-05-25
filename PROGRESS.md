@@ -2,6 +2,22 @@
 
 ## 2026-05-25
 
+### Task 3: extractExperienceSummary + maintainExperienceSummarySync 工具函数
+
+**变更原因**：为 EXPERIENCE.md 概要机制新增两个工具函数。`extractExperienceSummary` 从 EXPERIENCE.md 中提取概要区（有标记→标记间内容，无标记→回退全量兼容旧文件，超长时倒序截断保留最新条目）。`maintainExperienceSummarySync` 在概要区最前面插入新摘要行（无标记→自动创建标记包裹现有内容）。
+
+**修改文件**：
+- `packages/core/src/conversation/prompt-builder.ts` — 新增 `EXPERIENCE_SUMMARY_START` / `EXPERIENCE_SUMMARY_END` 常量、`extractExperienceSummary()` 和 `maintainExperienceSummarySync()` 导出函数
+
+### Task 2: GUIDE.md 注入到 createGroupLoop volatile
+
+**变更原因**：Task 1 在 GroupWorkspace 中添加了 readGuide() 方法。Task 2 将其接入 Agent 的群组 loop，使 GUIDE.md 内容在 Agent 处于群组上下文时自动注入到 system prompt 的 volatile 层。
+
+**修改文件**：
+- `packages/core/src/agent/agent.ts` — `RunOptions` 接口新增 `guideContent?: string` 字段；`createGroupLoop` snapshot 类型扩展 `guideContent`；`promptBuilder` 闭包内组装群组 volatile（GUIDE.md 4000 字符截断 + 协作上下文）；`_groupContextSnapshots` Map 类型扩展；`getGroupLoop` 新增 `guideContent` 参数并写入 snapshot
+- `packages/core/src/api/ws-server.ts` — `handleMessage` 中 `agent.run()` 传入 `guideContent: groupMatch ? this.groupManager?.get(gId)?.workspace.readGuide() ?? undefined : undefined`
+- `packages/core/src/group/wake-system.ts` — 两处 `agent.run()`（正常唤醒 + 错误重试）传入 `guideContent: this.getGroup?.()?.workspace.readGuide() ?? undefined`
+
 ### System Prompt 三层架构 Step 4：GROUP_MECHANICS_NOTICE 注入到 createGroupLoop
 
 **变更原因**：Step 1 定义了 `GROUP_MECHANICS_NOTICE` 常量，Step 4 将其接入 agent.ts 的群组 loop。群组 Agent 在 `_sharedPrefix` 和 `_agentPrefix` 之间注入群组机制说明，非群组 Agent 不注入。

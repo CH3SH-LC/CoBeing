@@ -7,6 +7,8 @@
 
 ## 2026-05-25
 
+- [New Feature] Task 3: extractExperienceSummary + maintainExperienceSummarySync — EXPERIENCE.md 概要区提取/维护工具函数
+- [New Feature] Task 2: GUIDE.md 注入到 createGroupLoop volatile — Agent 群组对话时自动将群组规则（GUIDE.md 前 4000 字符）注入 system prompt
 - [Change] System Prompt 三层架构 Step 5：新增 buildStaticLayer（6 测试）和 GROUP_MECHANICS_NOTICE（2 测试）测试，更新 3 个已有测试排序断言，修复过时文件头注释
 - [Change] System Prompt 三层架构 Step 3：buildStaticLayer() 集成到 buildSystemPromptFromFiles 头部，所有后续节编号 +1
 - [Change] System Prompt 三层架构 Step 2：buildStaticLayer() 集成到 buildCacheablePrompt sharedPrefix，共享前缀由纯 AGENTS.md 升级为 STATIC 层 + AGENTS.md

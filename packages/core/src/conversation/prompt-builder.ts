@@ -65,6 +65,97 @@ available to you to assist.
 - When outputting replies: naturally adjust your tone, word choice, and emotional expression according to your persona (CHARACTER.md / SOUL.md). Speak AS the character, not ABOUT the character.`;
 }
 
+// ---- EXPERIENCE 概要提取 ----
+
+const EXPERIENCE_SUMMARY_START = "<!-- EXPERIENCE_SUMMARY_START -->";
+const EXPERIENCE_SUMMARY_END = "<!-- EXPERIENCE_SUMMARY_END -->";
+
+/**
+ * 从 EXPERIENCE.md 内容中提取概要区。
+ * 有标记 → 返回标记间内容；无标记 → 回退全量（兼容旧文件）。
+ * 概要超过 maxChars 时倒序截断（保留最新条目）。
+ */
+export function extractExperienceSummary(content: string, maxChars: number = 1500): string {
+  if (!content) return "";
+
+  const startIdx = content.indexOf(EXPERIENCE_SUMMARY_START);
+  const endIdx = content.indexOf(EXPERIENCE_SUMMARY_END);
+
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    // 无概要标记 → 回退全量内容（兼容旧 EXPERIENCE.md）
+    return content.length > maxChars ? content.slice(0, maxChars) + "..." : content;
+  }
+
+  let summary = content.slice(startIdx + EXPERIENCE_SUMMARY_START.length, endIdx).trim();
+
+  if (summary.length <= maxChars) return summary;
+
+  // 倒序截断：保留最新 N 条（概要区每行以 "- [" 开头）
+  const lines = summary.split("\n");
+  const headerLines: string[] = [];
+  const entryLines: string[] = [];
+  let inHeader = true;
+  for (const line of lines) {
+    if (inHeader && line.trim().startsWith("- [")) {
+      inHeader = false;
+    }
+    if (inHeader) {
+      headerLines.push(line);
+    } else {
+      entryLines.push(line);
+    }
+  }
+
+  // 从后往前取条目行直到接近 maxChars
+  const result: string[] = [...headerLines];
+  let charCount = headerLines.join("\n").length;
+  const reversed: string[] = [];
+  for (let i = entryLines.length - 1; i >= 0; i--) {
+    const lineLen = entryLines[i].length + 1; // +1 for newline
+    if (charCount + lineLen > maxChars) break;
+    reversed.unshift(entryLines[i]);
+    charCount += lineLen;
+  }
+  result.push(...reversed);
+
+  return result.join("\n");
+}
+
+/**
+ * 维护 EXPERIENCE.md 概要区：在概要区最前面插入新摘要行。
+ * 若文件无标记 → 自动创建标记包裹现有内容后插入。
+ * 返回更新后的完整文件内容。
+ */
+export function maintainExperienceSummarySync(content: string, summaryLine: string): string {
+  if (!content) {
+    return `${EXPERIENCE_SUMMARY_START}\n## 经验概要\n${summaryLine}\n${EXPERIENCE_SUMMARY_END}\n\n## 详细经验\n`;
+  }
+
+  const startIdx = content.indexOf(EXPERIENCE_SUMMARY_START);
+  const endIdx = content.indexOf(EXPERIENCE_SUMMARY_END);
+
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    // 旧文件无标记 → 创建标记包裹现有内容，再插入新摘要
+    const trimmed = content.trim();
+    return `${EXPERIENCE_SUMMARY_START}\n## 经验概要\n${summaryLine}\n${EXPERIENCE_SUMMARY_END}\n\n${trimmed}`;
+  }
+
+  // 在概要区最前面插入新行（在 ## 经验概要 标题之后）
+  const before = content.slice(0, startIdx + EXPERIENCE_SUMMARY_START.length);
+  const middle = content.slice(startIdx + EXPERIENCE_SUMMARY_START.length, endIdx);
+  const after = content.slice(endIdx);
+
+  const lines = middle.split("\n");
+  const summaryHeaderIdx = lines.findIndex(l => l.trim().startsWith("## 经验概要"));
+  if (summaryHeaderIdx >= 0) {
+    lines.splice(summaryHeaderIdx + 1, 0, summaryLine);
+  } else {
+    lines.unshift(summaryLine);
+  }
+
+  return before + lines.join("\n") + after;
+}
+
 export function buildSystemPrompt(agentConfig: AgentConfig): string {
   const parts: string[] = [];
 
