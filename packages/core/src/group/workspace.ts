@@ -263,37 +263,27 @@ ${vars.taskContent}
     const vars: Record<string, string> = {
       groupName: this.groupName,
       datetime: new Date().toISOString(),
-      planContent: plan || "（Host 调查后填写依赖关系）",
+      dependencyContent: plan || "（Host 调查后填写依赖关系）",
+      phasePlanContent: plan ? "" : "（Host 调查后填充阶段计划，根据情况可有多阶段，每阶段包含独立的任务、验收标准和测试方法）",
     };
     let content = GroupWorkspace.resolveTemplate("PLAN.md", vars);
     if (!content) {
-      content = `# ${this.groupName} - 执行计划
-
-## 模块依赖
-
-> 各模块间的接口依赖关系（详见 INTERFACE.md）
-
-${plan || "（Host 调查后填写依赖关系）"}
-
-## 阶段计划
-
-${plan ? '' : "（Host 调查后填充阶段计划。每个阶段含具体任务和 @负责人，阶段最后两个任务固定：检查接口依赖 + 用户审核）"}
-
-## 执行策略
-
-1. **并行原则**: 同阶段无依赖的任务可同时 @mention 唤醒多个 Agent
-2. **接口优先**: 先定义接口 → 再各自实现 → 最后联调检查
-3. **动态调整**: 根据实际进展随时更新本计划，阶段数量可增减
-
-## 风险预案
-
-- **接口不匹配**: 及时同步 INTERFACE.md，Host 协调
-- **人员阻塞**: 依赖项未就位时，先做其他可并行的工作
-
-## 更新日志
-
-- ${vars.datetime} - 初始化计划文档
-`;
+      const depSection = plan || "（Host 调查后填写依赖关系）";
+      const phaseSection = plan ? "" : "（Host 调查后填充阶段计划，根据情况可有多阶段，每阶段包含独立的任务、验收标准和测试方法）";
+      content = [
+        `# ${this.groupName} 任务分工和计划`,
+        ``,
+        `> ${vars.datetime} 生成`,
+        ``,
+        `## 模块依赖`,
+        ``,
+        depSection,
+        ``,
+        `## 阶段计划`,
+        ``,
+        phaseSection,
+        ``,
+      ].join("\n");
     }
     writeFileSync(this.paths.plan, content, "utf-8");
   }
