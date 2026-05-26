@@ -4,6 +4,35 @@
 
 ---
 
+## v1.3.1 (2026-05-26)
+
+### 韧性修复
+- **预启动残留清理机制**：三层防护彻底解决 Windows 删除文件残留（start.bat PowerShell 预清理 → 构造函数第一行 SQLite 连接前清理 → cleanupOrphanDirectories 防御纵深）
+- **Agent 执行超时保护**：5 分钟兜底超时，防止 LLM 挂起时 WakeSystem 永久阻塞
+- **WS 离线窗口冻结修复（第二轮）**：5s 离线宽限期 + pong 超时检测（5s 无响应→主动重连）+ 心跳不排队 + 重连加速（500ms→10s max）
+- **`_abortController` per-session 隔离**：单字段→Map<string, AbortController>，修复多 session 并发 abort 竞态
+- **`getStatus()` 恢复 "error" 状态返回**：新增 `_errorFlag` 追踪，启动新 run 时清除
+- **`processingAgents` 参数透传**：wakeQueue.updateQueue 签名增加参数，防止活跃状态丢失
+
+### 架构改进
+- **Agent 并发架构重构**：全局 `_status` 互斥锁替换为 `_activeSessions: Set<string>`，支持多群组 + 独立对话并发
+- **WakeSystem 跨群组并发**：忙碌检查仅限同群组 session，同一 Agent 在 groupA + groupB + main 三线并行
+- **WebView2 后台节流抑制**：`--disable-background-timer-throttling` + `--disable-features=CalculateNativeWinOcclusion` 禁止 Windows 降级
+- **仪表盘 Agent 来源修复**：`getActiveSessions()` → groupId 提取 → 前端正确区分群组活跃 vs 独立任务
+- **Agent workspace 外部绑定**：butler/WS 路径 `bind_workspace` → `add_binding/remove_binding/list_bindings`
+
+### 安全与稳定性
+- **WS 连接稳定性**：应用层心跳 + visibility API + Tauri onFocusChanged + 指数退避重连（2s→30s max）
+- **Agent 群组回复失败修复**：WakeSystem 增加 `agent.getStatus()` 检查，忙碌时自动重新入队（上限 10 次）
+- **群组创建强化用户决策制**：4 步用户对接指引 + "用户为上"规则 + 群主职责"首要原则：用户决策制"
+- **butler.ts 删除路径补齐**：新增 config.json rename 兜底防幽灵复活（对齐 ws-server/manager 逻辑）
+- **Tauri onFocusChanged 泄漏修复**：对象包装器替代裸变量防解绑失效
+
+### 工具增强
+- **Agent workspace 外部绑定（bind）**：Agent 可 bind 到任意外部项目目录，工具自动指向外部目录
+
+---
+
 ## v1.3.0 (2026-05-25)
 
 ### 新功能

@@ -22,7 +22,7 @@ npm install -g pnpm
 ## 安装步骤
 
 ### 1. 解压
-将 `CoBeing-v1.2.0.zip` 解压到任意目录。
+将 `CoBeing-v1.3.1.zip` 解压到任意目录。
 
 ### 2. 安装依赖
 在 CoBeing 目录下打开终端（或双击 `start.bat` 自动完成）：
@@ -52,7 +52,7 @@ MIMO_API_KEY=xxx
 - **选项 2** — GUI 桌面/浏览器模式（推荐）
 - **选项 3** — 同时启动 CLI + GUI
 
-GUI 模式会先启动后端服务，等待就绪后自动打开 Tauri 桌面窗口。如果没有安装 Rust/Cargo，会自动降级为浏览器模式（打开 `http://localhost:1420`）。
+GUI 模式会先清理上次残留文件，然后启动后端服务，等待就绪后自动打开 Tauri 桌面窗口。如果没有安装 Rust/Cargo，会自动降级为浏览器模式（打开 `http://localhost:1420`）。
 
 ## 支持的 LLM 厂商
 
@@ -79,3 +79,6 @@ GUI 模式会先启动后端服务，等待就绪后自动打开 Tauri 桌面窗
 
 **Q: 如何接入 QQ？**  
 设置页 → Channels → 编辑 QQ Bot → 填入 App ID 和 App Secret。需要先在 [QQ 开放平台](https://q.qq.com) 注册 Bot。
+
+**Q: 启动后杀毒软件报毒？**  
+后台运行终端可能导致杀毒软件误判。请将 CoBeing 目录添加到杀毒软件白名单中。
