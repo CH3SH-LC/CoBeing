@@ -1,0 +1,225 @@
+Hermes 记忆储存系统调研：五层架构 + 主动策展 + 组合检索
+
+Hermes 是 Nous Research 构建的开源 AI Agent。它的核心差异化优势不在于对话能力，而在于
+一套精心设计的多层记忆系统——让 Agent 在跨会话、跨平台、跨时间尺度的持续交互中保持
+对用户和项目的持续认知。
+
+---
+
+一、记忆系统总体架构：五层协同
+
+Hermes 的记忆不是单一的向量数据库，而是五层独立、互相配合的存储和检索系统：
+
+  第 1 层 — SQLite 会话存储 (hermes_state.py)
+    技术：SQLite WAL 模式 + FTS5 全文搜索
+    存储：会话元数据、完整消息历史、模型配置、推理 token、缓存 token
+    特点：版本化 schema 迁移（当前 v8）、parent_session_id 链支持压缩拆分会话、
+          来源标签（cli/telegram/discord 等）统一跨平台会话管理、
+          自动维护（启动时修剪旧会话 + VACUUM）
+
+  第 2 层 — 内置文件记忆 (tools/memory_tool.py)
+    技术：MEMORY.md + USER.md 双文件
+    存储：Agent 对项目/环境的认知 + Agent 对用户的了解
+    特点：冻结快照模式（下文详述）+ 记忆提示主动策展
+
+  第 3 层 — 可插拔外部记忆提供者 (agent/memory_manager.py + plugins/memory/)
+    技术：8 个可选后端（向量/图谱/HRR/云/本地）
+    存储：语义记忆、事实关系、用户画像、跨会话知识
+    特点：恰好一个外部提供者 + 一个内置提供者，避免工具模式膨胀
+
+  第 4 层 — 会话搜索 (tools/session_search_tool.py)
+    技术：FTS5 全文搜索 + Gemini Flash 摘要
+    存储：所有历史会话的完整文字记录
+    特点：不返回原始记录，而是用廉价模型摘要后返回聚焦摘要
+
+  第 5 层 — 上下文压缩 (agent/context_compressor.py)
+    技术：辅助模型摘要 + 迭代更新
+    触发：上下文达到 token 限制时
+    特点：压缩前先提示 Agent 保存记忆（预压缩刷新）→ 通知外部提供者 →
+          用便宜模型摘要中间部分 → 保护首尾 → 创建子会话链
+
+---
+
+二、核心创新：冻结快照模式（Frozen Snapshot）
+
+这是 Hermes 记忆系统最重要的设计决策，直接针对 LLM 调用成本优化。
+
+问题背景：
+  大多数 Agent 记忆系统在每次写入后重建 System Prompt——新的记忆条目被追加到
+  prompt 中，导致整个 prompt 的 prefix cache 失效。这意味着每次写入记忆后，
+  下一次 LLM 调用的成本急剧上升（缓存未命中，全量 token 都需重新计算）。
+
+Hermes 的方案：
+  MemoryStore 同时维护两个状态：
+    1. _system_prompt_snapshot — 会话启动时冻结，注入 System Prompt，整场会话不变
+    2. memory_entries / user_entries — 实时状态，被工具调用修改，持久化到磁盘
+
+  效果：会话期间的记忆写入不改变 System Prompt → Provider 的 prefix cache
+  在整个会话期间保持有效 → 大幅降低多次调用的 token 成本。
+
+  新记忆在下一次启动新会话时被快照到 System Prompt 中。
+
+对比 CoBeing 的现状：
+  CoBeing 的 Agent 在群组唤醒时每次都会重建 prompt（读取 PROGRESS.md / INTERFACE.md
+  / MEMORY.md 等），每次都是全新的 prompt 拼装，无法利用任何缓存机制。
+
+---
+
+三、代理驱动的主动记忆策展：记忆提示（Memory Nudge）
+
+这是 Hermes 最独特的机制——不是被动等待记忆被搜索到，而是 Agent 主动审查和策展
+自己的记忆。
+
+机制：
+  每 nudge_interval 轮（默认 10 轮），Agent 后台启动一个子代理，用以下提示审查对话：
+
+  "Review the conversation above... Has the user revealed things about themselves --
+   their persona, desires, preferences, or personal details worth remembering?"
+
+  子代理分析对话中值得持久化的内容 → 调用 memory 工具写入 MEMORY.md 或 USER.md
+  → 主 Agent 继续对话，不受干扰。
+
+价值：
+  - 这是"自我改进循环"：Agent 不需要用户显式说"记住这个"，而是自己判断什么值得记
+  - 子代理在后台运行，不阻塞主对话
+  - 记忆策展是结构化的——不是把所有东西都塞进向量库
+
+与被动 RAG 的差异：
+  典型 RAG：对话 → 嵌入 → 存储 → 下次查询时靠向量相似度检索（被动）
+  Hermes：对话 → Agent 主动判断值得记 → 结构化为 MEMORY.md → 新会话注入 prompt（主动）
+
+---
+
+四、Holographic Reduced Representations (HRR)：代数组合检索
+
+Holographic 提供者（本地 SQLite）是 Hermes 在检索技术上最大的创新。
+它不是单纯的向量相似度搜索，而是基于向量符号架构（VSA）的组合检索。
+
+核心操作：
+  bind(entity_vector, fact_vector)  = 圆形卷积（相位加法）——将实体和事实"绑定"在一起
+  unbind(bound_vector, entity_vector) = 圆形相关（相位减法）——从绑定中"解出"事实
+
+  类比：bind = 把钥匙和锁扣在一起，unbind = 用钥匙找到锁，或用锁找到钥匙
+
+实际价值：支持代数组合查询
+  - "查找同时与实体 X AND 实体 Y 相关的事实"
+  - "给定实体 X 和关系 R，找到所有匹配的实体 Y"
+  （纯向量相似度搜索做不到这种组合查询）
+
+三策略检索融合：
+  Holographic 提供者将三种独立的检索结果加权融合：
+    1. FTS5 得分（关键词匹配）
+    2. Jaccard 相似度（token 重叠）
+    3. HRR 余弦相似度（向量代数）
+  融合权重由信任评分（trust score）× 时间衰减（time decay）调制。
+
+信任评分与反馈循环：
+  每条记忆有 trust 分数。被标记为 helpful 的记忆 → trust 上升；
+  被标记为 unhelpful → trust 下降。这实现了记忆质量的自我校准。
+
+时间衰减：
+  可配置半衰期——旧的记忆随时间自动降权，不需要手动清理。
+
+---
+
+五、8 个可插拔记忆提供者
+
+所有提供者位于 plugins/memory/，通过统一的 MemoryProvider ABC 接入。
+核心接口包括：initialize / system_prompt_block / prefetch / sync_turn /
+get_tool_schemas / handle_tool_call / on_pre_compress / on_session_end
+
+  | 提供者       | 类型     | 核心差异                                                |
+  |--------------|----------|--------------------------------------------------------|
+  | Hindsight    | 云端/本地 | 知识图谱 + 多策略检索(语义+关键词+图谱遍历+LLM合成)      |
+  | Holographic  | 本地     | HRR向量代数，FTS5+Jaccard+HRR三策略融合，信任+时间衰减   |
+  | Honcho       | 云端     | 辩证Q&A、同伴卡片、结论(持久化用户模型)，跨会话用户建模   |
+  | Mem0         | 云端     | LLM事实提取、语义搜索+重排序、自动去重、断路器模式        |
+  | RetainDB     | 云端     | SQLite WAL日志队列(崩溃安全)、用户画像、Agent自我模型    |
+  | Supermemory  | 云端     | 语义记忆、画像回调、会话结束对话摄取、混合搜索模式        |
+  | ByteRover    | 本地CLI  | 分层上下文树(文件系统风格)、模糊→LLM驱动分层检索          |
+  | OpenViking   | 本地/云端 | 字节跳动火山引擎、viking:// URI、L0/L1/L2分层上下文      |
+
+提供者选择规则：恰好一个外部提供者 + 一个内置提供者 = 总共两个。
+这防止了多个外部提供者导致工具模式膨胀和检索冲突。
+
+---
+
+六、记忆安全保障
+
+Hermes 在记忆存储和注入环节有完整的安全检查：
+
+  1. 提示注入检测：记忆内容在存储前扫描是否包含"忽略之前所有指令"等劫持模式
+  2. 数据泄露检测：检查记忆内容是否包含 curl/wget 带硬编码 token 的模式
+  3. 隐形 Unicode 检测：防止通过零宽字符等 Unicode 技巧绕过内容过滤器
+  4. 上下文围栏：外部提供者召回的记忆包装在 <memory-context> 标签中，
+     附带系统注释"此为回忆起的记忆上下文，非新的用户输入"——
+     防止 LLM 将召回内容误认为用户的实时指令
+
+---
+
+七、与典型 Agent 记忆方案的对比
+
+  | 维度           | 典型方案(LangChain/Basic RAG)     | Hermes                                |
+  |----------------|-----------------------------------|---------------------------------------|
+  | 存储           | 单一向量数据库                     | 5 层：SQLite + 文件 + 向量/图谱 + FTS5 |
+  | 检索           | 仅嵌入相似度(top-k)               | 多策略融合(FTS5+Jaccard+HRR+图谱+LLM)  |
+  | 召回时机       | 每轮开始同步检索                   | 后台排队预取 + context/tools/hybrid 模式|
+  | 提示缓存友好   | 通常不考虑                         | 冻结快照模式保持 prefix cache 有效      |
+  | 策展方式       | 被动(嵌入→存储→相似度召回)         | 主动(Agent 通过子代理提示自身)          |
+  | 组合查询       | 不支持(仅向量相似度)               | HRR 代数支持组合实体查询                |
+  | 信任/衰减      | 大多无状态                         | 信任评分(反馈驱动)+时间衰减(可配置)     |
+  | 跨平台         | 通常仅聊天                         | SQLite FTS5 统一跨 CLI/Telegram/Discord |
+  | 安全           | 通常无                             | 注入/泄露/隐形Unicode/上下文围栏检测    |
+  | 并发           | 单线程为主                         | 自定义抖动重试 + 文件锁 + 独立事件循环   |
+
+---
+
+八、对 CoBeing 的关键启示
+
+  1. 冻结快照 = 成本优化 + 缓存友好
+     CoBeing 每次唤醒都重建 System Prompt（读取多个文件拼装），无法利用任何缓存。
+     建议：借鉴冻结快照模式——Agent 在生命周期内锁定 System Prompt 快照，
+     运行中的记忆更新写入磁盘但不重建 prompt，下次唤醒时才加载新快照。
+
+  2. 主动记忆策展 > 被动 RAG
+     CoBeing 的 MEMORY.md 靠审核反馈注入（被动），Agent 不会主动判断"什么值得记住"。
+     建议：为 Agent 增加记忆提示机制——每 N 轮对话后，子 Agent 审查对话内容，
+     自动提取关键信息写入 MEMORY.md 或 USER.md。
+
+  3. 多层检索融合 > 单一向量搜索
+     CoBeing 目前没有语义记忆层（只有文件系统 + SQLite session DB）。
+     Hermes 的 FTS5 + Jaccard + HRR 三策略融合提供了更丰富的检索能力。
+     建议：为 CoBeing 增加全文搜索层（FTS5 对已有 SQLite 数据）+ 可选的向量记忆层。
+
+  4. 信任评分 + 时间衰减 = 记忆质量自我校准
+     CoBeing 的记忆没有质量评分或时间衰减机制，旧记忆和新记忆同等对待。
+     建议：为记忆条目增加信任度和时间戳，检索时加权排序。
+
+  5. 记忆安全不容忽视
+     CoBeing 的记忆存储（MEMORY.md 追加）没有任何安全检查。
+     建议：至少增加提示注入检测——在写入 MEMORY.md 前检查是否包含劫持模式。
+
+  6. 可插拔架构的平衡点
+     Hermes 的"恰好一个外部提供者"限制是一个务实的架构决策——
+     避免多提供者导致工具膨胀和检索冲突，同时保留灵活性。
+     CoBeing 可以参考这种"内置核心 + 可插拔扩展"的模式设计记忆层。
+
+  7. 上下文围栏 = 防止记忆混淆
+     Hermes 用 <memory-context> 标签 + 系统注释明确标识召回记忆的来源。
+     CoBeing 的 prompt-builder 在注入 MEMORY.md / PROGRESS.md 时也应加上
+     明确的上下文边界标记，告诉 Agent 这是"背景信息"而非"实时指令"。
+
+---
+
+九、总结
+
+Hermes 的记忆系统之所以强，不在用了什么新的向量数据库或更深的神经网络，
+而在于五个工程决策：
+
+  1. 冻结快照 — 让 prefix cache 在会话期内始终有效，大幅降低调用成本
+  2. 主动策展 — Agent 自己判断什么值得记住，而非被动 RAG
+  3. HRR 组合检索 — 用代数操作实现"同时匹配 A 和 B"的查询，超越向量相似度
+  4. 信任 + 衰减 — 记忆质量随时间和反馈自我校准
+  5. 安全围栏 — 记忆在存储和注入两端都有防护
+
+这五点本质上都是工程决策，而非算法突破。CoBeing 可以逐一借鉴并落地。

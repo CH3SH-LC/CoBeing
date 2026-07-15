@@ -1,0 +1,1 @@
+const m = require("./data/plugins/providers/zhipu/index.js"); console.log(JSON.stringify({id:m.id,name:m.name,kind:m.kind,keys:Object.keys(m)}));

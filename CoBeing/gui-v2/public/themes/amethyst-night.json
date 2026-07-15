@@ -1,0 +1,46 @@
+{
+  "name": "子夜紫晶",
+  "description": "深紫黑底 + 紫罗兰强调，神秘优雅，创意灵感",
+  "base": {
+    "gradient-from": "#0C0814",
+    "gradient-to": "#100C18",
+    "gradient-angle": 155
+  },
+  "surface": {
+    "bg": "rgba(22,18,30,0.88)",
+    "bg-solid": "#16121E",
+    "elevated": "#201A2C",
+    "hover": "#2C2438",
+    "input": "#100C18",
+    "border": "rgba(45,38,55,0.7)",
+    "shadow": "0 1px 3px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.25)",
+    "shadow-lg": "0 4px 12px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.35)"
+  },
+  "content": {
+    "accent": "#C084FC",
+    "accent-warm": "#FBBF24",
+    "accent-dim": "#2D1A3E",
+    "txt": "#E8E4F0",
+    "txt-sub": "#A89CB8",
+    "txt-muted": "#665E75",
+    "success": "#34D399",
+    "warning": "#FBBF24",
+    "danger": "#F87171",
+    "purple": "#D8B4FE"
+  },
+  "chat": {
+    "msg-user": "#261E38",
+    "msg-assistant": "#1A1624",
+    "msg-system": "#201A18",
+    "msg-tool": "#1E1828"
+  },
+  "misc": {
+    "scrollbar": "#2C2438",
+    "scrollbar-hover": "#423854",
+    "overlay": "rgba(0,0,0,0.65)",
+    "code-bg": "#0C0A14",
+    "selection-bg": "#C084FC",
+    "selection-fg": "#120C1A",
+    "divider": "#30283C"
+  }
+}

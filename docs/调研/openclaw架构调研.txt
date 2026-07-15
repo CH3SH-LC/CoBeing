@@ -1,0 +1,324 @@
+OpenClaw 架构调研：多通道网关 + 可插拔 Harness + ACP 协议
+
+OpenClaw 是一个本地优先的个人 AI 助手网关平台（v2026.4.12-beta.1, MIT 协议），
+由 "Warelay → Clawdbot → Moltbot → OpenClaw" 演进而来。它不是 Claude Code 的竞品，
+而是一个**多通道 AI 网关和 Agent 编排平台**——它可以集成和控制外部编码 AI 工具
+（Claude Code、Codex、Gemini CLI 等），但架构广度远超任何单一编码助手。
+
+---
+
+一、OpenClaw 的核心定位：与 Claude Code / CoBeing 的根本不同
+
+  | 维度           | OpenClaw                        | Claude Code / claw-code    | CoBeing                       |
+  |----------------|----------------------------------|----------------------------|-------------------------------|
+  | 主身份         | 个人 AI 助手网关                  | 终端编码 AI                 | 多 Agent 协作框架              |
+  | 作用域         | 多通道 + 多 Agent 编排            | 单 Agent 编码助手           | 群组多 Agent 协作              |
+  | 用户界面       | 25+ 聊天平台 + CLI + App          | 终端 CLI                    | Web GUI + WebSocket            |
+  | 架构           | 网关守护进程 + WS 控制面           | 单进程 stdio                | Node 服务 + WS 广播             |
+  | 模型支持       | 30+ 提供商                        | Anthropic 为主               | OpenAI-compat 7 家              |
+  | 通道支持       | 25+ 消息平台                      | 终端                        | QQ Bot（唯一）                  |
+  | 多 Agent       | 原生多 Agent 路由 + 隔离工作区     | 单 Agent（子代理工具）       | 原生群组多 Agent                |
+  | 插件系统       | 107+ 插件，4 层架构，完整 SDK     | 有限 MCP 集成               | 无插件系统                      |
+  | 记忆系统       | 可插拔记忆提供者 + Memory Host SDK | JSONL 会话持久化            | SQLite + MEMORY.md              |
+  | 自动化         | Cron + Webhook + TaskFlow + 站令  | 无                          | TODOboard 三种触发               |
+
+核心差异一句话：OpenClaw 是"平台"，claw-code/CoBeing 是"应用"。
+
+---
+
+二、Harness 系统：可插拔的 Agent 执行器抽象
+
+这是 OpenClaw 最独特的架构创新。
+
+2.1 什么是 Harness？
+
+  AgentHarness 是"Agent 的一次已准备轮次"的低层执行器。它不是模型提供商，
+  不是消息通道，不是工具注册表——它位于 Agent 执行栈的最底层，
+  将默认的内嵌 Agent 运行时替换为替代执行后端。
+
+  这意味着：同一个 OpenClaw Agent，可以在不同的"引擎"上运行——
+  内置 PI 引擎、外部 Codex 进程、通过 ACP 连接的 Claude Code 实例，
+  甚至是未来任何 Agent 运行时。
+
+2.2 Harness 接口定义 (src/agents/harness/types.ts)
+
+  type AgentHarness = {
+    id: string;                    // 唯一标识
+    label: string;                 // 显示名称
+    pluginId?: string;             // 所属插件
+    supports(ctx): AgentHarnessSupport;  // 是否支持当前上下文
+    runAttempt(params): Promise<AgentHarnessAttemptResult>;  // 执行一轮
+    compact?(params): Promise<AgentHarnessCompactResult>;    // 压缩上下文
+    reset?(params): Promise<void>; // 重置状态
+    dispose?(): Promise<void>;     // 清理资源
+  }
+
+2.3 Harness 选择算法 (src/agents/harness/selection.ts)
+
+  1. 解析策略：读取 agent 配置的 embeddedHarness.runtime 或环境变量
+     - "pi" → 直接用内置 PI harness
+     - 特定 ID（如 "codex"）→ 查找已注册的 harness
+     - "auto" → 查询所有已注册 harness 的 supports()，选最高优先级
+  2. 回退策略：由 embeddedHarness.fallback 控制
+     - "pi"（默认）→ 无匹配时静默回退到内置 PI
+     - "none" → 无匹配时硬失败（用于验证特定 harness 确实在使用中）
+  3. 关键设计原则：在 harness 运行之前，OpenClaw 已经解析好了：
+     - 提供商和模型
+     - 运行时认证状态
+     - Thinking level 和上下文预算
+     - 会话记录文件
+     - 工作区、沙箱和工具策略
+     - 通道回复回调和流式回调
+     - 模型回退和实时模型切换策略
+
+  这种"准备和执行分离"的设计意味着：
+  网关负责所有策略决策（用什么模型、什么权限、发到哪个通道），
+  harness 只负责"在这个策略框架内完成一轮 LLM 调用 + 工具执行"。
+  这是一种清晰的关注点分离。
+
+2.4 内置 PI Harness
+
+  PI（"π" 内嵌 Agent 运行器）是默认 harness：
+  - supports() 返回 { supported: true, priority: 0 }（总是可用，最低优先级）
+  - 委托给 runEmbeddedAttempt（src/agents/pi-embedded-runner/）
+  - 是原始 OpenClaw 原生 Agent 运行时的遗留模式
+
+2.5 Codex Harness
+
+  codex 插件注册了一个 codex harness：
+  - 声明支持 codex/* 模型引用（如 codex/gpt-5.4）
+  - 通过 Codex app-server 路由轮次
+  - 允许 Codex 管理自己的认证、模型发现、原生线程和原生压缩
+  - 可通过 stdio（本地启动 Codex）或 WebSocket（远程 Codex app-server）连接
+
+2.6 对 CoBeing 的启示
+
+  CoBeing 的 Agent 目前只有一个执行后端——内嵌的 ConversationLoop。
+  Harness 模式可以让 CoBeing：
+  - 支持不同模型提供商有不同的执行后端（如 Anthropic vs OpenAI 的 tool-calling 差异）
+  - 支持"远程 Agent"——Agent 的逻辑在其他进程中运行，CoBeing 只做编排
+  - 未来接入新的 Agent 引擎（如直接集成 claw-code 的 Rust 运行时）而无需修改核心
+
+---
+
+三、ACP（Agent Client Protocol）系统：外部 AI 工具的集成协议
+
+OpenClaw 实现了双角色 ACP 架构：
+
+  3.1 ACP Agent（控制方）
+    OpenClaw 作为 ACP 客户端，启动和管理外部 ACP harness：
+    - Claude Code
+    - Codex
+    - Gemini CLI
+    - OpenCode
+    - Cursor
+    通过捆绑的 acpx 插件实现。
+
+    工作方式：
+    OpenClaw 启动一个外部编码 AI 进程（如 claw-code）
+    → 通过 ACP 协议发送 prompt、接收响应流、管理会话
+    → 外部 AI 完成编码任务后，OpenClaw 继续处理用户的其他需求
+
+  3.2 ACP Bridge（被控方）
+    OpenClaw 作为 ACP 服务器，供 IDE 和外部客户端连接：
+    - IDE 可以通过 ACP 连接到 OpenClaw
+    - 外部客户端可以调用 OpenClaw 的 Agent 能力
+
+  3.3 ACP 会话管理
+    - ACP 会话有独立的 session key 格式：agent:<agentId>:acp:<uuid>
+    - 支持绑定到通道对话、持久化线程和后台任务追踪
+
+  3.4 对 CoBeing 的启示
+
+    CoBeing 目前无法集成外部编码 AI 工具。ACP 模式可以让 CoBeing 的 Agent
+    在面对复杂编码任务时将编码工作委托给 claw-code 或 Claude Code，
+    自身专注于任务分解、结果审查和用户沟通。
+
+---
+
+四、多通道网关：25+ 平台的统一入口
+
+OpenClaw 的网关（src/gateway/server.impl.ts）是一个长生命周期的守护进程：
+
+  4.1 核心能力
+    - 在 WebSocket 上运行（ws://127.0.0.1:18789 默认）
+    - 拥有所有消息界面（WhatsApp, Telegram, Slack, Discord 等）
+    - 作为所有客户端的控制面（CLI, macOS App, WebChat, iOS/Android 节点）
+    - 使用带 JSON Schema 验证的类型化 WS 协议
+    - WS 协议通过 TypeBox schemas 定义，自动生成 Swift 模型
+
+  4.2 消息路由算法 (src/routing/resolve-route.ts)
+    入站消息按以下优先级匹配 Agent：
+      1. 精确 peer 匹配（peer kind + id 的绑定关系）
+      2. 父 peer 匹配（线程继承关系）
+      3. Discord guild + roles 匹配
+      4. Discord guild 匹配
+      5. Slack team 匹配
+      6. Channel account 匹配
+      7. 该通道上的任意 account 匹配
+      8. 默认 Agent
+
+    每个 Agent 有独立的工作区、状态目录、认证配置、会话存储和工具策略。
+
+  4.3 对 CoBeing 的启示
+
+    CoBeing 目前仅支持 QQ Bot 一个通道。OpenClaw 的多通道路由架构提供了
+    清晰的参考——尤其是"确定性路由规则"和"每个 Agent 独立隔离"的设计。
+    CoBeing 的多 Agent 群组协作可以借鉴这种路由机制来分发消息。
+
+---
+
+五、插件系统：4 层架构 + 107+ 扩展
+
+  5.1 四层架构 (docs/plugins/architecture.md)
+
+    第 1 层 — Manifest + 发现：从配置路径和 manifest 中查找插件
+    第 2 层 — 启用 + 验证：决定启用/禁用哪些插件
+    第 3 层 — 运行时加载：通过 jiti 进程内加载，注册能力
+    第 4 层 — 表面消费：注册表暴露工具、通道、提供商、钩子、
+             HTTP 路由、CLI 命令、服务
+
+  5.2 插件能力类型
+    - 文本推理（模型提供商）
+    - 语音（TTS/STT）
+    - 实时转录
+    - 实时语音
+    - 媒体理解（视觉/视频）
+    - 图像/音乐/视频生成
+    - Web 获取/搜索
+    - 通道/消息（25+ 平台）
+    - 记忆提供者
+    - Harness 执行器
+    - 钩子（生命周期事件）
+    - HTTP 路由
+    - CLI 命令
+
+  5.3 对 CoBeing 的启示
+
+    CoBeing 没有插件系统，所有功能硬编码在核心中。OpenClaw 的插件架构
+    提供了一条清晰的能力扩展路径——核心只做编排，具体能力由插件提供。
+    特别是"记忆提供者"作为可选插件这种模式，与 Hermes 的 8 个记忆后端
+    设计理念一致。
+
+---
+
+六、Task Flow 编排：持久化多步骤工作流
+
+  6.1 Task Flow 能力 (docs/automation/taskflow.md)
+    - 持久化多步骤状态（在网关重启后存活）
+    - 修订追踪（每次修改都记录）
+    - 管理模式（人工审核每一步）
+    - 镜像模式（自动执行但保留完整记录）
+
+  6.2 与其他自动化系统的关系
+    - Cron jobs：按时间触发
+    - Webhooks：按外部事件触发
+    - Gmail Pub/Sub：按邮件触发
+    - Standing orders：持续执行的条件规则
+    - Background tasks：一次性后台任务
+    - Task Flow：编排上述所有自动化的"流程层"
+
+  6.3 对 CoBeing 的启示
+
+    这是 CoBeing 的 TODOboard 系统的"升级版"：
+    - CoBeing 的 TODO 有三种触发模式（time/0time/condition）
+    - OpenClaw 的自动化体系更完整（Cron + Webhook + PubSub + 站令 + TaskFlow）
+    - 特别是 TaskFlow 的"持久化多步骤状态"——CoBeing 的 TODO 父子层级
+      可以借鉴为完整的工作流编排
+
+---
+
+七、Delegate 架构：组织级 Agent 身份
+
+  7.1 Delegate 模式 (docs/concepts/delegate-architecture.md)
+    - Agent 拥有独立的身份（邮箱、显示名、日历）
+    - 以人类的名义行事（"on behalf of"）
+    - 需要显式的身份提供商权限
+    - 三种能力层级：
+      1. Read-Only + Draft（只读 + 草稿）
+      2. Send on Behalf（代发）
+      3. Proactive（主动发起）
+    - 包含硬阻止、工具限制、沙箱隔离和审计追踪
+
+  7.2 对 CoBeing 的启示
+
+    CoBeing 的 Reviewer Agent 和 Host Agent 有特定的"角色"但没有"身份"。
+    Delegate 模式为 Agent 提供了更正式的组织身份和权限边界，
+    尤其是"审计追踪"——所有代发行为都有记录。
+
+---
+
+八、设备节点网络：macOS + iOS + Android
+
+  OpenClaw 有原生移动和桌面应用作为 WS peer 节点：
+
+  - macOS App：系统级能力（屏幕录制、通知、文件访问）
+  - iOS App：相机、画布、位置、语音
+  - Android App：相机、画布、屏幕录制、位置、语音
+
+  这些节点作为 WS 客户端连接到网关，提供"视觉感知"——Agent 可以看到
+  用户的屏幕、照片、位置，而不仅仅是处理文本。
+
+  对 CoBeing 的启示：CoBeing 目前仅通过 Web GUI 交互。
+  移动端能力和多媒体感知是长期愿景，但架构上可以先预留扩展点。
+
+---
+
+九、对 CoBeing 的关键启示总结
+
+  1. Harness 可插拔执行器
+     CoBeing 的 Agent 执行后端是单一路径（ConversationLoop）。
+     建议：抽象 Agent 执行器接口，支持不同的执行后端——
+     内置 loop、外部编码 AI（claw-code via ACP）、甚至人类审核者。
+
+  2. ACP 协议集成
+     CoBeing 无法利用外部编码 AI 工具。
+     建议：设计 CoBeing-to-External-AI 的桥接协议，
+     让群组中的 Agent 能将编码子任务委托给专门的编码引擎。
+
+  3. 多通道网关
+     CoBeing 仅支持 QQ Bot。
+     建议：参考 OpenClaw 的通道路由架构，
+     为未来接入更多通道预留扩展点。
+
+  4. 插件系统
+     CoBeing 所有功能硬编码在核心中。
+     建议：建立最小化插件接口——
+     至少让模型提供商和通道成为可插拔模块。
+
+  5. 自动化体系
+     CoBeing 的自动化只有 TODOboard 三种触发。
+     建议：增加 Cron/Webhook 触发，以及持久化多步骤工作流（TaskFlow 模式）。
+
+  6. Agent 身份与权限
+     CoBeing 的 Agent 有"角色"但无"身份"。
+     建议：为 Agent 增加正式的身份模型——
+     邮箱/显示名/能力层级/审计追踪。
+
+  7. 准备-执行分离
+     OpenClaw 在 harness 执行前已解析所有策略（模型/权限/工具/通道）。
+     CoBeing 的策略散落在 ConversationLoop、PermissionEnforcer、WakeSystem 各处。
+     建议：集中策略解析阶段，让执行阶段只负责"在这个框架内运行"。
+
+---
+
+十、总结
+
+OpenClaw 的核心竞争力不在 AI 模型的调用质量，而在于它在 AI 模型之上构建了
+一个完整的"操作系统"层：
+
+  - 25+ 通道的输入/输出抽象
+  - 可插拔的 Agent 执行器（Harness）
+  - 外部 AI 工具的集成协议（ACP）
+  - 107+ 插件的扩展生态
+  - Cron/Webhook/TaskFlow 的自动化体系
+  - 移动设备节点的多媒体感知
+  - 组织级身份和审计追踪
+
+如果说 claw-code 证明了"单 Agent 做到极致可以很强"，
+Hermes 证明了"记忆系统做到极致是护城河"，
+那么 OpenClaw 证明了"把 Agent 做成平台而非应用，才是更大的格局"。
+
+CoBeing 可以在保持多 Agent 协作核心优势的同时，
+借鉴 OpenClaw 的平台化思维——让 Agent 成为可编排的资源，
+让执行后端可替换，让通道可扩展。

@@ -1,0 +1,70 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Tauri / Rust build
+**/src-tauri/target/
+**/target/
+**/target/**
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Runtime data (contains user configs with API keys)
+data/
+CoBeing/data/
+
+# Claude internal
+.claude/
+
+# Nested git repos (keep their own history)
+CoBeing/.git/
+
+# Projects with their own git repos — avoid nested repo warnings
+projects/Auto-claude-code-research-in-sleep/
+projects/SAI-claw/
+projects/claw-code/
+projects/hermes/
+projects/openclaw/
+projects/sillytavern/
+
+# Superpowers sessions
+.superpowers/
+
+# Logs
+*.log
+logs/
+
+# Release zips (large binaries)
+releases/*.zip
+releases/*.rar
+releases/CoBeing-github/
+
+# Temp files
+temp/
+temporary/
+tmp/
+
+# Vite cache
+.vite/
+
+# Python
+__pycache__/
+*.pyc
+
+# Misc
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,47 @@
+{
+  "core": {
+    "logLevel": "info",
+    "dataDir": "./data",
+    "skillsDir": "./data/skills",
+    "promptsDir": "./data/prompts",
+    "memory": {
+      "charLimits": {
+        "memory": 3000,
+        "experience": 5000
+      }
+    },
+    "maxToolRounds": 20,
+    "todo": {
+      "scanInterval": 60000
+    },
+    "localModel": {
+      "enabled": true,
+      "path": "./data/models/qwen3.5-2b",
+      "contextSize": 8192,
+      "filterDebounceMs": 3000
+    }
+  },
+  "agents": [
+    "butler",
+    "host"
+  ],
+  "providers": {
+    "deepseek": {
+      "apiKeyEnv": "DEEPSEEK_API_KEY",
+      "baseURL": "https://api.deepseek.com"
+    }
+  },
+  "channels": {},
+  "gui": {
+    "enabled": true,
+    "wsPort": 18765
+  },
+  "reviewer": {
+    "enabled": true,
+    "maxRounds": 3
+  },
+  "judgmentModel": "deepseek-chat",
+  "groups": [],
+  "mcpServers": {},
+  "skillWhitelist": []
+}

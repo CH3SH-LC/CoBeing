@@ -1,0 +1,46 @@
+{
+  "name": "薰衣草雨",
+  "description": "淡紫用户气泡 + 薄荷智能体气泡，典雅沉静",
+  "base": {
+    "gradient-from": "#FDFBFF",
+    "gradient-to": "#F9FAFE",
+    "gradient-angle": 125
+  },
+  "surface": {
+    "bg": "rgba(255,255,255,0.88)",
+    "bg-solid": "#FFFFFF",
+    "elevated": "#F8F5FC",
+    "hover": "#F2ECF8",
+    "input": "#FFFFFF",
+    "border": "rgba(235,228,242,0.55)",
+    "shadow": "0 1px 3px rgba(124,58,237,0.04), 0 1px 2px rgba(0,0,0,0.02)",
+    "shadow-lg": "0 4px 12px rgba(124,58,237,0.06), 0 2px 4px rgba(0,0,0,0.02)"
+  },
+  "content": {
+    "accent": "#7C3AED",
+    "accent-warm": "#F59E0B",
+    "accent-dim": "#EDE9FE",
+    "txt": "#3A3548",
+    "txt-sub": "#645E72",
+    "txt-muted": "#9C96A8",
+    "success": "#10B981",
+    "warning": "#F59E0B",
+    "danger": "#EF4444",
+    "purple": "#A78BFA"
+  },
+  "chat": {
+    "msg-user": "#F5F0FF",
+    "msg-assistant": "#EDF8F4",
+    "msg-system": "#FFFDF5",
+    "msg-tool": "#FAF5FE"
+  },
+  "misc": {
+    "scrollbar": "#E0D8EC",
+    "scrollbar-hover": "#C0B0D4",
+    "overlay": "rgba(0,0,0,0.12)",
+    "code-bg": "#FBF8FE",
+    "selection-bg": "#7C3AED",
+    "selection-fg": "#FFFFFF",
+    "divider": "#EEE6F4"
+  }
+}

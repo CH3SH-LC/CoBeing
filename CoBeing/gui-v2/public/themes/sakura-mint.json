@@ -1,0 +1,46 @@
+{
+  "name": "Sakura Mint",
+  "description": "Bright candy Sakura Mint default theme with clear background-panel separation, theme-controlled chat bubbles, and soft layered surfaces.",
+  "base": {
+    "gradient-from": "#FFDCEA",
+    "gradient-to": "#D9FFF4",
+    "gradient-angle": 135
+  },
+  "surface": {
+    "bg": "rgba(255,255,255,0.88)",
+    "bg-solid": "#FFFDFC",
+    "elevated": "#FFF6FB",
+    "hover": "#FFE5F1",
+    "input": "#FFFCFE",
+    "border": "rgba(232,154,190,0.48)",
+    "shadow": "0 20px 48px rgba(236,72,153,0.13), 0 10px 26px rgba(16,185,129,0.10), 0 1px 0 rgba(255,255,255,0.78) inset",
+    "shadow-lg": "0 28px 70px rgba(236,72,153,0.17), 0 14px 36px rgba(16,185,129,0.12), 0 1px 0 rgba(255,255,255,0.84) inset"
+  },
+  "content": {
+    "accent": "#EC4899",
+    "accent-warm": "#F59E0B",
+    "accent-dim": "#FFD6E5",
+    "txt": "#3D2E38",
+    "txt-sub": "#6B5A65",
+    "txt-muted": "#A3919A",
+    "success": "#059669",
+    "warning": "#F59E0B",
+    "danger": "#EF4444",
+    "purple": "#A855F7"
+  },
+  "chat": {
+    "msg-user": "#FFD1E1",
+    "msg-assistant": "#BFFFF0",
+    "msg-system": "#FFF7D8",
+    "msg-tool": "#DDFDF0"
+  },
+  "misc": {
+    "scrollbar": "#EAB2C8",
+    "scrollbar-hover": "#D98BAE",
+    "overlay": "rgba(92,42,72,0.16)",
+    "code-bg": "#F1FFF8",
+    "selection-bg": "#EC4899",
+    "selection-fg": "#FFFFFF",
+    "divider": "#F6C9DA"
+  }
+}

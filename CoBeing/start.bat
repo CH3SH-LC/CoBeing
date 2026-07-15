@@ -1,0 +1,129 @@
+@echo off
+title CoBeing v2
+
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+cd /d "%ROOT%"
+
+echo ===================================
+echo   CoBeing v2 Launcher
+echo ===================================
+echo/
+
+REM --- Check prerequisites ---
+where pnpm >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] pnpm not found. Please install pnpm first.
+    echo         run: npm install -g pnpm
+    pause
+    exit /b 1
+)
+
+where node >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] node not found. Please install Node.js ^>=22.
+    pause
+    exit /b 1
+)
+
+REM --- Install dependencies if needed ---
+if not exist "node_modules\ws" (
+    echo [INFO] Installing dependencies...
+    call pnpm install
+    if %errorlevel% neq 0 (
+        echo [ERROR] pnpm install failed.
+        pause
+        exit /b 1
+    )
+    echo/
+)
+
+REM --- Kill any existing CoBeing process on port 18765 ---
+echo [INFO] Checking for existing CoBeing process on port 18765...
+set "COBEING_PORT=18765"
+set "PORT_IN_USE=0"
+netstat -ano -p TCP > "%TEMP%\cobeing-port.tmp" 2>nul
+findstr /C:":%COBEING_PORT% " "%TEMP%\cobeing-port.tmp" >nul 2>&1
+if not errorlevel 1 set "PORT_IN_USE=1"
+del "%TEMP%\cobeing-port.tmp" >nul 2>&1
+if "%PORT_IN_USE%"=="1" (
+    echo [INFO] Port %COBEING_PORT% is in use, killing existing process...
+    powershell -ExecutionPolicy Bypass -File "%~dp0scripts\kill-cobeing-port.ps1" -Port %COBEING_PORT%
+) else (
+    echo [INFO] Port %COBEING_PORT% is free.
+)
+echo/
+
+REM --- Pre-startup cleanup: remove .deleted / .orphan residues before Node starts ---
+echo [INFO] Cleaning up residual deleted/orphan directories...
+powershell -ExecutionPolicy Bypass -File "%~dp0scripts\cleanup-residues.ps1" -DataRoot "%ROOT%\data"
+echo/
+
+REM --- Build (skip with /fast flag) ---
+if /i "%1"=="/fast" (
+    if exist "packages\core\dist\index.js" (
+        echo [INFO] Fast mode: using pre-built dist/, skipping build.
+        echo/
+        goto :build_done
+    )
+)
+echo [INFO] Building packages...
+call pnpm build
+if %errorlevel% neq 0 (
+    echo [ERROR] Build failed.
+    pause
+    exit /b 1
+)
+echo/
+:build_done
+
+REM --- GUI mode ---
+echo/
+echo [INFO] Starting CoBeing Core + GUI...
+
+REM Start Core backend first
+echo [INFO] Starting Core backend...
+start "CoBeing Core" cmd /k "cd /d "%ROOT%" && call pnpm dev"
+echo [INFO] Core started. Waiting for WS server on port 18765...
+
+REM Wait for WS server
+set WAIT_COUNT=0
+:wait_ws
+powershell -Command "try { $tcp = New-Object System.Net.Sockets.TcpClient; $tcp.Connect('127.0.0.1', 18765); $tcp.Close(); exit 0 } catch { exit 1 }" >nul 2>&1
+if %errorlevel% equ 0 goto :ws_ready
+set /a WAIT_COUNT+=1
+if %WAIT_COUNT% geq 60 (
+    echo [WARN] WS server not ready after 60s, continuing anyway...
+    goto :ws_ready
+)
+timeout /t 1 /nobreak >nul
+goto :wait_ws
+:ws_ready
+echo [INFO] WS server is ready.
+
+REM Install gui-v2 deps if needed
+if not exist "gui-v2\node_modules" (
+    echo [INFO] Installing GUI dependencies...
+    cd gui-v2
+    call npm install --registry https://registry.npmmirror.com
+    cd /d "%ROOT%"
+)
+
+where cargo >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [INFO] Starting Tauri desktop app...
+    cd gui-v2
+    call npx tauri dev
+    cd /d "%ROOT%"
+) else (
+    echo [WARN] cargo not found. Starting browser mode instead.
+    echo [INFO] Open http://localhost:1420 in your browser.
+    cd gui-v2
+    call npm run dev
+    cd /d "%ROOT%"
+)
+
+:end
+echo/
+echo [INFO] CoBeing stopped.
+pause

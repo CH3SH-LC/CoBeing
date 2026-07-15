@@ -1,0 +1,28 @@
+{
+  "name": "@cobeing/core",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@cobeing/channels": "workspace:*",
+    "@cobeing/plugin-sdk": "workspace:*",
+    "@cobeing/providers": "workspace:*",
+    "@cobeing/shared": "workspace:*",
+    "better-sqlite3": "^12.10.0",
+    "js-yaml": "^4.1.1",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "typescript": "^5.7.0"
+  }
+}

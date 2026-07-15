@@ -1,0 +1,40 @@
+Fatal error: Error: Could not locate the bindings file. Tried:
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\Debug\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\Release\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\out\Debug\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\Debug\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\out\Release\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\Release\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\build\default\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\compiled\24.13.0\win32\x64\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\addon-build\release\install-root\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\addon-build\debug\install-root\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\addon-build\default\install-root\better_sqlite3.node
+ → D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\lib\binding\node-v137-win32-x64\better_sqlite3.node
+    at bindings (D:\agent-codes\CoBeing\node_modules\.pnpm\bindings@1.5.0\node_modules\bindings\bindings.js:126:9)
+    at new Database (D:\agent-codes\CoBeing\node_modules\.pnpm\better-sqlite3@11.10.0\node_modules\better-sqlite3\lib\database.js:48:64)
+    at new ObservabilityDB (D:\agent-codes\CoBeing\packages\core\src\observability\observability-db.ts:40:15)
+    at new CoBeingRuntime (D:\agent-codes\CoBeing\packages\core\dist\runtime.js:116:32)
+    at main (D:\agent-codes\CoBeing\scripts\dev.ts:28:19)
+    at <anonymous> (D:\agent-codes\CoBeing\scripts\dev.ts:132:1)
+    at ModuleJob.run (node:internal/modules/esm/module_job:413:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:660:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  tries: [
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\build\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\build\\Debug\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\build\\Release\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\out\\Debug\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\Debug\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\out\\Release\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\Release\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\build\\default\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\compiled\\24.13.0\\win32\\x64\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\addon-build\\release\\install-root\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\addon-build\\debug\\install-root\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\addon-build\\default\\install-root\\better_sqlite3.node',
+    'D:\\agent-codes\\CoBeing\\node_modules\\.pnpm\\better-sqlite3@11.10.0\\node_modules\\better-sqlite3\\lib\\binding\\node-v137-win32-x64\\better_sqlite3.node'
+  ]
+}
+ ELIFECYCLE  Command failed with exit code 1.

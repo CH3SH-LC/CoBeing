@@ -1,0 +1,14 @@
+FROM cobeing-sandbox:base
+
+# Python 3.11
+RUN apt-get update && \
+    apt-get install -y python3 python3-pip python3-venv && \
+    rm -rf /var/lib/apt/lists/*
+
+# 常用 Python 工具
+RUN pip3 install --user --break-system-packages black pytest mypy
+
+# 添加 Python 工具到 PATH
+ENV PATH="/home/cobeing/.local/bin:${PATH}"
+
+CMD ["bash"]

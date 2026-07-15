@@ -1,0 +1,224 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* ── Tailwind v4 @theme — placeholder values for class generation.
+   Actual values are injected at runtime by ThemeStore.applyTheme().
+   These are fallbacks only. ── */
+
+@theme {
+  /* base layer */
+  --color-base-from: #FFDCEA;
+  --color-base-to: #D9FFF4;
+
+  /* surface layer */
+  --color-surface: rgba(255,255,255,0.88);
+  --color-surface-solid: #FFFDFC;
+  --color-elevated: #FFF6FB;
+  --color-hover: #FFE5F1;
+  --color-input: #FFFCFE;
+  --color-bdr: rgba(232,154,190,0.48);
+
+  /* content layer */
+  --color-accent: #EC4899;
+  --color-accent-warm: #F59E0B;
+  --color-accent-dim: #FFD6E5;
+
+  --color-msg-user: #FFD1E1;
+  --color-msg-assistant: #BFFFF0;
+  --color-msg-system: #FFF7D8;
+  --color-msg-tool: #DDFDF0;
+
+  --color-txt: #3D2E38;
+  --color-txt-sub: #6B5A65;
+  --color-txt-muted: #A3919A;
+
+  --color-success: #059669;
+  --color-warning: #F59E0B;
+  --color-warning-fg: #B45309;
+  --color-danger: #EF4444;
+  --color-purple: #8B5CF6;
+  --color-white: #FFFFFF;
+
+  /* agent identity palette */
+  --agent-0: #6EE7B7;
+  --agent-1: #F0A080;
+  --agent-2: #C4B5FD;
+  --agent-3: #67E8F9;
+  --agent-4: #FCA5A5;
+  --agent-5: #FDE68A;
+  --agent-6: #A5B4FC;
+  --agent-7: #86EFAC;
+  --agent-8: #FDA4AF;
+  --agent-9: #D8B4FE;
+
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* ── Runtime CSS variables (set by ThemeStore) ── */
+:root {
+  --app-bg: #FFDCEA;
+  --app-fg: #3D2E38;
+  --base-gradient-angle: 135;
+  --scrollbar: #F1C8D8;
+  --scrollbar-hover: #DFA9BF;
+  --overlay: rgba(92,42,72,0.16);
+  --code-bg: #F1FFF8;
+  --selection-bg: #EC4899;
+  --selection-fg: #FFFFFF;
+  --shadow-surface: 0 20px 48px rgba(236,72,153,0.13), 0 10px 26px rgba(16,185,129,0.10), 0 1px 0 rgba(255,255,255,0.78) inset;
+  --shadow-surface-lg: 0 28px 70px rgba(236,72,153,0.17), 0 14px 36px rgba(16,185,129,0.12), 0 1px 0 rgba(255,255,255,0.84) inset;
+  --color-divider: #F6C9DA;
+
+  /* code block (One Dark) */
+  --code-header-bg: #282c34;
+  --code-header-fg: #abb2bf;
+  --hljs-fg: #abb2bf;
+  --hljs-comment: #5c6370;
+  --hljs-keyword: #c678dd;
+  --hljs-tag: #e06c75;
+  --hljs-literal: #56b6c2;
+  --hljs-string: #98c379;
+  --hljs-number: #d19a66;
+  --hljs-title: #61aeee;
+  --hljs-type: #e6c07b;
+}
+
+/* ── Global Reset ── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--app-bg);
+  color: var(--app-fg);
+  font-family: var(--font-body);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+}
+
+/* ── Selection ── */
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-fg);
+}
+
+/* ── Focus ring ── */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ── Code blocks ── */
+.msg-content pre {
+  background: var(--code-bg);
+  border: 1px solid var(--color-bdr);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.msg-content code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.msg-content :not(pre) > code {
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.msg-content p {
+  margin: 4px 0;
+  line-height: 1.6;
+}
+
+.msg-content ul, .msg-content ol {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+.msg-content table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  width: 100%;
+}
+.msg-content th, .msg-content td {
+  border: 1px solid var(--color-bdr);
+  padding: 6px 10px;
+  text-align: left;
+}
+.msg-content th {
+  background: var(--code-bg);
+}
+
+.hljs {
+  background: transparent !important;
+}
+
+/* ── highlight.js atom-one-dark theme (code blocks) ── */
+.code-block-pre .hljs {
+  background: transparent !important;
+  color: var(--hljs-fg);
+}
+.code-block-pre .hljs-comment,
+.code-block-pre .hljs-quote { color: var(--hljs-comment); font-style: italic; }
+.code-block-pre .hljs-doctag,
+.code-block-pre .hljs-keyword,
+.code-block-pre .hljs-formula { color: var(--hljs-keyword); }
+.code-block-pre .hljs-section,
+.code-block-pre .hljs-name,
+.code-block-pre .hljs-selector-tag,
+.code-block-pre .hljs-deletion,
+.code-block-pre .hljs-subst { color: var(--hljs-tag); }
+.code-block-pre .hljs-literal { color: var(--hljs-literal); }
+.code-block-pre .hljs-string,
+.code-block-pre .hljs-regexp,
+.code-block-pre .hljs-addition,
+.code-block-pre .hljs-attribute,
+.code-block-pre .hljs-meta .hljs-string { color: var(--hljs-string); }
+.code-block-pre .hljs-attr,
+.code-block-pre .hljs-variable,
+.code-block-pre .hljs-template-variable,
+.code-block-pre .hljs-type,
+.code-block-pre .hljs-selector-class,
+.code-block-pre .hljs-selector-attr,
+.code-block-pre .hljs-selector-pseudo,
+.code-block-pre .hljs-number { color: var(--hljs-number); }
+.code-block-pre .hljs-symbol,
+.code-block-pre .hljs-bullet,
+.code-block-pre .hljs-link,
+.code-block-pre .hljs-meta,
+.code-block-pre .hljs-selector-id,
+.code-block-pre .hljs-title { color: var(--hljs-title); }
+.code-block-pre .hljs-built_in,
+.code-block-pre .hljs-title.class_,
+.code-block-pre .hljs-class .hljs-title { color: var(--hljs-type); }
+.code-block-pre .hljs-emphasis { font-style: italic; }
+.code-block-pre .hljs-strong { font-weight: bold; }
+.code-block-pre .hljs-link { text-decoration: underline; }

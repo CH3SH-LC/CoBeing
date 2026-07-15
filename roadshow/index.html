@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CoBeing — 共同创造【我境】</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/white.css">
+<style>
+/* ===== Fonts ===== */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=Noto+Sans+SC:wght@200;300;400;500;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ===== Theme Variables ===== */
+:root {
+  --rose: #FFB7C5;
+  --rose-light: #FFF0F3;
+  --rose-deep: #E8879B;
+  --mint: #8EDCC8;
+  --mint-light: #E8F8F2;
+  --mint-deep: #5BBF9E;
+  --amber: #F0B866;
+  --amber-light: #FFF6E6;
+  --amber-deep: #D4941F;
+  --indigo: #8BA4D9;
+  --indigo-light: #EDF2FC;
+  --indigo-deep: #5A7DBF;
+  --bg: #FFFBFC;
+  --bg-warm: #FFF8FA;
+  --ink: #2A2A2A;
+  --ink-secondary: #6B6B6B;
+  --ink-muted: #9B9B9B;
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.08), 0 4px 20px rgba(0,0,0,0.04);
+  --shadow-md: 0 8px 30px rgba(0,0,0,0.06);
+  --shadow-sm: 0 2px 12px rgba(0,0,0,0.04);
+  --radius-lg: 24px;
+  --radius-md: 16px;
+  --radius-sm: 10px;
+}
+
+/* ===== Base ===== */
+.reveal {
+  font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  font-size: clamp(18px, 2.2vw, 30px);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  zoom: 0.9;
+  -moz-transform: scale(0.9);
+  -moz-transform-origin: center center;
+}
+.reveal .slides { text-align: left; }
+.reveal .slides section {
+  padding: 5% 7%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* ===== Backgrounds ===== */
+.reveal .slides section {
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 0% 0%, rgba(255,183,197,0.10) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 80% at 100% 100%, rgba(142,220,200,0.07) 0%, transparent 60%);
+}
+
+/* ===== Typography ===== */
+.reveal h1, .reveal h2, .reveal h3 {
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  font-weight: 700;
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: -0.01em;
+  text-shadow: none;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+.reveal h1 { font-size: 2.4em; font-weight: 900; }
+.reveal h2 { font-size: 1.7em; }
+.reveal h3 { font-size: 1.15em; font-weight: 600; }
+.reveal p { line-height: 1.8; margin-bottom: 0.6em; }
+
+.text-accent-rose { color: var(--rose-deep); }
+.text-accent-mint { color: var(--mint-deep); }
+.text-accent-amber { color: var(--amber-deep); }
+.text-accent-indigo { color: var(--indigo-deep); }
+.text-secondary { color: var(--ink-secondary); font-size: 0.88em; }
+.text-muted { color: var(--ink-muted); font-size: 0.82em; }
+.text-center { text-align: center; }
+.text-lg { font-size: 1.15em; }
+
+/* ===== Logo ===== */
+.logo {
+  position: absolute;
+  top: clamp(16px, 3%, 32px);
+  left: clamp(24px, 4%, 48px);
+  display: inline-flex;
+  align-items: center;
+  z-index: 10;
+  gap: 0;
+}
+.logo-mascot {
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
+  flex-shrink: 0;
+  object-fit: contain;
+  animation: logoFloat 3s ease-in-out infinite;
+}
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.logo-text {
+  font-weight: 700;
+  font-size: 1.05em;
+  letter-spacing: 0.5px;
+}
+.logo-text .co { color: var(--rose-deep); }
+.logo-text .being { color: var(--mint-deep); font-weight: 400; }
+
+/* ===== Slide Number ===== */
+.reveal .slide-number { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--ink-muted); }
+
+/* ===== Cards ===== */
+.card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  padding: clamp(20px, 3vw, 32px);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid rgba(0,0,0,0.03);
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.4s ease;
+}
+.card:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow-md);
+}
+.card-rose { border-left: 4px solid var(--rose); background: linear-gradient(135deg, #fff, var(--rose-light)); }
+.card-mint { border-left: 4px solid var(--mint); background: linear-gradient(135deg, #fff, var(--mint-light)); }
+.card-amber { border-left: 4px solid var(--amber); background: linear-gradient(135deg, #fff, var(--amber-light)); }
+.card-indigo { border-left: 4px solid var(--indigo); background: linear-gradient(135deg, #fff, var(--indigo-light)); }
+
+/* ===== Icon Container ===== */
+.icon-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.icon-wrap svg { width: 24px; height: 24px; }
+.icon-wrap-lg {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+}
+.icon-wrap-lg svg { width: 32px; height: 32px; }
+.icon-rose { background: linear-gradient(135deg, var(--rose-light), rgba(232,160,191,0.2)); }
+.icon-rose svg { color: var(--rose-deep); }
+.icon-mint { background: linear-gradient(135deg, var(--mint-light), rgba(142,220,200,0.2)); }
+.icon-mint svg { color: var(--mint-deep); }
+.icon-amber { background: linear-gradient(135deg, var(--amber-light), rgba(240,184,102,0.2)); }
+.icon-amber svg { color: var(--amber-deep); }
+.icon-indigo { background: linear-gradient(135deg, var(--indigo-light), rgba(139,164,217,0.2)); }
+.icon-indigo svg { color: var(--indigo-deep); }
+
+/* ===== Pill Tags ===== */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border-radius: 100px;
+  font-size: 0.72em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: transform 0.2s ease;
+}
+.pill:hover { transform: scale(1.04); }
+.pill-rose { background: var(--rose-light); color: var(--rose-deep); border: 1px solid rgba(232,160,191,0.3); }
+.pill-mint { background: var(--mint-light); color: var(--mint-deep); border: 1px solid rgba(110,207,184,0.3); }
+.pill-amber { background: var(--amber-light); color: var(--amber-deep); border: 1px solid rgba(240,184,102,0.3); }
+.pill-indigo { background: var(--indigo-light); color: var(--indigo-deep); border: 1px solid rgba(139,164,217,0.3); }
+.pill svg { width: 14px; height: 14px; }
+
+/* ===== Grid Layouts ===== */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(16px, 2.5vw, 28px);
+  margin-top: clamp(16px, 2.5vw, 24px);
+}
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(16px, 2.5vw, 28px);
+  margin-top: clamp(16px, 2.5vw, 24px);
+}
+
+/* ===== Flow Diagram ===== */
+.flow-node {
+  text-align: center;
+  padding: clamp(14px, 2vw, 22px) clamp(18px, 2.5vw, 28px);
+  border-radius: var(--radius-md);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  border: 1.5px solid rgba(0,0,0,0.04);
+  font-weight: 500;
+  min-width: 110px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.flow-node:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ===== Arrows ===== */
+.arrow-down {
+  text-align: center;
+  font-size: 1.6em;
+  color: var(--rose);
+  margin: 8px 0;
+  animation: arrowPulse 2.5s ease-in-out infinite;
+}
+@keyframes arrowPulse {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50% { transform: translateY(6px); opacity: 1; }
+}
+
+/* ===== Slogan Banner ===== */
+.slogan {
+  font-size: 1.35em;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--rose-deep), var(--mint-deep));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-align: center;
+  margin-top: clamp(12px, 2vw, 24px);
+  letter-spacing: 0.02em;
+}
+
+/* ===== Number Badge ===== */
+.num-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.78em;
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 12px;
+}
+.num-rose { background: linear-gradient(135deg, var(--rose), var(--rose-deep)); }
+.num-mint { background: linear-gradient(135deg, var(--mint), var(--mint-deep)); }
+.num-amber { background: linear-gradient(135deg, var(--amber), var(--amber-deep)); }
+
+/* ===== Chat Mock ===== */
+.chat-mock {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  border: 1px solid rgba(0,0,0,0.04);
+  display: flex;
+  max-width: 780px;
+  margin: 0 auto;
+}
+.chat-sidebar {
+  width: 120px;
+  background: linear-gradient(180deg, var(--bg-warm), #f5f0eb);
+  padding: 16px 10px;
+  border-right: 1px solid rgba(0,0,0,0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.chat-sidebar-item {
+  padding: 8px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.65em;
+  text-align: center;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: transform 0.2s ease;
+}
+.chat-sidebar-item:hover { transform: scale(1.03); }
+.chat-sidebar-item.active {
+  background: var(--rose);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(232,160,191,0.3);
+}
+.chat-main {
+  flex: 1;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.chat-msg {
+  font-size: 0.75em;
+  line-height: 1.6;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.chat-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9em;
+  flex-shrink: 0;
+}
+.chat-msg-body { flex: 1; }
+.chat-msg .name {
+  font-weight: 600;
+  font-size: 0.92em;
+  margin-bottom: 2px;
+}
+.name-rose { color: var(--rose-deep); }
+.name-mint { color: var(--mint-deep); }
+.name-amber { color: var(--amber-deep); }
+.name-indigo { color: var(--indigo-deep); }
+
+/* ===== Feature List ===== */
+.feature-list {
+  list-style: none;
+  padding: 0;
+  margin: clamp(12px, 2vw, 20px) 0;
+}
+.feature-list li {
+  padding: 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.92em;
+}
+.feature-list li svg {
+  width: 18px;
+  height: 18px;
+  color: var(--mint);
+  flex-shrink: 0;
+}
+
+/* ===== Pill Group ===== */
+.pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+/* ===== Cover Slide ===== */
+.cover-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 68vh;
+  gap: 8px;
+}
+.cover-center h1 {
+  font-size: clamp(2.2em, 5vw, 3.2em);
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--rose-deep), var(--mint-deep));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.15em;
+  letter-spacing: -0.02em;
+}
+.cover-subtitle {
+  font-size: 1.25em;
+  color: var(--ink-secondary);
+  font-weight: 300;
+  letter-spacing: 0.08em;
+}
+.cover-tagline {
+  font-size: 0.95em;
+  color: var(--ink-muted);
+  margin-top: 0.6em;
+  letter-spacing: 0.04em;
+}
+
+/* ===== Mascot Spin (Cover/Ending) ===== */
+.mascot-spin {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin-bottom: 16px;
+}
+.mascot-spin .spin-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  animation: spinRing 10s linear infinite;
+}
+@keyframes spinRing {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.mascot-spin .mascot-img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 20px rgba(255,183,197,0.5));
+  animation: mascotBounce 1.6s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+@keyframes mascotBounce {
+  0%   { transform: translate(-50%, -50%) translateY(0) scale(1); }
+  50%  { transform: translate(-50%, -50%) translateY(-24px) scale(1.06); }
+  100% { transform: translate(-50%, -50%) translateY(0) scale(1); }
+}
+
+/* ===== Mascot Standalone (Cover/Ending, no ring) ===== */
+.mascot-bounce-standalone {
+  width: 110px;
+  height: 110px;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 20px rgba(255,183,197,0.5));
+  animation: mascotBounceSolo 1.6s ease-in-out infinite;
+  margin-bottom: 12px;
+}
+@keyframes mascotBounceSolo {
+  0%   { transform: translateY(0) scale(1); }
+  50%  { transform: translateY(-24px) scale(1.06); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* ===== Ending Slide Override ===== */
+.reveal section[data-state="ending-slide"] {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2% !important;
+}
+
+/* ===== Ending Slide ===== */
+.ending-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px auto;
+  max-width: 560px;
+  width: 100%;
+}
+.ending-layer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 22px;
+  border-radius: var(--radius-md);
+  font-size: 0.9em;
+  font-weight: 500;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.3s ease;
+}
+.ending-layer:hover { transform: translateX(4px); }
+.ending-layer .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* ===== Decorative Elements ===== */
+.deco-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,0,0,0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.015) 1px, transparent 1px);
+  background-size: 60px 60px;
+  pointer-events: none;
+  z-index: 0;
+}
+.deco-circle {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0,0,0,0.03);
+  pointer-events: none;
+  z-index: 0;
+}
+.deco-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ===== Progress Bar ===== */
+.slide-progress {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--rose), var(--mint));
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 100;
+}
+
+/* ===== Fragment Animations ===== */
+.reveal .fragment.fade-up {
+  transform: translateY(24px);
+  opacity: 0;
+  transition: all 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal .fragment.fade-up.visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+.reveal .fragment.fade-left {
+  transform: translateX(-20px);
+  opacity: 0;
+  transition: all 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal .fragment.fade-left.visible {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+/* ===== Click Hint ===== */
+.click-hint {
+  position: absolute;
+  bottom: clamp(16px, 3%, 28px);
+  right: clamp(24px, 4%, 48px);
+  font-size: 0.6em;
+  color: var(--ink-muted);
+  opacity: 0.4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 900px) {
+  .reveal { font-size: 18px; }
+  .grid-3 { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .reveal .slides section { padding: 24px 20px; }
+  .chat-sidebar { width: 90px; }
+  .chat-sidebar-item { font-size: 0.55em; padding: 6px 4px; }
+  .chat-main { padding: 14px 16px; }
+}
+@media (max-width: 600px) {
+  .reveal { font-size: 15px; }
+  .chat-mock { flex-direction: column; }
+  .chat-sidebar { width: 100%; flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid rgba(0,0,0,0.04); padding: 10px; }
+}
+</style>
+</head>
+
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ==================== SLIDE 1: COVER ==================== -->
+<section>
+
+  <div class="deco-blob" style="width:350px;height:350px;top:-80px;right:-80px;background:var(--rose);"></div>
+  <div class="deco-blob" style="width:300px;height:300px;bottom:-60px;left:-60px;background:var(--mint);"></div>
+
+  <div class="cover-center">
+    <img src="main-icon.png?v=2" alt="CoBeing" class="mascot-img mascot-bounce-standalone fragment fade-up">
+    <h1 class="fragment fade-up">CoBeing，共同创造【我境】</h1>
+    <p class="cover-subtitle fragment fade-up">多智能体协作平台</p>
+    <p class="cover-tagline fragment fade-up">从单体智能到群体智能</p>
+  </div>
+  <div class="click-hint">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    空格继续
+  </div>
+</section>
+
+<!-- ==================== SLIDE 2: FROM SINGLE TO GROUP ==================== -->
+<section>
+
+  <div class="deco-blob" style="width:240px;height:240px;top:8%;right:3%;background:var(--amber);"></div>
+
+  <h2 class="fragment fade-up">今天所有框架都在问同一个问题：</h2>
+  <p class="text-lg fragment fade-up" style="margin-bottom:clamp(20px,3vw,36px);">
+    怎么让<strong>一个</strong> Agent 变得更强？
+  </p>
+
+  <!-- Problem Card -->
+  <div class="card card-rose fragment fade-up" style="max-width:680px;margin:0 auto clamp(16px,2.5vw,28px);">
+    <div style="display:flex;align-items:center;gap:16px;">
+      <div class="icon-wrap icon-wrap-lg icon-rose">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+      </div>
+      <div>
+        <strong style="font-size:1.05em;">一个 Agent，100 个技能</strong><br>
+        <span class="text-secondary">context 膨胀 → 性能下降 → 一个人扛所有</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-down fragment fade-up">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+  </div>
+
+  <!-- Solution Card -->
+  <div class="card fragment fade-up" style="max-width:680px;margin:0 auto;border-top:3px solid var(--mint);">
+    <div style="display:flex;align-items:center;gap:16px;">
+      <div class="icon-wrap icon-wrap-lg icon-mint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <div>
+        <strong style="color:var(--mint-deep);font-size:1.05em;">一群专注的 Agent，组队协作</strong><br>
+        <span class="text-secondary">各有所长 → 覆盖全部能力</span>
+      </div>
+    </div>
+  </div>
+
+  <p class="slogan fragment fade-up">CoBeing：从单体智能到群体智能</p>
+</section>
+
+<!-- ==================== SLIDE 3: THREE LAYERS ==================== -->
+<section>
+
+  <div class="deco-blob" style="width:200px;height:200px;top:5%;left:-50px;background:var(--rose);"></div>
+  <div class="deco-blob" style="width:200px;height:200px;bottom:5%;right:-50px;background:var(--mint);"></div>
+
+  <h2 class="text-center">CoBeing — 三层含义，一个愿景</h2>
+
+  <div class="grid-3">
+    <div class="card card-indigo fragment fade-up" style="text-align:center;">
+      <div class="num-badge num-rose" style="margin:0 auto 12px;">1</div>
+      <div class="icon-wrap icon-indigo" style="margin:0 auto 10px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      </div>
+      <h3 style="color:var(--indigo-deep);margin-bottom:6px;">你与 AI<br>共同存在</h3>
+      <p class="text-muted">1 对 1 协作<br>你定方向，AI 执行</p>
+    </div>
+    <div class="card card-amber fragment fade-up" style="text-align:center;">
+      <div class="num-badge num-amber" style="margin:0 auto 12px;">2</div>
+      <div class="icon-wrap icon-amber" style="margin:0 auto 10px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <h3 style="color:var(--amber-deep);margin-bottom:6px;">Agent 与 Agent<br>共同创造</h3>
+      <p class="text-muted">多 Agent 组队<br>自发协作</p>
+    </div>
+    <div class="card card-mint fragment fade-up" style="text-align:center;">
+      <div class="num-badge num-mint" style="margin:0 auto 12px;">3</div>
+      <div class="icon-wrap icon-mint" style="margin:0 auto 10px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <h3 style="color:var(--mint-deep);margin-bottom:6px;">每个 Agent<br>真实存在</h3>
+      <p class="text-muted">人格 · 记忆<br>经验 · 成长</p>
+    </div>
+  </div>
+
+  <p class="slogan fragment fade-up">让 AI 从工具变成同事</p>
+</section>
+
+<!-- ==================== SLIDE 4: BUTLER AGENT ==================== -->
+<section>
+
+  <div class="deco-blob" style="width:200px;height:200px;top:8%;right:3%;background:var(--amber);"></div>
+
+  <h2 style="color:var(--amber-deep);">管家智能体 — 自主创建，按需协作</h2>
+
+  <!-- Architecture Diagram (vertical, compact) -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:clamp(8px,1.2vw,14px);margin:clamp(10px,1.5vw,18px) 0;">
+    <!-- User + Butler merged -->
+    <div class="flow-node fragment fade-up" style="background:linear-gradient(135deg,var(--amber-light),#fff);border-color:var(--amber);">
+      <div class="icon-wrap icon-amber" style="margin:0 auto 6px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/><circle cx="12" cy="12" r="3"/></svg>
+      </div>
+      <strong>管家智能体</strong><br>
+      <span class="text-muted" style="font-size:0.78em;">用户提需求 → 自动拆解任务 · 判断需要哪些技能</span>
+    </div>
+    <div class="arrow-down fragment fade-up">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+      <span style="font-size:0.55em;margin-left:4px;color:var(--amber-deep);">自动创建</span>
+    </div>
+    <!-- Result Row -->
+    <div style="display:flex;gap:clamp(10px,1.5vw,16px);flex-wrap:wrap;justify-content:center;" class="fragment fade-up">
+      <div class="flow-node" style="border-color:var(--indigo);padding:clamp(10px,1.2vw,14px) clamp(14px,1.8vw,20px);">
+        <div class="icon-wrap icon-indigo" style="margin:0 auto 4px;width:32px;height:32px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </div>
+        <span style="font-size:0.82em;">创建 Agent</span>
+      </div>
+      <div class="flow-node" style="border-color:var(--mint);padding:clamp(10px,1.2vw,14px) clamp(14px,1.8vw,20px);">
+        <div class="icon-wrap icon-mint" style="margin:0 auto 4px;width:32px;height:32px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <span style="font-size:0.82em;">组建群组</span>
+      </div>
+      <div class="flow-node" style="border-color:var(--rose);padding:clamp(10px,1.2vw,14px) clamp(14px,1.8vw,20px);">
+        <div class="icon-wrap icon-rose" style="margin:0 auto 4px;width:32px;height:32px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <span style="font-size:0.82em;">分配协作</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-3 fragment fade-up" style="margin-top:clamp(10px,1.2vw,14px);">
+    <div class="card card-rose" style="padding:12px 14px;">
+      <p style="margin:0;font-size:0.82em;font-weight:600;color:var(--rose-deep);">不需要手动配置</p>
+      <p class="text-muted" style="margin:3px 0 0;font-size:0.72em;">Agent 和群组自动创建</p>
+    </div>
+    <div class="card card-amber" style="padding:12px 14px;">
+      <p style="margin:0;font-size:0.82em;font-weight:600;color:var(--amber-deep);">自动拆解调度</p>
+      <p class="text-muted" style="margin:3px 0 0;font-size:0.72em;">管家根据需求智能分配</p>
+    </div>
+    <div class="card card-mint" style="padding:12px 14px;">
+      <p style="margin:0;font-size:0.82em;font-weight:600;color:var(--mint-deep);">Agent 可复用</p>
+      <p class="text-muted" style="margin:3px 0 0;font-size:0.72em;">创建后积累组织能力</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 5: MULTI-AGENT COLLABORATION ==================== -->
+<section>
+
+  <div class="deco-blob" style="width:260px;height:260px;top:-40px;right:8%;background:var(--amber);"></div>
+
+  <h2 style="color:var(--amber-deep);">Agent 与 Agent，共同创造</h2>
+
+  <!-- Architecture Diagram -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:clamp(12px,2vw,20px);margin:clamp(16px,2.5vw,28px) 0;">
+    <!-- Screener -->
+    <div class="flow-node fragment fade-up" style="background:linear-gradient(135deg,var(--amber-light),#fff);border-color:var(--amber);">
+      <div class="icon-wrap icon-amber" style="margin:0 auto 6px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/><circle cx="12" cy="12" r="3"/></svg>
+      </div>
+      <strong>Screener / 群主</strong><br>
+      <span class="text-muted" style="font-size:0.78em;">智能调度 · 按需唤醒</span>
+    </div>
+    <div class="arrow-down fragment fade-up">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+      <span style="font-size:0.6em;margin-left:6px;color:var(--amber-deep);">唤醒</span>
+    </div>
+    <!-- Agent Row -->
+    <div style="display:flex;gap:clamp(12px,2vw,20px);flex-wrap:wrap;justify-content:center;" class="fragment fade-up">
+      <div class="flow-node" style="border-color:var(--indigo);">
+        <div class="icon-wrap icon-indigo" style="margin:0 auto 6px;width:36px;height:36px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        代码审查 Agent
+      </div>
+      <div class="flow-node" style="border-color:var(--rose);">
+        <div class="icon-wrap icon-rose" style="margin:0 auto 6px;width:36px;height:36px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+        </div>
+        数据分析 Agent
+      </div>
+      <div class="flow-node" style="border-color:var(--mint);">
+        <div class="icon-wrap icon-mint" style="margin:0 auto 6px;width:36px;height:36px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        内容创作 Agent
+      </div>
+    </div>
+    <div class="fragment fade-up" style="display:flex;align-items:center;gap:8px;color:var(--rose-deep);font-size:0.85em;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      @mention 交流 · 子讨论 · 结论自动回流
+    </div>
+  </div>
+
+  <div class="grid-3 fragment fade-up" style="margin-top:clamp(12px,1.5vw,16px);">
+    <div class="card card-rose" style="padding:14px 16px;">
+      <p style="margin:0;font-size:0.85em;font-weight:600;color:var(--rose-deep);">按需唤醒</p>
+      <p class="text-muted" style="margin:4px 0 0;font-size:0.75em;">不轮次排队</p>
+    </div>
+    <div class="card card-amber" style="padding:14px 16px;">
+      <p style="margin:0;font-size:0.85em;font-weight:600;color:var(--amber-deep);">自发交流</p>
+      <p class="text-muted" style="margin:4px 0 0;font-size:0.75em;">Agent 间协作</p>
+    </div>
+    <div class="card card-mint" style="padding:14px 16px;">
+      <p style="margin:0;font-size:0.85em;font-weight:600;color:var(--mint-deep);">多群组</p>
+      <p class="text-muted" style="margin:4px 0 0;font-size:0.75em;">不同场景不同团队</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 6: PERSONA + LEARNING + TODO ==================== -->
+<section>
+
+  <div class="deco-blob" style="width:280px;height:280px;bottom:-60px;left:-60px;background:var(--mint);"></div>
+
+  <h2 style="color:var(--mint-deep);">每个 Agent，真实存在</h2>
+
+  <!-- 8-File Persona System -->
+  <div class="card card-mint fragment fade-up" style="margin-bottom:clamp(16px,2.5vw,24px);">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <div class="icon-wrap icon-mint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <h3 style="margin:0;">八文件人格系统</h3>
+    </div>
+    <div class="pill-group">
+      <span class="pill pill-rose">SOUL</span>
+      <span class="pill pill-rose">CHARACTER</span>
+      <span class="pill pill-amber">JOB</span>
+      <span class="pill pill-amber">TOOLS</span>
+      <span class="pill pill-indigo">USER</span>
+      <span class="pill pill-indigo">MEMORY</span>
+      <span class="pill pill-mint">EXPERIENCE</span>
+      <span class="pill pill-mint">BOOTSTRAP</span>
+    </div>
+    <p class="text-muted" style="margin-top:12px;margin-bottom:0;">可编辑 · 可积累 · 跨会话演化</p>
+  </div>
+
+  <div class="grid-2">
+    <div class="card card-indigo fragment fade-up">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <div class="icon-wrap icon-indigo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        </div>
+        <h3 style="margin:0;">自主学习</h3>
+      </div>
+      <p class="text-secondary" style="margin:0;">越用越懂你<br>经验可检索<br>工具策略进化</p>
+    </div>
+    <div class="card card-amber fragment fade-up">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <div class="icon-wrap icon-amber">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        </div>
+        <h3 style="margin:0;">TODO 驱动</h3>
+      </div>
+      <p class="text-secondary" style="margin:0;">不轮询，到点才干活<br>自动续期 / 停止<br>精准触发</p>
+    </div>
+  </div>
+
+  <p class="slogan fragment fade-up">被动应答 → 自主规划执行</p>
+</section>
+
+<!-- ==================== SLIDE 7: PRODUCT FORM ==================== -->
+<section>
+
+  <div class="deco-blob" style="width:220px;height:220px;top:8%;left:-70px;background:var(--rose);"></div>
+
+  <h2>打开就能用</h2>
+
+  <!-- App Preview -->
+  <div class="card fragment fade-up" style="max-width:700px;margin:0 auto clamp(16px,2.5vw,24px);padding:clamp(24px,3.5vw,40px);text-align:center;background:linear-gradient(135deg,#fafafa,#f5f2ef);">
+    <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px;">
+      <div class="icon-wrap icon-wrap-lg icon-rose">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+      </div>
+    </div>
+    <strong style="font-size:1.1em;">CoBeing 桌面应用</strong>
+    <p class="text-muted" style="margin-top:4px;margin-bottom:0;">React 19 + Tauri 2.0</p>
+  </div>
+
+  <div class="fragment fade-up">
+    <div class="pill-group" style="margin-bottom:12px;">
+      <span class="pill pill-indigo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+        原生桌面应用
+      </span>
+      <span class="pill pill-indigo">React 19</span>
+      <span class="pill pill-indigo">Tauri 2.0</span>
+    </div>
+    <div class="pill-group" style="margin-bottom:12px;">
+      <span class="pill pill-amber">10+ LLM 厂商</span>
+      <span class="pill pill-amber">DeepSeek</span>
+      <span class="pill pill-amber">Claude</span>
+      <span class="pill pill-amber">GPT</span>
+      <span class="pill pill-amber">智谱 · 千问</span>
+    </div>
+    <div class="pill-group" style="margin-bottom:12px;">
+      <span class="pill pill-mint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        多渠道接入
+      </span>
+      <span class="pill pill-mint">QQ</span>
+      <span class="pill pill-mint">Discord</span>
+      <span class="pill pill-mint">飞书</span>
+      <span class="pill pill-mint">企业微信</span>
+    </div>
+  </div>
+
+  <p class="text-center text-lg fragment fade-up" style="margin-top:clamp(12px,2vw,20px);color:var(--rose-deep);font-weight:600;">
+    不需要技术背景，不需要写提示词
+  </p>
+</section>
+
+<!-- ==================== SLIDE 8: DEMO ==================== -->
+<section>
+
+  <div class="deco-blob" style="width:200px;height:200px;top:5%;right:-40px;background:var(--rose);"></div>
+  <div class="deco-blob" style="width:200px;height:200px;bottom:5%;left:-40px;background:var(--mint);"></div>
+
+  <h2>现场演示</h2>
+
+  <!-- Chat Mock -->
+  <div class="chat-mock fragment fade-up">
+    <div class="chat-sidebar">
+      <div class="chat-sidebar-item active">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/></svg>
+        群主
+      </div>
+      <div class="chat-sidebar-item" style="background:var(--indigo-light);color:var(--indigo-deep);">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        代码
+      </div>
+      <div class="chat-sidebar-item" style="background:var(--rose-light);color:var(--rose-deep);">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+        数据
+      </div>
+      <div class="chat-sidebar-item" style="background:var(--mint-light);color:var(--mint-deep);">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        内容
+      </div>
+    </div>
+    <div class="chat-main">
+      <div class="chat-msg fragment fade-up">
+        <div class="chat-avatar" style="background:var(--amber-light);color:var(--amber-deep);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/></svg>
+        </div>
+        <div class="chat-msg-body">
+          <div class="name name-amber">Screener</div>
+          <div>这个需求涉及前端重构和数据迁移，我来分配一下。</div>
+        </div>
+      </div>
+      <div class="chat-msg fragment fade-up">
+        <div class="chat-avatar" style="background:var(--indigo-light);color:var(--indigo-deep);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        <div class="chat-msg-body">
+          <div class="name name-indigo">代码审查</div>
+          <div>@数据分析 新的 API schema 会影响查询逻辑，你看一下？</div>
+        </div>
+      </div>
+      <div class="chat-msg fragment fade-up">
+        <div class="chat-avatar" style="background:var(--rose-light);color:var(--rose-deep);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+        </div>
+        <div class="chat-msg-body">
+          <div class="name name-rose">数据分析</div>
+          <div>收到，我看下迁移脚本。@内容创作 文档也需要同步更新。</div>
+        </div>
+      </div>
+      <div class="chat-msg fragment fade-up">
+        <div class="chat-avatar" style="background:var(--mint-light);color:var(--mint-deep);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        <div class="chat-msg-body">
+          <div class="name name-mint">内容创作</div>
+          <div>好的，等你们确认后我更新 API 文档和用户指南。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fragment fade-up pill-group" style="margin-top:clamp(16px,2.5vw,24px);">
+    <span class="pill pill-indigo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+      原生桌面应用
+    </span>
+    <span class="pill pill-amber">10+ LLM</span>
+    <span class="pill pill-mint">QQ / Discord / 飞书</span>
+  </div>
+
+  <p class="text-center fragment fade-up" style="margin-top:10px;color:var(--ink-muted);font-size:0.88em;">
+    不需要技术背景，打开就会用
+  </p>
+</section>
+
+<!-- ==================== SLIDE 9: ENDING ==================== -->
+<section data-state="ending-slide">
+
+  <div class="deco-blob" style="width:350px;height:350px;top:-80px;right:-80px;background:var(--rose);"></div>
+  <div class="deco-blob" style="width:300px;height:300px;bottom:-60px;left:-60px;background:var(--mint);"></div>
+
+  <div class="cover-center" style="min-height:auto;gap:4px;">
+    <img src="main-icon.png?v=2" alt="CoBeing" class="mascot-img mascot-bounce-standalone fragment fade-up">
+
+    <h1 style="font-size:clamp(2em,4vw,2.8em);letter-spacing:6px;margin-bottom:0.4em;" class="fragment fade-up">
+      C<span style="color:var(--rose);">o</span>B<span style="color:var(--mint);">e</span>ing
+    </h1>
+
+    <div class="ending-layers fragment fade-up">
+      <div class="ending-layer" style="background:var(--indigo-light);">
+        <div class="dot" style="background:var(--indigo);"></div>
+        第一层：你与 AI，共同存在
+      </div>
+      <div class="ending-layer" style="background:var(--amber-light);">
+        <div class="dot" style="background:var(--amber);"></div>
+        第二层：Agent 与 Agent，共同创造
+      </div>
+      <div class="ending-layer" style="background:var(--mint-light);">
+        <div class="dot" style="background:var(--mint);"></div>
+        第三层：每个 Agent，真实存在
+      </div>
+    </div>
+
+    <h1 class="slogan fragment fade-up" style="font-size:1.6em;">
+      CoBeing，共同创造【我境】
+    </h1>
+
+    <p class="fragment fade-up" style="color:var(--ink-secondary);margin-top:6px;">
+      让 AI 从工具变成同事
+    </p>
+
+    <p class="fragment fade-up" style="font-size:1.15em;margin-top:8px;color:var(--mint-deep);font-weight:600;">
+      谢谢
+    </p>
+  </div>
+</section>
+
+</div><!-- .slides -->
+</div><!-- .reveal -->
+
+<!-- Progress Bar -->
+<div class="slide-progress" id="progress"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script>
+Reveal.initialize({
+  hash: true,
+  slideNumber: 'c/t',
+  width: '100%',
+  height: '100%',
+  margin: 0.04,
+  minScale: 0.2,
+  maxScale: 2.0,
+  transition: 'slide',
+  transitionSpeed: 'default',
+  backgroundTransition: 'fade',
+  center: true,
+  controls: true,
+  controlsLayout: 'bottom-right',
+  controlsTutorial: false,
+  progress: false,
+  autoPlayMedia: null,
+  keyboard: {
+    32: 'next',
+    37: 'prev',
+    39: 'next',
+  }
+});
+
+// Custom progress bar
+const progressBar = document.getElementById('progress');
+Reveal.on('slidechanged', (event) => {
+  const total = Reveal.getTotalSlides();
+  const current = event.indexh + 1;
+  const pct = (current / total) * 100;
+  progressBar.style.width = pct + '%';
+});
+const total = Reveal.getTotalSlides();
+progressBar.style.width = (1 / total) * 100 + '%';
+</script>
+</body>
+</html>

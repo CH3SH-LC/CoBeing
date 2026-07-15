@@ -1,0 +1,46 @@
+{
+  "name": "工作台",
+  "description": "来自 B 方案的克制工作台配色，纸张米白、胭脂强调与橄榄智能体气泡",
+  "base": {
+    "gradient-from": "#FBF7EF",
+    "gradient-to": "#E7DED2",
+    "gradient-angle": 135
+  },
+  "surface": {
+    "bg": "rgba(255,252,246,0.78)",
+    "bg-solid": "#FFFAF2",
+    "elevated": "#F5EDE1",
+    "hover": "#EFE5D7",
+    "input": "#FFFDF8",
+    "border": "rgba(74,58,43,0.18)",
+    "shadow": "0 14px 32px rgba(35,25,16,0.10), 0 4px 12px rgba(35,25,16,0.06)",
+    "shadow-lg": "0 28px 70px rgba(35,25,16,0.14), 0 8px 22px rgba(35,25,16,0.08)"
+  },
+  "content": {
+    "accent": "#B63F4C",
+    "accent-warm": "#A56C2C",
+    "accent-dim": "#F7DCE0",
+    "txt": "#171412",
+    "txt-sub": "#766B60",
+    "txt-muted": "#A79A8A",
+    "success": "#4D7C5D",
+    "warning": "#A56C2C",
+    "danger": "#C93B4A",
+    "purple": "#365C84"
+  },
+  "chat": {
+    "msg-user": "#F7DCE0",
+    "msg-assistant": "#DCEBDC",
+    "msg-system": "#FFF7E8",
+    "msg-tool": "#E7EBF1"
+  },
+  "misc": {
+    "scrollbar": "#D7C9BA",
+    "scrollbar-hover": "#B9A794",
+    "overlay": "rgba(35,25,16,0.24)",
+    "code-bg": "#F3E9DA",
+    "selection-bg": "#B63F4C",
+    "selection-fg": "#FFFAF2",
+    "divider": "#E4D7C8"
+  }
+}
