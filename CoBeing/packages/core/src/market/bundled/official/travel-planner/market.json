@@ -1,0 +1,19 @@
+{
+  "id": "travel-planner",
+  "type": "agent",
+  "name": "旅行规划师",
+  "description": "资深旅行规划 Agent：擅长目的地攻略、逐日行程设计、预算分配与出行准备清单",
+  "version": "1.0.0",
+  "tier": "official",
+  "author": "CoBeing Team",
+  "icon": "🗺️",
+  "tags": ["旅行", "规划", "行程", "攻略", "预算"],
+  "riskLevel": "low",
+  "permissions": ["workspace:readwrite"],
+  "dependencies": [
+    {
+      "type": "skill",
+      "id": "travel-planning"
+    }
+  ]
+}

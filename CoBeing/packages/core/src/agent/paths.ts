@@ -20,7 +20,10 @@ export class AgentPaths {
   /** Agent 根目录路径 */
   get directory(): string { return this.baseDir; }
 
+  /** 旧角色文件（兼容历史数据；新 Agent 不再生成） */
   get characterPath()  { return path.join(this.baseDir, "CHARACTER.md"); }
+  /** 人味表达规范 — 新 Agent 的表达方式约束（无身份设定） */
+  get expressionPath() { return path.join(this.baseDir, "EXPRESSION.md"); }
   get jobPath()        { return path.join(this.baseDir, "JOB.md"); }
   get agentsPath()     { return path.join(this.baseDir, "AGENTS.md"); }
   get experiencePath() { return path.join(this.baseDir, "EXPERIENCE.md"); }
@@ -109,14 +112,24 @@ export function createDefaultCapabilityCard(input: {
 export class AgentFiles {
   constructor(private paths: AgentPaths) {}
 
-  /** 读取 CHARACTER.md */
+  /** 读取 CHARACTER.md（旧角色文件，兼容历史数据） */
   readCharacter(): string {
     return this.readFile(this.paths.characterPath);
   }
 
-  /** 写入 CHARACTER.md */
+  /** 写入 CHARACTER.md（旧角色文件，兼容） */
   writeCharacter(content: string): void {
     fs.writeFileSync(this.paths.characterPath, content, "utf-8");
+  }
+
+  /** 读取 EXPRESSION.md（人味表达规范） */
+  readExpression(): string {
+    return this.readFile(this.paths.expressionPath);
+  }
+
+  /** 写入 EXPRESSION.md */
+  writeExpression(content: string): void {
+    fs.writeFileSync(this.paths.expressionPath, content, "utf-8");
   }
 
   /** 读取 JOB.md */

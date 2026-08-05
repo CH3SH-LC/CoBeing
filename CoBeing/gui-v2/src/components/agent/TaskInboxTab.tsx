@@ -66,7 +66,7 @@ export function TaskInboxTab({ agentId }: { agentId: string }) {
             const sl = STATUS_LABELS[item.status] ?? STATUS_LABELS.pending;
             const isExpanded = expandedId === item.id;
             return (
-              <div key={item.id} className="border border-bdr/40 rounded-xl bg-elevated text-sm" style={{ padding: 14 }}>
+              <div key={item.id} className="border border-bdr/40 rounded-xl bg-elevated text-sm" style={{ padding: "14px 20px" }}>
                 <div
                   className="flex items-center justify-between cursor-pointer gap-3"
                   onClick={() => setExpandedId(isExpanded ? null : item.id)}
@@ -75,7 +75,7 @@ export function TaskInboxTab({ agentId }: { agentId: string }) {
                   <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${sl.color}`}>{sl.text}</span>
                 </div>
                 {isExpanded && (
-                  <div className="mt-3 pt-3 border-t border-bdr/40 space-y-2 text-txt-muted">
+                  <div className="mt-3 pt-3 border-t border-bdr/40 space-y-3 text-txt-muted">
                     <p><strong>目标:</strong> {item.goal}</p>
                     {item.acceptance && <p><strong>验收:</strong> {item.acceptance}</p>}
                     {item.blockerReason && <p><strong>阻塞原因:</strong> {item.blockerReason}</p>}

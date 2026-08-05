@@ -1,0 +1,15 @@
+{
+  "name": "expense-assistant",
+  "role": "记账小助手",
+  "permissions": {
+    "mode": "workspace-readwrite"
+  },
+  "tools": [
+    "read-file",
+    "write-file",
+    "glob",
+    "grep",
+    "agent-message"
+  ],
+  "skills": []
+}

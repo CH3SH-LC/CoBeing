@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { MarkdownContent } from "@/components/shared/MarkdownContent";
-import type { LogMessage, ToolEvent } from "@/lib/types";
+import type { LogMessage, TaskReceipt } from "@/lib/types";
 import { useUserProfileStore } from "@/stores/userProfile";
 import { firstDisplayChar } from "@/lib/userProfile";
 import { ChatMessageFrame } from "./ChatMessageFrame";
+import { TaskReceiptCard } from "./TaskReceiptCard";
+import { ToolCallsGroup } from "./ToolCallsGroup";
 
 const TRUNCATE_LEN = 400;
 
@@ -177,58 +179,19 @@ export function GroupMessageBubble({ msg, senderName }: GroupMessageBubbleProps)
         />
         <div className="flex-1 min-w-0">
           {msg.toolCalls && msg.toolCalls.length > 0 && (
-            <GroupToolCalls toolCalls={msg.toolCalls} />
+            <ToolCallsGroup toolCalls={msg.toolCalls} />
           )}
-          <div className="text-sm text-txt leading-relaxed">
-            <MessageContent content={msg.content} />
-          </div>
+          {msg.metadata?.taskReceipt && (
+            <TaskReceiptCard receipt={msg.metadata.taskReceipt as TaskReceipt} />
+          )}
+          {msg.content && (
+            <div className="text-sm text-txt leading-relaxed">
+              <MessageContent content={msg.content} />
+            </div>
+          )}
         </div>
       </div>
     </ChatMessageFrame>
-  );
-}
-
-function GroupToolCalls({ toolCalls }: { toolCalls: ToolEvent[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const completed = toolCalls.filter(t => t.status !== "start").length;
-  const running = toolCalls.filter(t => t.status === "start").length;
-
-  return (
-    <div className="rounded-xl bg-msg-tool mb-4" style={{ padding: "10px 14px" }}>
-      <div
-        className="flex items-center gap-2 cursor-pointer select-none"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span className="text-sm">{running > 0 ? "🔄" : "✅"}</span>
-        <span className="text-xs font-medium text-success">
-          {completed}/{toolCalls.length} 次工具调用
-        </span>
-        {running > 0 && (
-          <span className="text-xs text-txt-muted">({running} 执行中)</span>
-        )}
-        <span className="text-xs text-txt-muted ml-auto">
-          {expanded ? "收起 ▲" : "展开 ▼"}
-        </span>
-      </div>
-      {expanded && (
-        <div className="mt-3 pt-3 border-t border-bdr" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {toolCalls.map((tc, i) => {
-            const icon = tc.status === "start" ? "🔄" : tc.status === "error" ? "❌" : "✅";
-            return (
-              <div key={i} className="text-xs">
-                <div className="flex items-center gap-2 font-mono text-success">
-                  <span>{icon}</span>
-                  <span className="font-medium">{tc.toolName}</span>
-                  <span className="text-txt-muted">
-                    {tc.status === "start" ? "执行中..." : tc.status === "error" ? "失败" : "完成"}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }
 

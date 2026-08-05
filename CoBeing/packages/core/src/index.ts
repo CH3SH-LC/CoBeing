@@ -35,6 +35,13 @@ export { StdioTransport, HTTPTransport, type MCPTransport, type JSONRPCMessage }
 export { SkillLoader, type SkillDefinition } from "./skills/loader.js";
 export { SkillMdLoader, type SkillMdFrontmatter } from "./skills/md-loader.js";
 export { SkillRepository, type SkillInfo } from "./skills/repository.js";
+export { MarketCatalog, buildLocalResources } from "./market/catalog.js";
+export { MarketInstaller, type MarketInstallerHooks } from "./market/installer.js";
+export { makeMarketRecommendTool, makeMarketInstallTool } from "./market/tools.js";
+export type {
+  MarketResource, MarketResourceView, MarketDependency, MarketDepNode,
+  MarketTier, MarketResourceType, MarketRiskLevel, MarketInstallResult, InstalledEntry,
+} from "./market/types.js";
 export { makeSkillExecuteTool, makeSkillListTool, makeSkillCreateTool } from "./tools/skill-tools.js";
 export { OpenClawSkillLoader, type SkillFrontmatter, type OpenClawSkill, type SkillLoadOptions } from "./skills/openclaw-style.js";
 export { MemoryWriter, type MemoryEntry } from "./memory/writer.js";

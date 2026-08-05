@@ -25,7 +25,7 @@ export function CapabilityTab({ agentId }: { agentId: string }) {
 
   return (
     <div className="space-y-4" style={{ padding: "16px 0" }}>
-      <section className="rounded-xl bg-elevated" style={{ padding: 18 }}>
+      <section className="rounded-xl bg-elevated" style={{ padding: 20 }}>
         <h3 className="text-sm font-semibold text-txt mb-2">角色与领域</h3>
         <p className="text-sm text-txt-muted mb-2">角色: {capability.role}</p>
         <div className="flex flex-wrap gap-2">
@@ -35,7 +35,7 @@ export function CapabilityTab({ agentId }: { agentId: string }) {
         </div>
       </section>
 
-      <section className="rounded-xl bg-elevated" style={{ padding: 18 }}>
+      <section className="rounded-xl bg-elevated" style={{ padding: 20 }}>
         <h3 className="text-sm font-semibold text-txt mb-2">擅长</h3>
         <div className="flex flex-wrap gap-2">
           {capability.strengths.map((s) => (
@@ -55,7 +55,7 @@ export function CapabilityTab({ agentId }: { agentId: string }) {
       </section>
 
       {capability.taskTypes.length > 0 && (
-        <section className="rounded-xl bg-elevated" style={{ padding: 18 }}>
+        <section className="rounded-xl bg-elevated" style={{ padding: 20 }}>
           <h3 className="text-sm font-semibold text-txt mb-2">可处理任务类型</h3>
           {capability.taskTypes.map((tt) => (
             <details key={tt.id} className="mb-2 text-sm">
@@ -70,7 +70,7 @@ export function CapabilityTab({ agentId }: { agentId: string }) {
         </section>
       )}
 
-      <section className="rounded-xl bg-elevated" style={{ padding: 18 }}>
+      <section className="rounded-xl bg-elevated" style={{ padding: 20 }}>
         <h3 className="text-sm font-semibold text-txt mb-2">协作属性</h3>
         <div className="text-sm text-txt-muted space-y-1">
           <p>独立工作: {capability.collaboration.canWorkAlone ? "✅" : "❌"}</p>
@@ -85,7 +85,7 @@ export function CapabilityTab({ agentId }: { agentId: string }) {
       </section>
 
       {capability.reliability && (
-        <section className="rounded-xl bg-elevated" style={{ padding: 18 }}>
+        <section className="rounded-xl bg-elevated" style={{ padding: 20 }}>
           <h3 className="text-sm font-semibold text-txt mb-2">可靠性</h3>
           <div className="text-sm text-txt-muted space-y-1">
             <p>已完成: {capability.reliability.completedTasks} · 失败: {capability.reliability.failedTasks}</p>

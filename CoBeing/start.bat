@@ -49,6 +49,10 @@ del "%TEMP%\cobeing-port.tmp" >nul 2>&1
 if "%PORT_IN_USE%"=="1" (
     echo [INFO] Port %COBEING_PORT% is in use, killing existing process...
     powershell -ExecutionPolicy Bypass -File "%~dp0scripts\kill-cobeing-port.ps1" -Port %COBEING_PORT%
+    if errorlevel 1 (
+        echo [WARN] Port %COBEING_PORT% still occupied! New core may fail to bind.
+        echo        Please close the conflicting process manually if startup fails.
+    )
 ) else (
     echo [INFO] Port %COBEING_PORT% is free.
 )
@@ -83,7 +87,7 @@ echo [INFO] Starting CoBeing Core + GUI...
 
 REM Start Core backend first
 echo [INFO] Starting Core backend...
-start "CoBeing Core" cmd /k "cd /d "%ROOT%" && call pnpm dev"
+start "CoBeing Core" /D "%ROOT%" cmd /k "call pnpm dev"
 echo [INFO] Core started. Waiting for WS server on port 18765...
 
 REM Wait for WS server

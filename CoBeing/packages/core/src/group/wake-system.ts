@@ -609,7 +609,7 @@ export class WakeSystem {
           const compressedUntil = group.groupDb.getCompressionMark(entry.targetAgentId);
           const recentMessages = group.groupDb.getMessagesForAgent(
             entry.targetAgentId,
-            { after: compressedUntil, limit: 200 },
+            { after: compressedUntil, limit: 60 },
           );
           if (recentMessages.length > 0) {
             recentContext = recentMessages.map(msg => {

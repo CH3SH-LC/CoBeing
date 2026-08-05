@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ContainerPool } from "./container-pool.js";
+import { ContainerPool, parseDockerStats } from "./container-pool.js";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
@@ -76,5 +76,29 @@ describe("ContainerPool", () => {
     const args = (pool as any).buildCreateArgs("/data/agents/agent-1");
     expect(args).toContain("--memory=512m");
     expect(args).toContain("--cpus=1");
+  });
+});
+
+describe("parseDockerStats", () => {
+  it("parses a normal docker stats line", () => {
+    const parsed = parseDockerStats("12.34%|14.2MiB / 512MiB|2.77%");
+    expect(parsed).not.toBeNull();
+    expect(parsed!.cpuPercent).toBeCloseTo(12.34, 2);
+    expect(parsed!.memoryUsage).toBeCloseTo(14.2 * 1024 ** 2, 5);
+    expect(parsed!.memoryLimit).toBeCloseTo(512 * 1024 ** 2, 5);
+  });
+
+  it("handles GiB units and zero cpu", () => {
+    const parsed = parseDockerStats("0.00%|1.5GiB / 2GiB|0.00%");
+    expect(parsed).not.toBeNull();
+    expect(parsed!.cpuPercent).toBe(0);
+    expect(parsed!.memoryUsage).toBeCloseTo(1.5 * 1024 ** 3, 5);
+    expect(parsed!.memoryLimit).toBeCloseTo(2 * 1024 ** 3, 5);
+  });
+
+  it("returns null for malformed output", () => {
+    expect(parseDockerStats("garbage")).toBeNull();
+    expect(parseDockerStats("")).toBeNull();
+    expect(parseDockerStats("12.34%|N/A")).toBeNull();
   });
 });

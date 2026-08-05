@@ -55,12 +55,12 @@ export function AgentTimeline({ agentId }: { agentId: string }) {
 
   return (
     <div className="flex flex-col" style={{ gap: 0 }}>
-      <h4 className="text-xs font-semibold text-txt-muted uppercase tracking-wider mb-3">
+      <h4 className="text-sm font-semibold text-txt-muted tracking-wider mb-3">
         {agentName} · 最近 {events.length} 条活动
       </h4>
       <div className="relative" style={{ paddingLeft: 24 }}>
         {/* 竖线 */}
-        <div className="absolute bg-bdr rounded-full" style={{ left: 7, top: 8, bottom: 8, width: 2 }} />
+        <div className="absolute rounded-full" style={{ left: 7, top: 8, bottom: 8, width: 2, backgroundColor: "var(--color-divider)" }} />
 
         {events.map((e, i) => {
           const duration = `${e.latency_ms}ms`;
@@ -77,7 +77,7 @@ export function AgentTimeline({ agentId }: { agentId: string }) {
                   backgroundColor: isError ? "var(--color-danger)" : "var(--color-warning)",
                 }}
               />
-              <div className="rounded-lg bg-elevated" style={{ padding: "10px 14px" }}>
+              <div className="rounded-lg bg-elevated" style={{ padding: "14px 20px" }}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-medium text-txt">{e.tool_name}</span>
                   <span className={`text-xs ${isError ? "text-danger" : "text-txt-muted"}`}>

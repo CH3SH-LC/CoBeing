@@ -64,8 +64,7 @@ export function SandboxMonitor() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium text-txt">沙箱状态监控</h3>
+      <div className="flex items-center justify-end">
         <button onClick={refresh} disabled={loading}
           className="h-8 px-4 rounded-lg text-sm bg-accent text-white hover:bg-accent/90 disabled:opacity-50">
           {loading ? "刷新中..." : "刷新"}
@@ -73,11 +72,15 @@ export function SandboxMonitor() {
       </div>
 
       {statuses.length === 0 ? (
-        <div className="text-center py-8 text-txt-sub">暂无运行中的沙箱</div>
+        <div className="flex flex-col items-center justify-center text-center" style={{ padding: "48px 0", gap: 8 }}>
+          <div className="text-3xl">📦</div>
+          <p className="text-sm text-txt-muted">暂无运行中的沙箱，启动 Agent 后在此查看容器状态</p>
+        </div>
       ) : (
         <div className="space-y-3">
           {statuses.map((status) => (
-            <div key={status.agentId} className="rounded-xl bg-elevated p-4 space-y-3">
+            <div key={status.agentId} className="rounded-xl bg-elevated border border-bdr/40 space-y-3"
+                 style={{ padding: 20, boxShadow: "var(--shadow-surface)" }}>
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-sm font-medium text-txt">{status.agentName}</span>
@@ -104,27 +107,30 @@ export function SandboxMonitor() {
                     </div>
                     <div>
                       <span className="text-txt-sub">CPU:</span>
-                      <span className="text-txt ml-1">{status.cpuPercent.toFixed(1)}%</span>
+                      <span className="text-txt ml-1">{status.cpuPercent > 0 ? `${status.cpuPercent.toFixed(1)}%` : "—"}</span>
                     </div>
                     <div>
                       <span className="text-txt-sub">内存:</span>
-                      <span className="text-txt ml-1">{formatBytes(status.memoryUsage)} / {formatBytes(status.memoryLimit)}</span>
+                      <span className="text-txt ml-1">{status.memoryLimit > 0 ? `${formatBytes(status.memoryUsage)} / ${formatBytes(status.memoryLimit)}` : "—"}</span>
                     </div>
-                    {status.diskUsage !== undefined && (
+                    {status.diskLimit !== undefined && status.diskLimit > 0 && (
                       <div>
                         <span className="text-txt-sub">磁盘:</span>
-                        <span className="text-txt ml-1">{formatBytes(status.diskUsage)} / {formatBytes(status.diskLimit ?? 0)}</span>
+                        <span className="text-txt ml-1">{formatBytes(status.diskUsage ?? 0)} / {formatBytes(status.diskLimit)}</span>
                       </div>
                     )}
                   </div>
+                  {status.memoryLimit === 0 && status.cpuPercent === 0 && (
+                    <p className="text-xs text-txt-muted">实时指标暂不可用（Docker stats 未返回）</p>
+                  )}
 
                   <div className="flex gap-2 pt-2">
                     <button onClick={() => handleAction(status.agentId, "restart")}
-                      className="h-7 px-3 rounded text-xs bg-hover text-txt-sub hover:bg-elevated">
+                      className="h-8 px-4 rounded-lg text-sm bg-hover text-txt-sub hover:bg-elevated">
                       重启
                     </button>
                     <button onClick={() => handleAction(status.agentId, "stop")}
-                      className="h-7 px-3 rounded text-xs bg-danger/10 text-danger hover:bg-danger/20">
+                      className="h-8 px-4 rounded-lg text-sm bg-danger/10 text-danger hover:bg-danger/20">
                       停止
                     </button>
                   </div>

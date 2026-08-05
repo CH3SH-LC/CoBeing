@@ -41,7 +41,7 @@ export function GroupConfigTab({ group }: GroupConfigTabProps) {
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
           placeholder="输入协作目标..."
-          className="w-full h-10 px-4 rounded-lg bg-input border border-bdr text-sm text-txt placeholder:text-txt-muted focus:outline-none focus:border-accent/50"
+          className="w-full h-9 px-3 rounded-lg bg-input border border-bdr text-sm text-txt placeholder:text-txt-muted focus:outline-none focus:border-accent/50"
         />
       </div>
 

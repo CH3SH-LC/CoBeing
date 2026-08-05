@@ -400,7 +400,7 @@ describe("GroupTodoScanner", () => {
     expect(triggered).toEqual([]);
   });
 
-  it("recreates an already-triggered 0time todo without triggering it again", async () => {
+  it("does not recreate or retrigger an already-triggered 0time todo", async () => {
     const groupDir = path.join(tmpDir, "groups", "g5");
     fs.mkdirSync(groupDir, { recursive: true });
     const store = new TodoStore(groupDir);
@@ -423,12 +423,17 @@ describe("GroupTodoScanner", () => {
       },
     });
 
+    // 连续扫描两轮，验证不重复触发、不新建重复条目
+    await scanner.scanOnce();
     await scanner.scanOnce();
 
     const items = store.list();
     expect(triggered).toEqual([]);
-    expect(items.find(item => item.id === todo.id)?.status).toBe("expired");
+    // 原 TODO 保持 pending（已触发过），不被过期重建
+    expect(items.find(item => item.id === todo.id)?.status).toBe("pending");
+    // 不产生新的 0time 重复条目
     expect(items.filter(item => item.triggerMode === "0time" && item.status === "pending")).toHaveLength(1);
+    expect(items).toHaveLength(1);
   });
 
   it("updates only global TODOs linked to the completed group todo id", async () => {

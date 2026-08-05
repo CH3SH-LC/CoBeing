@@ -128,6 +128,11 @@ export class SkillRepository {
     log.info("SkillRepository: %d skills loaded from %s", this.skills.size, this.skillsDir);
   }
 
+  /** 重新扫描技能目录（Market 安装/卸载技能后调用） */
+  reload(): void {
+    this.loadAll();
+  }
+
   /** 列出所有技能信息 */
   list(): SkillInfo[] {
     return [...this.skills.values()].map(s => ({

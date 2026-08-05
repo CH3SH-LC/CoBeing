@@ -4,8 +4,9 @@
 import { exec, execFile } from "node:child_process";
 import os from "node:os";
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
-import { MAX_BASH_OUTPUT } from "@cobeing/shared";
+import { MAX_BASH_OUTPUT, createLogger } from "@cobeing/shared";
 
+const log = createLogger("bash-tool");
 const isWindows = os.platform() === "win32";
 const MAX_OUTPUT = MAX_BASH_OUTPUT;
 
@@ -24,19 +25,33 @@ export const bashTool: Tool = {
     const command = params.command as string;
     const timeout = ((params.timeout as number) ?? 30) * 1000;
 
-    // 沙箱模式：委托给 sandboxRunner
+    // 沙箱模式：委托给 sandboxRunner；Docker 基础设施故障时降级本地执行，
+    // 避免沙箱镜像缺失/构建失败/Daemon 不可用导致 Agent 的 bash 完全瘫痪
     if (context.sandbox.enabled && context.sandboxRunner) {
-      const result = await context.sandboxRunner.run(command, {
-        timeout: (params.timeout as number) ?? 30,
-      });
-      if (result.exitCode !== 0) {
-        return {
-          toolCallId: "",
-          content: result.stderr || `Exit code: ${result.exitCode}`,
-          isError: true,
-        };
+      try {
+        const result = await context.sandboxRunner.run(command, {
+          timeout: (params.timeout as number) ?? 30,
+        });
+        if (result.exitCode !== 0) {
+          // 区分「容器内命令失败」与「Docker 基础设施故障」
+          const isDockerInfra = result.exitCode === -1
+            || /docker|镜像|Docker|container|沙箱|daemon|sandbox/i.test(result.stderr || "");
+          if (isDockerInfra) {
+            log.warn("Sandbox infra failure, falling back to local bash: %s", (result.stderr || "").slice(0, 120));
+            return executeLocal(command, timeout, context.workingDir);
+          }
+          return {
+            toolCallId: "",
+            content: result.stderr || `Exit code: ${result.exitCode}`,
+            isError: true,
+          };
+        }
+        return { toolCallId: "", content: result.stdout || "(no output)" };
+      } catch (err: any) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn("Sandbox run threw, falling back to local bash: %s", msg.slice(0, 120));
+        return executeLocal(command, timeout, context.workingDir);
       }
-      return { toolCallId: "", content: result.stdout || "(no output)" };
     }
 
     // 本地模式

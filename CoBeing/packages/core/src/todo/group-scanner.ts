@@ -55,11 +55,24 @@ export class GroupTodoScanner {
 
     if (dueTodos.length === 0 && zeroTimeTodos.length === 0) return;
 
+    // 已触发但长期未完成的 0time TODO：超过冷却期低频重新触发一次
+    // （防刷屏的替代：10 分钟冷却而非每 2 分钟重建——保证任务不被遗忘也不淹没上下文）
+    const RETRIGGER_COOLDOWN_MS = 10 * 60 * 1000;
+    const now = Date.now();
+    const staleZeroTime = zeroTimeTodos.filter(t =>
+      t.triggeredAt && t.status === 'pending' &&
+      (now - new Date(t.triggeredAt).getTime() > RETRIGGER_COOLDOWN_MS)
+    );
+    if (staleZeroTime.length > 0) {
+      log.info("Group %s: %d 0time TODO(s) stale >10min, re-triggering", this.groupId, staleZeroTime.length);
+    }
+
     // 逾期任务优先触发 + 0time 随后
     dueTodos.sort((a, b) => new Date(a.triggerAt).getTime() - new Date(b.triggerAt).getTime());
     const allTodos = [
       ...dueTodos,
       ...zeroTimeTodos.filter(t => !t.triggeredAt && t.status === 'pending'),
+      ...staleZeroTime,
     ];
 
     // 按 targetAgentId 分组
@@ -77,25 +90,12 @@ export class GroupTodoScanner {
     );
     await Promise.allSettled(promises);
 
-    // 0time 未完成的重建逻辑
-    for (const todo of zeroTimeTodos) {
-      if (todo.triggeredAt && todo.status !== 'completed') {
-        this.store.updateStatus(todo.id, 'expired');
-        this.store.add({
-          title: todo.title,
-          description: todo.description,
-          triggerMode: '0time',
-          triggerAt: '',
-          check: todo.check,
-          recurrenceHint: '不重复',
-          createdBy: 'TODOboard',
-          targetAgentId: todo.targetAgentId,
-          groupId: todo.groupId,
-          dependsOn: todo.dependsOn,
-        });
-        log.info("Group %s: 0time TODO %s expired, recreated", this.groupId, todo.id);
-      }
-    }
+    // 已触发的 0time TODO 保持 pending 直到被完成，不再过期重建。
+    // 历史 bug：这里每次扫描都把「已触发但未完成」的 0time TODO 标记 expired
+    // 并新建一条同内容 TODO → 新条目下一扫描又被触发 → 无限循环，
+    // 每扫描周期向群组上下文注入一条完整任务通知并膨胀 TODO.json
+    // （真实事故：单一群组任务在数小时内堆积 300+ 重复条目）。
+    // 0time 语义 = 创建即触发一次，是否续期由群主通过 todo-add/todo-complete 管理。
 
     // Completion detection
     try {

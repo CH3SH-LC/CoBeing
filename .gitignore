@@ -68,3 +68,6 @@ __pycache__/
 # Misc
 Thumbs.db
 Desktop.ini
+
+# Temporary screenshots (Edge test captures)
+.tmp-screens/

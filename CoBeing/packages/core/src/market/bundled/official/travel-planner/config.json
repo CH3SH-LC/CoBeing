@@ -1,0 +1,17 @@
+{
+  "name": "travel-planner",
+  "role": "旅行规划师",
+  "permissions": {
+    "mode": "workspace-readwrite"
+  },
+  "tools": [
+    "read-file",
+    "glob",
+    "grep",
+    "web-fetch",
+    "agent-message"
+  ],
+  "skills": [
+    ["travel-planning"]
+  ]
+}

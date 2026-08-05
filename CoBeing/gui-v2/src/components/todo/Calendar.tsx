@@ -135,7 +135,7 @@ export function Calendar({ value, onChange }: CalendarProps) {
           <div
             key={d}
             className="text-center text-xs text-txt-muted font-medium"
-            style={{ padding: "4px 0" }}
+            style={{ padding: "8px 0" }}
           >
             {d}
           </div>
@@ -159,7 +159,7 @@ export function Calendar({ value, onChange }: CalendarProps) {
                 ${isToday && !isSelected ? "text-accent font-medium" : ""}
                 ${isSelected ? "bg-accent text-white font-medium" : ""}
               `}
-              style={{ padding: "6px 0", aspectRatio: "1" }}
+              style={{ padding: "8px 0", aspectRatio: "1" }}
               onClick={() => onChange(cell.dateStr)}
             >
               {cell.day}

@@ -4,6 +4,78 @@
 
 ---
 
+## v1.4.0 (2026-06-03 ~ 2026-08-04)
+
+> 整理 v1.3.1 之后（2026-06-01 ~ 2026-08-04）的全部开发工作，按里程碑组织。代码版本号自 2026-06-03 起统一为 1.4.0；本条目为发布记录整理，尚未产出发布包（releases/ 最新仍为 v1.3.1）。
+
+### 插件系统全能力（2026-06-01 ~ 06-03）
+- **插件系统扩展为全能力矩阵**：Provider 去硬编码（原生仅保留 DeepSeek，其余 6 家全部改为插件）；新增 HookBus（12 事件，notify/intercept/transform 三语义）、PromptLayerRegistry、UIExtensionRegistry；Agent/Group/Tool/Message 全生命周期钩子埋点；plugin-sdk types/loader 大幅扩展；registry.json 驱动插件加载；models.json 模型自描述
+- **5 家 Provider 插件补全**：qwen / minimax / volcengine（豆包）/ moonshot / mimo（各含 manifest + models.json + index.js，默认 disabled）
+- **QQBot 插件化**：独立插件 index.js，移除 config.channels 原生配置
+- **插件→前端动态发现**：前端 pluginsStore；list_plugins / add_plugin_instance / remove_plugin_instance / update_plugin_instance 4 个 WS 端点；get_state/get_config 扩充插件数据；删除 3 处 CATALOG_MODELS 硬编码改用动态模型数据；_custom Provider/Channel 内置插件
+- **两轮 5 维度审计修复 32 项**（安全/架构/正确性/API 完整性/代码质量）：message:send 拦截、agent:destroy 事件、stop() 全局清理、getConfig 密钥脱敏、prompt 截断 + provenance、插件 tools 注入全部 Agent、dispose 竞态等
+- **4 Agent 并行审查 + 16 项修复**（CRITICAL：require→await import、instanceId 路径穿越、自定义实例展平）
+- 版本统一 1.4.0（10 个 package.json + tauri.conf.json）
+
+### 前端扩展系统重设计 + 基础架构重构（2026-06-03 ~ 06-04）
+- 前端扩展系统重设计：侧栏重排（管家→智能体→群组→仪表盘→扩展→设置）、扩展页三 Tab（技能/MCP/插件）、仪表盘居中卡片、设置页精简、关于页动态版本号
+- 后端新增 toggle_plugin / update_plugin_config WS 端点
+- Agent 核心文件系统重构：删除 BOOTSTRAP/SOUL/USER/TOOLS，重写 CHARACTER/JOB/MEMORY/EXPERIENCE/AGENTS，明确 CHARACTER（人物形象+语言风格）与 JOB（工作范式+方法论）职责分离（35+ 文件，403 测试通过）
+- 数据目录重构为 7 分类（agents/groups/coreagents/tools/toolagents/skills/plugins）；模板迁移至 packages/core/src/templates/；清理 SubAgentSpawner → 新增 AgentCreator ToolAgent
+- 文档全部移至工作区根目录 D:\agent-codes\，项目内仅保留 CLAUDE.md
+
+### TODOboard 三层架构 + 管家入口数据层（2026-06-08 ~ 06-09）
+- 核心 TODO/群组唤醒闭环修复：TODO 事件携带 scope/agentId/groupId 上下文、condition/0time 重复触发防护、各完成入口统一走群组 scanner 完成协议
+- TODOboard 三层架构：GlobalTodoItem 扩展 + GlobalTodoStore 重写（23 测试）、Butler 5 个编排工具（global-todo-*）、完成事件回传、自动续作核心（continuation-judgment）、前端 Butler 侧栏 GlobalTodoPanel + Agent 对话区 TODO 横幅
+- 管家入口 Round 1 数据层：butler-bridge.ts 共享类型（5 interface + 3 常量）、GlobalTodoStore / ButlerTaskStore / GroupButlerBindingStore 三个 JSON Store
+- 群组纯 Prompt 驱动协作升级：HOST_JOB.md 群主职责、GUIDE.md 重写、Agent 6 步判断框架、group-send 改为非阻塞旁路语义、工作区初始化为 2 文件
+
+### 管家 / 通用智能体能力（2026-06-10）
+- 非 Market 审查 P0/P1 后端闭环：ButlerTaskStore / GroupButlerBindingStore 挂入运行时、Butler tracked dispatch 写 Global TODO + ButlerTask + Agent inbox / Group TODO、WS find_agent / dispatch_task 由占位改为真实操作、新 Agent 自动生成默认能力卡
+- ToolAgent 标准化：统一 ToolAgentSpec、creator 纳入 ToolAgent 类型并支持群组草案生成、Memory ToolAgent 返回 MEMORY.md 修改建议
+- 通用智能体能力与增强全 5 层：能力画像（CapabilityCard/capability.json）+ 任务收件箱（inbox.json）+ 成长建议（proposals/）+ 资源请求 + GrowthReviewer / TaskArchive / CapabilityUpdater 三个 ToolAgent + 前端 3 Tab
+- 管家入口 Round 2 聊天增强：TaskReceiptCard 可折叠任务回执卡片 + ChatInputActions 派发/创建/摘要快捷按钮 + 设置图标 ⚙→lucide Settings
+
+### GUI A 方案优化与稳定性（2026-06-11 ~ 06-12）
+- 个人资料设置（昵称/首字/Emoji/图片头像）、共享聊天头像与消息气泡框架、真实单聊/群聊显示头像（用户右、智能体左）、用户气泡显示个人昵称
+- 主题系统：导入校验补齐 chat.* 气泡 token；默认樱花薄荷主题层次增强（渐变背景 + 糖果色气泡）；新增 executive-workbench 工作台主题
+- better-sqlite3 Node 24 原生绑定恢复（^11→^12.10.0）+ Memory/Group/Observability SQLite 降级路径兜底
+- 修复全局任务/侧栏 `\uXXXX` 字面量显示；主题加载 cache:no-store + 内置主题优先于本地旧自定义主题
+
+### 聊天 / 群组稳定性大修（2026-07-08 ~ 07-09）
+- 第一批 5 项：智能体回复正确停止与记录、工具调用计数去重、新对话仅清当前会话、侧栏导航切换、群组模型配置 Dialog 遮挡（z-50→z-[60]）
+- 第二批 5 项：group-send 工具可用（构造函数直接注册）、全局任务精简显示、群组创建/系统消息不外显、TODOboard 触发不外显、对话未读徽章
+- 第三批 4 项：消息去重（同内容 2s 内）、群主不自执行（移除 8 个执行工具 + 强化 systemPrompt/HOST_JOB.md）、上滚不自动回滚、group-send 协调者绕过成员检查
+- 管家 / 长任务稳定性：流式回复丢失（startWaiting 先 finalizeStream 保存）、"正在回答"卡死（agent_completed 安全网）、页面整体上浮（h-screen→h-full + overscroll-behavior:none）、@提及弹窗被 overflow-hidden 裁剪
+
+### 前端与后端重构（2026-08-01）
+- ChatView.tsx 646→68 行拆分 7 个子组件；useWebSocket.ts 759→104 行，71 种 WS 消息 handler 拆分到 ws-handlers/
+- 修复 8 个僵尸全局变量（__cobeingHookBus 等从未被写入 → 插件 hook / PromptLayer / 投票静默失效）
+- ws-server.ts 3111→571 行：68 个 WS 命令 handler 按域拆分到 api/handlers/ 11 个模块 + 命令注册表分发
+- butler.ts 24 个工具工厂函数按域拆分到 agent/butler/tools/ 8 个模块（1428→150 行）
+- runtime.ts start()/stop() 拆分为职责清晰的私有辅助方法 + 收敛 wsServer 8 个 setter
+
+### Market 分级机制（2026-08-03）
+- 新增 packages/core/src/market/：MarketCatalog（official/certified/community/local 四层信任分级扫描）、MarketInstaller（依赖树 + 社区确认门禁 + 拓扑安装 + 路径穿越防护 + 幂等）、butler-market-recommend / butler-market-install 工具
+- 4 个内置示例资源（official 旅行规划 skill/agent/group 依赖链 + community 记账小助手演示门禁）
+- 5 个 WS 命令（market_list / get / install / uninstall / installed）+ 前端 Market Tab（类型/信任分级过滤、递归依赖树、社区确认流、安装状态机）
+- 根 vitest 配置纳入 gui-v2 测试；25 项市场 WS 冒烟通过
+
+### 管家入口产品化（2026-08-04）
+- 阶段 A 转接真实化：butler_task_updated 结构化广播 + 前端 handler、TaskReceiptCard 首次真实点亮、派发菜单结构化 dispatch_task（支持 Agent/Group）
+- 阶段 B 首次问卷：OnboardingOverlay 兴趣问卷 → Creator 生成 1-2 个初始 Agent + Market 官方推荐 + 管家欢迎消息
+- 阶段 C 管家模板 + 风格：ensureButlerDir 文件体系、固定 prompt → 文件 prompt（EXPERIENCE/记忆实时进 prompt）、4 人格模板（亲密朋友/专业秘书/学习陪伴/家庭助理）、butler_set_persona / butler_update_style + GUI 管家形象区
+- 阶段 D 低打扰：推荐纪律写入 JOB.md（官方/认证轻量提示每会话 ≤1 次、社区需 confirmed、本地已有能力时闭嘴）
+- 管家冒烟 19/19 + Market 回归 25/25；65 测试新增（runtime 9 + dispatch 10）
+
+### GUI 能力清理、美观化与真实测试（2026-08-04）
+- GUI 未接入能力清理：孤儿组件接入主视图（Agent 时间线 / 群组健康 / 唤醒队列 / 仪表盘活跃度柱状图）、技能执行真实链路（execute_skill）、沙箱监控真实指标（docker stats）、通知音效真实化（Web Audio + 系统通知）、回执卡片状态流转 + 群组派发回执
+- GUI 全局美观化：4 审计 + 3 修复代理全量整改 ~60 组件（字号≥14px、留白≥20px、层次化、空态图标化、tab/按钮/列表行统一）；修复浏览器模式启动崩溃 P0（isTauri 守卫）
+- 真实测试：与管家对话制作植物大战僵尸 demo，4 轮验证发现并修复 5 个真实 bug（reviewerCfg undefined 崩溃、沙箱镜像构建路径硬编码、镜像依赖链缺失、dockerCmd 30s 超时、Dockerfile.base UID 冲突）
+- 修复 start.bat 端口清理失效（kill-cobeing-port.ps1 弃用 Start-Job+netstat，改用 Get-NetTCPConnection 同步查询）
+
+---
+
 ## v1.3.1 (2026-05-26)
 
 ### 韧性修复

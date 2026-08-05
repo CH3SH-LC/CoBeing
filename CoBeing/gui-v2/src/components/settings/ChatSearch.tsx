@@ -40,10 +40,10 @@ export function ChatSearch() {
   return (
     <div className="flex flex-col" style={{ gap: 16 }}>
       {/* 搜索框 */}
-      <div className="flex items-center rounded-xl bg-elevated border border-bdr/40" style={{ padding: "4px", gap: 4 }}>
+      <div className="flex items-center rounded-xl bg-elevated border border-bdr/40" style={{ padding: 8, gap: 8 }}>
         <input
           className="flex-1 bg-transparent text-sm text-txt outline-none"
-          style={{ padding: "8px 10px" }}
+          style={{ padding: "10px 14px" }}
           placeholder="搜索对话历史..."
           value={query}
           onChange={(e) => { setQuery(e.target.value); setSearched(false); }}
@@ -61,9 +61,16 @@ export function ChatSearch() {
 
       {/* 结果 */}
       <div className="flex flex-col" style={{ gap: 10 }}>
+        {!searched && results.length === 0 && (
+          <div className="flex flex-col items-center justify-center text-center" style={{ padding: 32, gap: 8 }}>
+            <div className="text-3xl">🔍</div>
+            <p className="text-sm text-txt-muted">输入关键词搜索全部对话历史，支持消息内容与工具调用</p>
+          </div>
+        )}
         {searched && results.length === 0 && (
-          <div className="flex items-center justify-center" style={{ padding: 32 }}>
-            <span className="text-sm text-txt-muted">无匹配结果</span>
+          <div className="flex flex-col items-center justify-center text-center" style={{ padding: 32, gap: 8 }}>
+            <div className="text-3xl">😕</div>
+            <p className="text-sm text-txt-muted">无匹配结果，换个关键词试试</p>
           </div>
         )}
 

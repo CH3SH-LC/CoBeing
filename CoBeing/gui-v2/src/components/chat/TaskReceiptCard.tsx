@@ -21,7 +21,7 @@ export function TaskReceiptCard({ receipt }: TaskReceiptCardProps) {
     <div className="rounded-xl bg-msg-tool" style={{ padding: "12px 16px", marginTop: 12 }}>
       {/* Collapsed view */}
       <div
-        className="flex items-center gap-3 cursor-pointer select-none"
+        className="flex items-center gap-3 cursor-pointer select-none rounded-lg -mx-1 px-1 transition-colors hover:bg-hover"
         onClick={() => setExpanded(!expanded)}
       >
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.className}`}>
@@ -60,7 +60,7 @@ export function TaskReceiptCard({ receipt }: TaskReceiptCardProps) {
           {receipt.artifacts && receipt.artifacts.length > 0 && (
             <div>
               <p className="text-xs text-txt-muted font-medium" style={{ marginBottom: 6 }}>产物</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {receipt.artifacts.map((a, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm text-txt-sub">
                     <span>📄</span>

@@ -5,8 +5,12 @@ import { useSettingsStore } from "@/stores/settings";
 import { getWsClient } from "@/hooks/useWebSocket";
 import { startNewConversation } from "@/hooks/useChatPersistence";
 import { MarkdownContent } from "@/components/shared/MarkdownContent";
+import type { ButlerTaskReceiptPayload } from "@/hooks/ws-handlers/butler-task-handlers";
+import { toTaskReceipt } from "@/lib/taskReceipt";
 import { GroupMessageBubble } from "./GroupMessageBubble";
 import { ChatMessageFrame } from "./ChatMessageFrame";
+import { ChatAvatar } from "./ChatAvatar";
+import { Settings } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
 import { SurfaceCard, WorkbenchLayout } from "@/components/layout/Surface";
@@ -25,6 +29,37 @@ export function GroupChatView({ sideRail }: { sideRail?: ReactNode }) {
   const group = groups.find((g) => g.id === activeConv);
   const canSend = !!activeConv;
 
+  // 群组派发回执:监听 butler_task_updated 事件流,展示"管家派发给本群组"的任务回执卡片
+  // 同 butlerTaskId 已有回执时更新卡片状态(运行中 → 完成/失败),不重复追加。
+  useEffect(() => {
+    const handleReceipt = (event: Event) => {
+      const payload = (event as CustomEvent<ButlerTaskReceiptPayload>).detail;
+      if (!payload?.butlerTaskId || !activeConv) return;
+      if (payload.targetType !== "group" || payload.targetId !== activeConv) return;
+
+      const store = useChatStore.getState();
+      const existing = store.getMessages(activeConv);
+      if (existing.some((m) => m.metadata?.taskReceipt?.id === payload.butlerTaskId)) {
+        store.updateTaskReceipt(activeConv, payload.butlerTaskId, toTaskReceipt(payload));
+        return;
+      }
+
+      store.addMessage(
+        {
+          direction: "out",
+          content: "",
+          timestamp: Date.now(),
+          senderId: "host",
+          senderName: "群组",
+          metadata: { taskReceipt: toTaskReceipt(payload) },
+        },
+        activeConv,
+      );
+    };
+    window.addEventListener("ws-butler-task-receipt", handleReceipt);
+    return () => window.removeEventListener("ws-butler-task-receipt", handleReceipt);
+  }, [activeConv]);
+
   const getSenderName = (senderId: string): string => {
     const agent = agents.find((a) => a.id === senderId);
     return agent?.name ?? senderId;
@@ -41,7 +76,7 @@ export function GroupChatView({ sideRail }: { sideRail?: ReactNode }) {
           connected={connected}
           canConfigure={!!activeConv}
           detailPanelOpen={detailPanelOpen}
-          onNewConversation={() => startNewConversation(activeConv)}
+          onNewConversation={() => startNewConversation(activeConv ?? undefined)}
           onToggleConfig={toggleDetailPanel}
         />
       }
@@ -77,16 +112,16 @@ function GroupHeader({
 }) {
   return (
     <SurfaceCard className="flex items-center shrink-0" padding="16px 24px">
-      <div className="w-10 h-10 rounded-lg bg-purple/10 flex items-center justify-center text-sm">👥</div>
-      <div style={{ marginLeft: 16 }}>
-        <p className="text-sm font-medium text-purple">{name}</p>
+      <div className="shrink-0"><ChatAvatar name="群" tone="group" /></div>
+      <div className="min-w-0" style={{ marginLeft: 16 }}>
+        <p className="truncate text-sm font-medium text-purple">{name}</p>
         <p className="text-xs text-txt-muted" style={{ marginTop: 4 }}>{memberCount} 成员</p>
       </div>
       <div className="ml-auto flex items-center" style={{ gap: 12 }}>
         {canConfigure && (
           <button
             onClick={onNewConversation}
-            className="rounded-lg flex items-center justify-center text-xs transition-colors text-txt-sub hover:bg-hover hover:text-txt"
+            className="rounded-lg flex items-center justify-center text-sm transition-colors text-txt-sub hover:bg-hover hover:text-txt"
             style={{ padding: "8px 14px" }}
           >
             + 新对话
@@ -95,10 +130,10 @@ function GroupHeader({
         {canConfigure && (
           <button
             onClick={onToggleConfig}
-            className={`rounded-lg flex items-center justify-center text-sm transition-colors ${detailPanelOpen ? "bg-purple/15 text-purple" : "text-txt-muted hover:bg-hover hover:text-txt"}`}
+            className={`rounded-lg flex items-center justify-center transition-colors ${detailPanelOpen ? "bg-purple/15 text-purple" : "text-txt-muted hover:bg-hover hover:text-txt"}`}
             style={{ width: 36, height: 36 }}
           >
-            ⚙
+            <Settings size={16} />
           </button>
         )}
         <div className={`w-2.5 h-2.5 rounded-full ${connected ? "bg-success" : "bg-danger"}`} />
@@ -336,7 +371,7 @@ function GroupChatInput({ disabled }: { disabled: boolean }) {
 
   return (
     <div className="relative">
-        <div className="flex min-h-[132px] flex-col rounded-xl bg-input border border-bdr/30 overflow-hidden" style={{ padding: 18 }}>
+        <div className="flex min-h-[132px] flex-col rounded-xl bg-input border border-bdr/30 overflow-hidden" style={{ padding: 20 }}>
         <textarea
           ref={inputRef}
           value={text} onChange={handleChange} onKeyDown={handleKeyDown}
@@ -351,8 +386,8 @@ function GroupChatInput({ disabled }: { disabled: boolean }) {
               <button
                 onClick={() => setShowMention(!showMention)}
                 disabled={disabled}
-                className="text-xs text-txt-sub hover:text-purple transition-colors disabled:opacity-30 rounded-md hover:bg-hover"
-                style={{ padding: "6px 10px" }}
+                className="text-sm text-txt-sub hover:text-purple transition-colors disabled:opacity-30 rounded-lg hover:bg-hover"
+                style={{ padding: "8px 12px" }}
               >
                 @ 提及
               </button>
@@ -360,7 +395,7 @@ function GroupChatInput({ disabled }: { disabled: boolean }) {
             <span className="text-xs text-txt-muted">Enter 发送 · Shift+Enter 换行</span>
           </div>
           <button onClick={handleSend} disabled={!canSend || !text.trim()}
-            className="rounded-lg text-sm font-medium transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed bg-purple text-white hover:bg-purple/90"
+            className="rounded-lg text-sm font-medium transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed bg-accent text-white hover:bg-accent/90"
             style={{ padding: "10px 24px" }}
           >
             发送

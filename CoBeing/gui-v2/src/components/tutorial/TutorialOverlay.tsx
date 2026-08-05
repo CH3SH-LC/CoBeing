@@ -210,16 +210,16 @@ export function TutorialOverlay({ onClose }: { onClose: () => void }) {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{
-        backgroundColor: "color-mix(in srgb, var(--overlay) 72%, transparent)",
-        backdropFilter: "blur(18px) saturate(1.35)",
-        WebkitBackdropFilter: "blur(18px) saturate(1.35)",
+        backgroundColor: "color-mix(in srgb, var(--overlay) 60%, transparent)",
+        backdropFilter: "blur(16px) saturate(1.4)",
+        WebkitBackdropFilter: "blur(16px) saturate(1.4)",
         opacity: visible ? 1 : 0,
         transition: "opacity 200ms ease",
         padding: 24,
       }}
     >
       <div
-        className="w-[560px] max-w-[calc(100vw-48px)] rounded-2xl overflow-hidden bg-surface border border-bdr/40"
+        className="w-[560px] max-w-[calc(100vw-48px)] rounded-2xl overflow-hidden bg-surface-solid border border-bdr/40"
         style={{
           transform: visible ? "translateY(0)" : "translateY(20px)",
           transition: "transform 200ms ease",

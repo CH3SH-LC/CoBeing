@@ -5,8 +5,8 @@ RUN apt-get update && \
     apt-get install -y git curl jq make && \
     rm -rf /var/lib/apt/lists/*
 
-# 非 root 用户
-RUN useradd -m -u 1000 cobeing && \
+# 非 root 用户（不指定 UID：node:20-bookworm 自带 UID 1000 的 node 用户，固定 1000 会冲突）
+RUN useradd -m cobeing && \
     mkdir -p /workspace && chown cobeing:cobeing /workspace
 
 USER cobeing

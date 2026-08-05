@@ -78,7 +78,7 @@ function ToolGroupView({ group }: { group: ToolCallGroup }) {
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center hover:bg-hover transition-colors"
-        style={{ padding: "10px 14px", gap: 12 }}
+        style={{ padding: "14px 20px", gap: 12 }}
       >
         <span className="text-base shrink-0 w-6 text-center">🔧</span>
         <span className="flex-1 text-sm text-left">
@@ -131,7 +131,7 @@ function FileChangeView({ change }: { change: FileChangeEntry }) {
   const agentName = useAgentsStore((s) => s.agents.find(a => a.id === change.agentId)?.name || change.agentId);
 
   return (
-    <div className="flex items-center rounded-lg hover:bg-hover transition-colors" style={{ padding: "10px 14px", gap: 12 }}>
+    <div className="flex items-center rounded-lg hover:bg-hover transition-colors" style={{ padding: "14px 20px", gap: 12 }}>
       <span className="text-base shrink-0 w-6 text-center">{actionIcon[change.action]}</span>
       <span className="flex-1 text-sm">
         <strong className="font-semibold text-txt">{agentName}</strong>
@@ -150,7 +150,7 @@ function TodoChangeView({ change }: { change: TodoChangeEntry }) {
   const actionColor = { added: "text-accent", completed: "text-success", removed: "text-danger" };
 
   return (
-    <div className="flex items-center rounded-lg hover:bg-hover transition-colors" style={{ padding: "10px 14px", gap: 12 }}>
+    <div className="flex items-center rounded-lg hover:bg-hover transition-colors" style={{ padding: "14px 20px", gap: 12 }}>
       <span className="text-base shrink-0 w-6 text-center">{actionIcon[change.action]}</span>
       <span className="flex-1 text-sm">
         <span className={actionColor[change.action]}>{actionMap[change.action]} TODO</span>
@@ -171,7 +171,7 @@ function ActivityEntryView({ entry }: { entry: ActivityEntry }) {
       className={`flex items-center rounded-lg transition-colors hover:bg-hover ${
         entry.level === "error" ? "bg-danger/5" : ""
       }`}
-      style={{ padding: "10px 14px", gap: 12 }}
+      style={{ padding: "14px 20px", gap: 12 }}
     >
       <span className="text-base shrink-0 w-6 text-center">{entry.icon}</span>
       <span className={`flex-1 text-sm ${entry.level === "error" ? "text-danger" : "text-txt"}`}>
@@ -251,7 +251,7 @@ export function LogsSection() {
   ];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-200px)]">
+    <div className="flex flex-col h-full">
       {/* 头部 */}
       <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
         <div>
@@ -286,14 +286,15 @@ export function LogsSection() {
         ref={containerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto rounded-xl bg-elevated border border-bdr/40"
-        style={{ padding: 16, boxShadow: "var(--shadow-surface)" }}
+        style={{ padding: 20, boxShadow: "var(--shadow-surface)" }}
       >
         {filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-txt-muted">暂无活动</p>
+          <div className="flex flex-col items-center justify-center text-center h-full" style={{ gap: 8 }}>
+            <div className="text-3xl">📭</div>
+            <p className="text-sm text-txt-muted">暂无活动，等待 Agent 产生消息与工具调用</p>
           </div>
         ) : (
-          <div className="flex flex-col" style={{ gap: 2 }}>
+          <div className="flex flex-col" style={{ gap: 8 }}>
             {filtered.map((item) => {
               switch (item.type) {
                 case "tool_group":

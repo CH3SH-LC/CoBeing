@@ -20,9 +20,10 @@ export const GROUP_MECHANICS_NOTICE = `# 群组协作环境
 
 - **通信方式**：通过 group-send 工具发送协作消息（非阻塞旁路——发送后默认继续工作，不会停下来等待回复）。发送时可 @mention 指定接收者。如果需要别人接力或协作，请使用 group-send，不要只在最终回复里写 @mention。
 - **周期性唤醒**：你会被周期性地唤醒以完成任务。每次唤醒是独立的上下文，不保留之前的对话记忆。
-- **@mention 响应**：@mention 是其他 Agent 或用户与你通信的方式。被 @ 时优先响应。
+- **@mention 响应**：@mention 是其他 Agent 或用户与你通信的方式。被 @ 时优先响应。如果消息包含工作任务，必须先调用工具推进工作（如 write-file 产出文件、read-file 检查文件），产出实际交付物后再回复结果；禁止只回复"收到/开始/马上做"等承诺而不调用任何工具。
 - **工具执行**：工具执行受权限策略约束，越权操作会被自动拒绝。
-- **用户为上**：用户是本群组的创建者和最终决策者。任何重要决策（任务方向、方案选择、资源配置）必须先与用户沟通获得确认。不要替用户做决定。`;
+- **用户为上**：用户是本群组的创建者和最终决策者。任何重要决策（任务方向、方案选择、资源配置）必须先与用户沟通获得确认。不要替用户做决定。
+- **如何唤醒用户**：当任务需要用户提供信息、确认方案或做出决策时，在消息中用 \`@用户\`（别名：@用户 / @主人 / @user）@用户。这会唤醒用户到群组回复。平时协作不需要打扰用户——只有真正需要用户输入时才 @用户。`;
 
 /**
  * 构建所有 Agent 共享的静态 System Prompt 前缀（Layer 1: STATIC）。
@@ -63,7 +64,7 @@ available to you to assist.
 
 # Speaking style
 - When executing tasks: be direct and efficient. Do not narrate your thought process. Don't say "let me do X" — just do it and report the result.
-- When outputting replies: naturally adjust your tone, word choice, and emotional expression according to your persona (CHARACTER.md). Speak AS the character, not ABOUT the character.`;
+- When outputting replies: follow the expression rules in your files (EXPRESSION.md for most agents — short sentences, first person, direct, no AI-slop filler; CHARACTER.md for persona-bearing agents like the butler). Speak naturally, like a colleague, not a customer service bot.`;
 }
 
 // ---- EXPERIENCE 概要提取 ----
@@ -177,7 +178,7 @@ interface PromptConfig {
   systemPrompt: string;
 }
 
-/** 角色扮演强化指令 — 在 CHARACTER.md 之后注入 */
+/** 角色扮演强化指令 — 仅在旧数据兼容路径（CHARACTER.md）之后注入 */
 const ROLE_PLAY_INSTRUCTION = `# 角色扮演要求
 
 你必须始终保持上面描述的角色身份说话。核心规则：
@@ -199,15 +200,17 @@ export function buildSystemPromptFromFiles(files: AgentFiles, config: PromptConf
     parts.push(agents);
   }
 
-  // 3. CHARACTER.md — 人物描写与背景
-  const character = files.readCharacter();
-  if (character) {
-    parts.push(character);
-  }
-
-  // 4.5 角色扮演强化指令 — 确保 LLM 用角色方式说话
-  if (character) {
-    parts.push(ROLE_PLAY_INSTRUCTION);
+  // 3. 表达/人格层 — 优先 EXPRESSION.md（人味表达规范，无身份设定）；
+  //    历史 Agent 无 EXPRESSION 时兼容 CHARACTER.md（旧角色文件）+ 角色扮演强化指令
+  const expression = files.readExpression();
+  if (expression) {
+    parts.push(expression);
+  } else {
+    const character = files.readCharacter();
+    if (character) {
+      parts.push(character);
+      parts.push(ROLE_PLAY_INSTRUCTION);
+    }
   }
 
   // 5. systemPrompt — 角色描述（主体）
@@ -289,10 +292,16 @@ export function buildCacheablePrompt(
   // Agent 特有前缀（每个 Agent 不同，但在 Agent 生命周期内不变）
   const agentParts: string[] = [];
 
-  const character = files.readCharacter();
-  if (character) {
-    agentParts.push(character);
-    agentParts.push(ROLE_PLAY_INSTRUCTION);
+  // 表达/人格层：优先 EXPRESSION.md（无角色）；旧数据兼容 CHARACTER.md + 角色扮演强化
+  const expression = files.readExpression();
+  if (expression) {
+    agentParts.push(expression);
+  } else {
+    const character = files.readCharacter();
+    if (character) {
+      agentParts.push(character);
+      agentParts.push(ROLE_PLAY_INSTRUCTION);
+    }
   }
 
   agentParts.push(config.systemPrompt || `你是${config.name}，${config.role}`);
@@ -488,7 +497,16 @@ ${workspace.experienceSummary}`);
      - 需要用户隐私、账号、付款、授权或外部访问。
      - 产物已到阶段性验收点。
      - 群组内部无法判断哪种取舍更符合用户偏好。
-   - 请示方式：通知群主，由群主整理选项后请示用户。推荐格式：
+   - 请示方式（两条路径任选）：
+     - **直接 @用户**：需要用户提供具体信息、逐条确认或快速决策时，在消息中 \`@用户\` 直接唤醒用户（用户会到群组回复）。格式：
+
+  \`\`\`
+  @用户 需要你确认：
+  1. 预算区间是 5k-8k 还是 8k-1.2w？
+  2. 更偏好轻松行程还是景点密集？
+  \`\`\`
+
+     - **通过群主转达**：适合需要整理选项、决策复杂或需要收束的场景，通知群主由群主整理后请示用户。格式：
 
   \`\`\`
   @host 当前已形成 N 个方案，需要用户审批后继续：

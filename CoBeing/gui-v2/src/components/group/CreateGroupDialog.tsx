@@ -81,7 +81,7 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
             {agents.length === 0 ? (
               <p className="text-xs text-txt-muted text-center py-4">暂无 Agent，请先创建</p>
             ) : (
-              <div className="max-h-[200px] overflow-y-auto" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div className="max-h-[200px] overflow-y-auto" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {getVisibleUserAgents(agents).map((agent) => {
                   const selected = selectedMembers.includes(agent.id);
                   return (
@@ -94,7 +94,7 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
                           ? "bg-accent/10"
                           : "hover:bg-hover"
                       )}
-                      style={{ padding: "12px 16px" }}
+                      style={{ padding: "14px 20px" }}
                     >
                       <span className={cn("text-sm", selected ? "text-accent" : "text-txt-muted")}>
                         {selected ? "\u25CF" : "\u25CB"}
@@ -112,7 +112,7 @@ export function CreateGroupDialog({ open, onOpenChange }: CreateGroupDialogProps
 
           {/* Selected preview */}
           {selectedMembers.length > 0 && (
-            <div className="flex items-center gap-1 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm text-txt-sub">已选:</span>
               {selectedMembers.map((id) => {
                 const agent = agents.find((a) => a.id === id);

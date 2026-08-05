@@ -107,7 +107,7 @@ export function McpsTab() {
                   ? "bg-accent/10 text-accent"
                   : "text-txt-sub hover:bg-hover"
               )}
-              style={{ padding: "8px 10px", marginBottom: 1 }}
+              style={{ padding: "14px 20px", marginBottom: 2 }}
             >
               <div className="truncate text-left">
                 <div className="font-medium truncate">{srv.name}</div>
@@ -122,7 +122,10 @@ export function McpsTab() {
             </button>
           ))}
           {filtered.length === 0 && (
-            <p className="text-xs text-txt-muted text-center py-4">无 MCP 服务器</p>
+            <div className="flex flex-col items-center text-center" style={{ padding: "32px 8px", gap: 8 }}>
+              <div className="text-3xl">🔌</div>
+              <p className="text-sm text-txt-muted">无 MCP 服务器</p>
+            </div>
           )}
         </div>
         <div style={{ padding: "4px 8px 8px" }}>
@@ -278,7 +281,7 @@ function McpDetail({ server, onSave, onDelete }: {
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-txt-muted block mb-1">传输方式</label>
+              <label className="text-sm text-txt-muted block mb-1">传输方式</label>
               <select value={transport} onChange={(e) => setTransport(e.target.value as any)}
                 className="w-full px-3 py-1.5 rounded-lg bg-input border border-bdr text-sm text-txt">
                 <option value="stdio">stdio</option>
@@ -288,13 +291,13 @@ function McpDetail({ server, onSave, onDelete }: {
             <div>
               {transport === "stdio" ? (
                 <>
-                  <label className="text-xs text-txt-muted block mb-1">命令</label>
+                  <label className="text-sm text-txt-muted block mb-1">命令</label>
                   <input value={command} onChange={(e) => setCommand(e.target.value)}
                     className="w-full px-3 py-1.5 rounded-lg bg-input border border-bdr text-sm text-txt font-mono" />
                 </>
               ) : (
                 <>
-                  <label className="text-xs text-txt-muted block mb-1">URL</label>
+                  <label className="text-sm text-txt-muted block mb-1">URL</label>
                   <input value={url} onChange={(e) => setUrl(e.target.value)}
                     className="w-full px-3 py-1.5 rounded-lg bg-input border border-bdr text-sm text-txt" />
                 </>
@@ -302,7 +305,7 @@ function McpDetail({ server, onSave, onDelete }: {
             </div>
           </div>
           <div>
-            <label className="text-xs text-txt-muted block mb-1">环境变量 (JSON)</label>
+            <label className="text-sm text-txt-muted block mb-1">环境变量 (JSON)</label>
             <input value={envStr} onChange={(e) => setEnvStr(e.target.value)}
               className="w-full px-3 py-1.5 rounded-lg bg-input border border-bdr text-sm text-txt font-mono" />
           </div>

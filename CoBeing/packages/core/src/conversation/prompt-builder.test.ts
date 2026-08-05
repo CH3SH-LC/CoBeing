@@ -153,7 +153,8 @@ describe("buildStaticLayer", () => {
   it("contains speaking style rules", () => {
     const result = buildStaticLayer();
     expect(result).toContain("When executing tasks: be direct and efficient");
-    expect(result).toContain("Speak AS the character, not ABOUT the character");
+    expect(result).toContain("follow the expression rules in your files");
+    expect(result).toContain("like a colleague, not a customer service bot");
   });
 });
 

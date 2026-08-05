@@ -8,6 +8,7 @@ import { TodoPanel } from "@/components/todo/TodoPanel";
 import { CapabilityTab } from "./CapabilityTab";
 import { TaskInboxTab } from "./TaskInboxTab";
 import { GrowthProposalsTab } from "./GrowthProposalsTab";
+import { AgentTimeline } from "@/components/settings/AgentTimeline";
 import { isCoreAgent } from "@/lib/coreAgents";
 
 export function AgentDetailPanel() {
@@ -48,13 +49,14 @@ export function AgentDetailPanel() {
         {agent && (
           <div className="flex-1 overflow-y-auto" style={{ padding: 20 }}>
             <Tabs defaultValue="config">
-              <TabsList className="w-full flex overflow-x-auto gap-1 bg-elevated" style={{ padding: 4 }}>
-                <TabsTrigger value="config" className="whitespace-nowrap text-sm px-3">配置</TabsTrigger>
-                <TabsTrigger value="files" className="whitespace-nowrap text-sm px-3">文件</TabsTrigger>
-                <TabsTrigger value="todo" className="whitespace-nowrap text-sm px-3">TODO</TabsTrigger>
-                <TabsTrigger value="capability" className="whitespace-nowrap text-sm px-3">能力</TabsTrigger>
-                <TabsTrigger value="inbox" className="whitespace-nowrap text-sm px-3">任务</TabsTrigger>
-                <TabsTrigger value="growth" className="whitespace-nowrap text-sm px-3">成长</TabsTrigger>
+              <TabsList className="w-full grid grid-cols-4 gap-2" style={{ padding: 4 }}>
+                <TabsTrigger value="config" className="whitespace-nowrap text-sm px-3 py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">配置</TabsTrigger>
+                <TabsTrigger value="files" className="whitespace-nowrap text-sm px-3 py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">文件</TabsTrigger>
+                <TabsTrigger value="todo" className="whitespace-nowrap text-sm px-3 py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">TODO</TabsTrigger>
+                <TabsTrigger value="capability" className="whitespace-nowrap text-sm px-3 py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">能力</TabsTrigger>
+                <TabsTrigger value="inbox" className="whitespace-nowrap text-sm px-3 py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">任务</TabsTrigger>
+                <TabsTrigger value="growth" className="whitespace-nowrap text-sm px-3 py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">成长</TabsTrigger>
+                <TabsTrigger value="timeline" className="whitespace-nowrap text-sm px-3 py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">时间线</TabsTrigger>
               </TabsList>
               <TabsContent value="config">
                 <AgentConfigTab agent={agent} />
@@ -73,6 +75,9 @@ export function AgentDetailPanel() {
               </TabsContent>
               <TabsContent value="growth">
                 <GrowthProposalsTab agentId={agent.id} />
+              </TabsContent>
+              <TabsContent value="timeline">
+                <AgentTimeline agentId={agent.id} />
               </TabsContent>
             </Tabs>
           </div>

@@ -36,14 +36,14 @@ export function TodoKanban({
   }
 
   return (
-    <div className="grid grid-cols-4" style={{ gap: 12 }}>
+    <div className="grid grid-cols-4" style={{ gap: 16 }}>
       {grouped.map((col) => (
-        <div key={col.status} className="flex flex-col rounded-xl bg-surface/60" style={{ padding: 12, gap: 8 }}>
+        <div key={col.status} className="flex flex-col rounded-xl bg-surface/60" style={{ padding: 14, gap: 8 }}>
           {/* 列头 */}
           <div className="flex items-center justify-between" style={{ padding: "4px 6px" }}>
             <div className="flex items-center" style={{ gap: 6 }}>
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: col.dotColor }} />
-              <span className="text-xs font-semibold text-txt-sub uppercase tracking-wider">
+              <span className="text-sm font-semibold text-txt-sub">
                 {col.label}
               </span>
             </div>

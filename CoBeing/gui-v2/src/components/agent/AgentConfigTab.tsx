@@ -203,8 +203,8 @@ export function AgentConfigTab({ agent }: AgentConfigTabProps) {
 
             {/* 域名白名单管理 */}
             {networkMode === "whitelist" && (
-              <div className="rounded-xl bg-surface-solid border border-bdr/30" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-                <label className="text-xs text-txt-sub block">域名白名单</label>
+              <div className="rounded-xl bg-elevated border border-bdr/30" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+                <label className="text-sm text-txt-sub block">域名白名单</label>
                 {allowDomains.map((domain, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <span className="text-sm text-txt flex-1">{domain}</span>
@@ -232,8 +232,8 @@ export function AgentConfigTab({ agent }: AgentConfigTabProps) {
             )}
 
             {/* 挂载目录配置 */}
-            <div className="rounded-xl bg-surface-solid border border-bdr/30" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-              <label className="text-xs text-txt-sub block">挂载目录</label>
+            <div className="rounded-xl bg-elevated border border-bdr/30" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+              <label className="text-sm text-txt-sub block">挂载目录</label>
               {mounts.map((mount, i) => (
                 <div key={i} className="flex items-center gap-2 text-sm">
                   <span className="flex-1 text-txt">{mount.hostPath} → {mount.containerPath}</span>
@@ -331,7 +331,7 @@ export function AgentConfigTab({ agent }: AgentConfigTabProps) {
         <div className="grid grid-cols-2 gap-2">
           {BUILTIN_TOOLS.map((tool) => (
             <button key={tool} onClick={() => toggleTool(tool)}
-              className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm transition-colors ${enabledTools.includes(tool) ? "bg-accent/10 text-accent" : "bg-surface-solid text-txt-muted"}`}>
+              className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm transition-colors ${enabledTools.includes(tool) ? "bg-accent/10 text-accent" : "bg-hover text-txt-sub"}`}>
               <span>{enabledTools.includes(tool) ? "\u2611" : "\u2610"}</span>
               {tool}
             </button>

@@ -28,8 +28,8 @@ export function makeGroupMemorySearchTool(getMemory: MemoryGetter): Tool {
       const type = (params.type as string) || "all";
       const limit = (params.limit as number) || 10;
 
-      // 从 context 中获取 groupId
-      const groupId = (context as any).groupId as string | undefined;
+      // 从 context 中获取 groupId（由 ToolExecutor 在群组 session 下注入）
+      const groupId = context.groupId;
       if (!groupId) {
         return { toolCallId: "", content: "此工具只能在群组上下文中使用。", isError: true };
       }

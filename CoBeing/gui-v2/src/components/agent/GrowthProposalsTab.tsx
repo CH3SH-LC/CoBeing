@@ -40,7 +40,7 @@ export function GrowthProposalsTab({ agentId }: { agentId: string }) {
 
   return (
     <div style={{ padding: "16px 0" }}>
-      <div className="space-y-3">
+      <div className="space-y-4">
         {[...proposals]
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .map((proposal) => {
@@ -81,13 +81,13 @@ export function GrowthProposalsTab({ agentId }: { agentId: string }) {
                   <div className="flex gap-2 mt-3 pt-3 border-t border-bdr/40">
                     <button
                       onClick={() => approveProposal(agentId, proposal.id)}
-                      className="px-3 py-1.5 rounded-lg bg-success/10 text-success hover:bg-success/20 text-sm"
+                      className="px-3 py-2 rounded-lg bg-success/10 text-success hover:bg-success/20 text-sm"
                     >
                       批准并应用
                     </button>
                     <button
                       onClick={() => rejectProposal(agentId, proposal.id)}
-                      className="px-3 py-1.5 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 text-sm"
+                      className="px-3 py-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 text-sm"
                     >
                       拒绝
                     </button>

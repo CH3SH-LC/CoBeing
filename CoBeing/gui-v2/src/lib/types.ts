@@ -1,7 +1,7 @@
 // ── Shared Types for CoBeing Frontend ──
 
 export type ViewType = "butler" | "agents" | "groups" | "dashboard" | "extensions" | "settings";
-export type ExtensionsTab = "skills" | "mcps" | "plugins";
+export type ExtensionsTab = "skills" | "mcps" | "plugins" | "market";
 export type AgentStatus = "idle" | "running" | "error";
 export type MessageDirection = "in" | "out" | "system" | "tool";
 export type PermissionMode = "read-only" | "workspace-readwrite"
@@ -388,4 +388,62 @@ export interface AgentGrowthProposal {
   reviewedBy?: "growth-reviewer" | "user" | "butler";
   reviewedAt?: string;
   reviewNote?: string;
+}
+
+// ── Market ──
+
+export type MarketResourceType = "agent" | "group" | "skill";
+export type MarketTier = "official" | "certified" | "community" | "local";
+export type MarketRiskLevel = "low" | "medium" | "high";
+
+export interface MarketDependency {
+  type: MarketResourceType;
+  id: string;
+  version?: string;
+}
+
+export interface MarketResourceView {
+  id: string;
+  type: MarketResourceType;
+  name: string;
+  description: string;
+  version: string;
+  tier: MarketTier;
+  author: string;
+  icon?: string;
+  tags: string[];
+  riskLevel: MarketRiskLevel;
+  permissions: string[];
+  dependencies: MarketDependency[];
+  installed: boolean;
+}
+
+export interface MarketDepNode {
+  id: string;
+  type: MarketResourceType;
+  name: string;
+  tier: MarketTier;
+  riskLevel: MarketRiskLevel;
+  required: boolean;
+  children: MarketDepNode[];
+}
+
+export interface MarketInstallResult {
+  status: "installed" | "approval_required" | "already_installed" | "error";
+  id: string;
+  type: MarketResourceType;
+  name: string;
+  message?: string;
+  installedIds: string[];
+  dependencyTree: MarketDepNode;
+  warning?: string;
+}
+
+export interface InstalledEntry {
+  id: string;
+  type: MarketResourceType;
+  name: string;
+  installedAt: string;
+  sourceId: string;
+  installedIds: string[];
 }

@@ -8,6 +8,7 @@ import { ChannelsSection } from "./ChannelsSection";
 import { LogsSection } from "./LogsSection";
 import { SandboxMonitor } from "../sandbox/SandboxMonitor";
 import { ChatSearch } from "./ChatSearch";
+import { WakeQueueSection } from "./WakeQueueSection";
 import { getWsClient } from "@/hooks/useWebSocket";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ const MENU_SECTIONS = [
   { id: "providers" as const, label: "Providers", group: "连接" },
   { id: "channels" as const, label: "Channels", group: "连接" },
   { id: "sandbox" as const, label: "沙箱监控", group: "运维" },
+  { id: "wakequeue" as const, label: "唤醒队列", group: "运维" },
   { id: "search" as const, label: "搜索对话", group: "数据" },
   { id: "logs" as const, label: "日志", group: "数据" },
   { id: "export" as const, label: "导出数据", group: "数据" },
@@ -44,17 +46,17 @@ export function SettingsView() {
   return (
     <div className="flex h-full min-w-0 max-[760px]:flex-col" style={{ gap: 20 }}>
       {/* Left menu */}
-      <div className="w-52 shrink-0 rounded-xl bg-elevated overflow-y-auto border border-bdr/30 max-[760px]:w-full max-[760px]:max-h-44"
-           style={{ padding: 20 }}>
-        <div className="text-sm text-txt-muted font-medium" style={{ marginBottom: 16 }}>设置</div>
+      <div className="w-52 shrink-0 rounded-xl bg-surface overflow-y-auto border border-bdr/40 max-[760px]:w-full max-[760px]:max-h-44"
+           style={{ padding: 20, boxShadow: "var(--shadow-surface)" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {dynamicMenuSections.map((item, idx) => {
             const showGroup = item.group && (idx === 0 || dynamicMenuSections[idx - 1].group !== item.group);
             return (
               <div key={item.id}>
                 {showGroup && (
-                  <div className="text-xs text-txt-muted" style={{ padding: "20px 12px 8px" }}>
-                    ── {item.group} ──
+                  <div className="text-xs text-txt-muted" style={{ padding: "20px 12px 8px", letterSpacing: "0.12em" }}>
+                    {item.group}
+                    <div className="h-px rounded-full bg-bdr/50" style={{ marginTop: 8 }} />
                   </div>
                 )}
                 <button
@@ -77,13 +79,14 @@ export function SettingsView() {
 
       {/* Right content — rounded container */}
       <div className="min-w-0 flex-1 overflow-y-auto"
-           style={{ padding: 12 }}>
+           style={{ padding: 20 }}>
         {settingsSection === "user" && <UserProfileSection />}
         {settingsSection === "general" && <GeneralSection />}
         {settingsSection === "theme" && <ThemeSection />}
         {settingsSection === "providers" && <ProvidersSection />}
         {settingsSection === "channels" && <ChannelsSection />}
         {settingsSection === "sandbox" && <SandboxSection />}
+        {settingsSection === "wakequeue" && <WakeQueueSection />}
         {settingsSection === "logs" && <LogsSection />}
         {settingsSection === "search" && <SearchSection />}
         {settingsSection === "export" && <ExportSection />}
@@ -140,7 +143,7 @@ function GeneralSection() {
       <p className="text-sm text-txt-muted mb-6">应用行为和通知设置</p>
 
       <div className="space-y-6 max-w-md">
-        <div className="rounded-xl bg-elevated border border-bdr/30" style={{ padding: 20 }}>
+        <div className="rounded-xl bg-surface border border-bdr/40" style={{ padding: 20, boxShadow: "var(--shadow-surface)" }}>
           <label className="text-sm font-medium text-txt block mb-2">关闭行为</label>
           <select
             value={closeBehavior}
@@ -157,7 +160,7 @@ function GeneralSection() {
           </p>
         </div>
 
-        <div className="rounded-xl bg-elevated border border-bdr/30" style={{ padding: 20 }}>
+        <div className="rounded-xl bg-surface border border-bdr/40" style={{ padding: 20, boxShadow: "var(--shadow-surface)" }}>
           <label className="text-sm font-medium text-txt block mb-3">通知</label>
           <div className="space-y-3">
             <label className="flex items-center justify-between">
@@ -173,9 +176,10 @@ function GeneralSection() {
               >
                 <span
                   className={cn(
-                    "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                    "inline-block h-3.5 w-3.5 rounded-full transition-transform",
                     notifications.enabled ? "translate-x-4" : "translate-x-0.5"
                   )}
+                  style={{ backgroundColor: "var(--color-white)" }}
                 />
               </button>
             </label>
@@ -192,9 +196,10 @@ function GeneralSection() {
               >
                 <span
                   className={cn(
-                    "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                    "inline-block h-3.5 w-3.5 rounded-full transition-transform",
                     notifications.sound ? "translate-x-4" : "translate-x-0.5"
                   )}
+                  style={{ backgroundColor: "var(--color-white)" }}
                 />
               </button>
             </label>
@@ -228,19 +233,19 @@ function ExportSection() {
       <div className="flex flex-col max-w-md" style={{ gap: 12 }}>
         <button
           onClick={() => handleExport("all")}
-          className="rounded-xl bg-elevated text-left transition-colors hover:bg-hover"
-          style={{ padding: "16px 20px" }}
+          className="rounded-xl bg-surface border border-bdr/40 text-left transition-colors hover:bg-hover"
+          style={{ padding: 20, boxShadow: "var(--shadow-surface)" }}
         >
           <div className="text-sm font-medium text-txt">导出全部数据</div>
-          <div className="text-xs text-txt-muted mt-1">包含所有 Agent、群组和配置</div>
+          <div className="text-sm text-txt-muted mt-1">包含所有 Agent、群组和配置</div>
         </button>
         <button
           onClick={() => handleExport("agent", "butler")}
-          className="rounded-xl bg-elevated text-left transition-colors hover:bg-hover"
-          style={{ padding: "16px 20px" }}
+          className="rounded-xl bg-surface border border-bdr/40 text-left transition-colors hover:bg-hover"
+          style={{ padding: 20, boxShadow: "var(--shadow-surface)" }}
         >
           <div className="text-sm font-medium text-txt">导出管家数据</div>
-          <div className="text-xs text-txt-muted mt-1">仅导出 butler Agent 数据</div>
+          <div className="text-sm text-txt-muted mt-1">仅导出 butler Agent 数据</div>
         </button>
       </div>
     </div>

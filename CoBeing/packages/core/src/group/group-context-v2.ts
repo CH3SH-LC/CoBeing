@@ -32,7 +32,11 @@ function nextMsgId(): string {
   return `msg-${(++msgCounter).toString().padStart(4, "0")}`;
 }
 
-/** 解析文本中的所有 @mention（支持中文，排除 Markdown 标记，最少 3 字符避免误匹配） */
+/** 用户别名：群组内 @ 到这些名称时视为唤醒用户（2 字符短词，独立识别） */
+const USER_MENTION_ALIASES = ["用户", "主人", "老板", "user"];
+
+/** 解析文本中的所有 @mention（支持中文，排除 Markdown 标记，最少 3 字符避免误匹配；
+ *  用户别名（@用户/@主人/@老板/@user）不受 3 字符限制，单独识别） */
 function parseMentions(content: string): string[] {
   const regex = /@([\w一-鿿][\w一-鿿-]{2,})/g;
   const mentions: string[] = [];
@@ -43,6 +47,10 @@ function parseMentions(content: string): string[] {
   }
   // "all" 单独检查
   if (/@all\b/.test(content)) mentions.push("all");
+  // 用户别名（2 字符中文短词不会被上面正则捕获）
+  for (const alias of USER_MENTION_ALIASES) {
+    if (new RegExp(`@${alias}(?![\w一-鿿])`, "i").test(content)) mentions.push(alias);
+  }
   return [...new Set(mentions)];
 }
 

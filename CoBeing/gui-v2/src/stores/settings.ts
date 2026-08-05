@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ViewType } from "@/lib/types";
 
-export type SettingsSection = "user" | "general" | "theme" | "providers" | "channels" | "sandbox" | "logs" | "search" | "export" | "about" | `plugin:${string}`;
+export type SettingsSection = "user" | "general" | "theme" | "providers" | "channels" | "sandbox" | "wakequeue" | "logs" | "search" | "export" | "about" | `plugin:${string}`;
 export type CloseBehavior = "minimize" | "close";
 
 interface NotificationSettings {

@@ -77,6 +77,7 @@ export class ToolExecutor {
       result = await tool.execute(params, {
         agentId,
         sessionId,
+        groupId: sessionId.startsWith("group:") ? sessionId.slice(6) : undefined,
         workingDir,
         sandbox: this.sandboxConfig ?? { enabled: false, filesystem: "isolated", network: { enabled: true, mode: "all" } },
         sandboxRunner: this.sandboxRunner,

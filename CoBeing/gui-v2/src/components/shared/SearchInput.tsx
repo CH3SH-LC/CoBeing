@@ -6,7 +6,7 @@ interface SearchInputProps {
 
 export function SearchInput({ placeholder, value, onChange }: SearchInputProps) {
   return (
-    <div style={{ padding: 12 }}>
+    <div style={{ padding: 16 }}>
       <input
         type="text"
         placeholder={placeholder}

@@ -77,7 +77,7 @@ export function AgentFilesTab({ agentId }: AgentFilesTabProps) {
         <div className="flex items-center justify-between">
           <button
             onClick={() => setViewingFile(null)}
-            className="text-sm text-accent hover:text-accent/80 rounded-lg hover:bg-hover" style={{ padding: "6px 10px" }}
+            className="text-sm text-accent hover:text-accent/80 rounded-lg hover:bg-hover h-9 px-3"
           >
             {"\u2190"} 返回文件列表
           </button>
@@ -95,7 +95,7 @@ export function AgentFilesTab({ agentId }: AgentFilesTabProps) {
             <button
               onClick={handleSave}
               disabled={saving || !dirty}
-              className="w-full h-10 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent/90 transition-colors disabled:opacity-40"
+              className="w-full h-10 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent/90 transition-colors disabled:opacity-50"
             >
               {saving ? "保存中..." : dirty ? "保存" : "未修改"}
             </button>
@@ -106,7 +106,7 @@ export function AgentFilesTab({ agentId }: AgentFilesTabProps) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {AGENT_FILES.map((file) => {
         const exists = files.some((f) => f.name === file.name);
         return (
@@ -114,7 +114,7 @@ export function AgentFilesTab({ agentId }: AgentFilesTabProps) {
             key={file.name}
             onClick={() => handleView(file.name)}
             className="w-full flex items-center gap-3 rounded-xl border border-transparent hover:border-bdr/30 hover:bg-hover transition-colors text-left"
-            style={{ padding: "14px 16px" }}
+            style={{ padding: "14px 20px" }}
           >
             <span className="text-base">{file.icon}</span>
             <div className="flex-1 min-w-0">

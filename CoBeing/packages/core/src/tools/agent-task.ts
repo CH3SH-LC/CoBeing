@@ -1,7 +1,7 @@
 /**
  * Agent Task 工具 — 任务收件箱管理
  */
-import { mapAgentStatusToGlobal, type AgentTaskInboxItem, type AgentTaskStatus, type Tool, type ToolContext, type ToolResult } from "@cobeing/shared";
+import { mapAgentStatusToGlobal, type AgentTaskInboxItem, type AgentTaskStatus, type ButlerTaskReceiptPayload, type Tool, type ToolContext, type ToolResult } from "@cobeing/shared";
 import type { LLMProvider } from "@cobeing/providers";
 import type { AgentFiles } from "../agent/paths.js";
 import { runTaskArchive } from "../agent/tool-agent/task-archive.js";
@@ -105,8 +105,24 @@ function syncTrackedTask(
     });
   }
 
+  // 广播携带完整视图：status/title 从最新 store 视图与上下文组装
+  const butlerTask = globalTodo.butlerTaskId ? butlerTaskStore?.get?.(globalTodo.butlerTaskId) : undefined;
+  const targetId = globalTodo.assigneeId || agentId || task.sourceId || "";
+  const assigneeName = (context as any).agentName || agentId || targetId;
+  const receiptPayload: ButlerTaskReceiptPayload = {
+    butlerTaskId: globalTodo.butlerTaskId || butlerTask?.id,
+    globalTodoId: task.globalTodoId,
+    title: butlerTask?.title ?? globalTodo.title ?? task.title,
+    targetType: globalTodo.assigneeType === "group" ? "group" : "agent",
+    targetId,
+    assigneeName,
+    status: butlerTask?.status ?? butlerStatusForAgent(status),
+    summary,
+    nextAction: globalTodo.nextAction,
+    timestamp: Date.now(),
+  };
   wsServer?.broadcastGlobalTodoUpdate?.();
-  wsServer?.broadcast?.({ type: "butler_task_updated", payload: { globalTodoId: task.globalTodoId, timestamp: Date.now() } });
+  wsServer?.broadcast?.({ type: "butler_task_updated", payload: receiptPayload });
 }
 
 export function makeAgentTaskAcceptTool(files: AgentFiles): Tool {

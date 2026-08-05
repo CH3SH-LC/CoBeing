@@ -7,7 +7,7 @@ import type { AppConfig } from "./config/schema.js";
 import type { AgentSelfConfig } from "./config/schema.js";
 import { AgentRegistry } from "./agent/registry.js";
 import { GroupManager } from "./group/manager.js";
-import { ButlerAgent } from "./agent/butler.js";
+import { ButlerAgent, BUTLER_DEFAULT_TOOLS, BUTLER_DEFAULT_SYSTEM_PROMPT } from "./agent/butler.js";
 import { CoreWSServer } from "./api/ws-server.js";
 import { LLMGateway } from "./gateway/llm-gateway.js";
 import { OpenAICompatProvider, PROVIDER_CATALOGS, registerProvider, getProvider } from "@cobeing/providers";
@@ -19,12 +19,16 @@ import type { CoBeingPluginApi } from "@cobeing/plugin-sdk";
 import { Agent } from "./agent/agent.js";
 import { AgentPaths } from "./agent/paths.js";
 import { AgentEventBus } from "./agent/event-bus.js";
+import { ButlerRegistry } from "./agent/butler-registry.js";
 import { ChannelRouter } from "./group/router.js";
+import { MarketCatalog } from "./market/catalog.js";
+import { MarketInstaller } from "./market/installer.js";
 import { makeGroupPlanTool, makeGroupInviteTalkTool, makeGroupSummarizeTool, makeGroupAssignTaskTool } from "./group/owner.js";
 import { SkillRepository } from "./skills/repository.js";
 import { VoteStore } from "./vote/store.js";
 import type { ChannelBindTo } from "./config/schema.js";
 import { createLogger, setGlobalLogLevel, readMasterRegistry, migrateFromFilesystem, cleanupOrphanDirectories, cleanupPendingDeletions, addAgentToRegistry, migratePermissionMode, DEFAULT_PROVIDER, DEFAULT_MODEL, DEFAULT_JUDGMENT_MODEL, DEFAULT_WS_PORT } from "@cobeing/shared";
+import type { AgentConfig } from "@cobeing/shared";
 import { decrypt } from "./config/secret-store.js";
 import { AgentTodoScanner } from "./todo/scanner.js";
 import { GlobalTodoStore } from "./todo/global-store.js";
@@ -35,15 +39,9 @@ import { ContainerPool } from "./tools/sandbox/container-pool.js";
 import { MCPManager } from "./mcp/manager.js";
 import { makeMCPDiscoverTool, makeMCPRegisterTool } from "./tools/mcp-tools.js";
 import { ObservabilityDB } from "./observability/observability-db.js";
+import { ensureSandboxConfig } from "./runtime/sandbox-helper.js";
 
 const log = createLogger("runtime");
-
-/** 如果 Docker 不可用，降级沙箱配置 */
-function ensureSandboxConfig(sandbox: any, dockerAvailable: boolean): any {
-  if (!sandbox?.enabled) return sandbox;
-  if (!dockerAvailable) return { ...sandbox, enabled: false };
-  return sandbox;
-}
 
 export class CoBeingRuntime {
   readonly registry: AgentRegistry;
@@ -56,6 +54,9 @@ export class CoBeingRuntime {
   private channels: ChannelAdapter[] = [];
   readonly router: ChannelRouter;
   readonly skillRepo: SkillRepository;
+  /** Market 分级服务（catalog 扫描 data/market + installer 安装/卸载，Butler 与 WS 共用） */
+  readonly marketCatalog: MarketCatalog;
+  readonly marketInstaller: MarketInstaller;
   private dataRoot: string;
   /** 项目根目录（用于解析 CWD 相对路径） */
   private rootDir: string;
@@ -109,6 +110,15 @@ export class CoBeingRuntime {
       toolAgents: new Map(),
     };
 
+    // B3 僵尸修复：为旧式独立全局变量补齐兼容别名。
+    // 此前仅有 __cobeing 命名空间，旧式 __cobeingHookBus/__cobeingPromptLayers 等
+    // 从未被写入，导致插件 hook 事件、PromptLayer、投票静默失效。
+    (globalThis as any).__cobeingHookBus = this.hookBus;
+    (globalThis as any).__cobeingPromptLayers = this.promptLayerRegistry;
+    (globalThis as any).__cobeingConfig = config;
+    (globalThis as any).__cobeingDataRoot = this.dataRoot;
+    (globalThis as any).__cobeingGetProvider = (id: string) => this.providers.get(id);
+
     // 全局 Skill 仓库
     const skillsDir = config.core.skillsDir ?? "./data/skills";
     this.skillRepo = new SkillRepository(path.resolve(skillsDir));
@@ -116,6 +126,7 @@ export class CoBeingRuntime {
 
     this.registry = new AgentRegistry();
     (globalThis as any).__cobeing.agentRegistry = this.registry;
+    (globalThis as any).__cobeingAgentRegistry = this.registry;
     this.groupManager = new GroupManager(
       this.registry,
       this.dataRoot,
@@ -127,8 +138,22 @@ export class CoBeingRuntime {
     (globalThis as any).__cobeing.groupManager = this.groupManager;
     this.voteStore = new VoteStore(this.dataRoot);
     (globalThis as any).__cobeing.voteStore = this.voteStore;
+    (globalThis as any).__cobeingVoteStore = this.voteStore;
     this.observabilityDB = new ObservabilityDB(this.dataRoot);
     (globalThis as any).__cobeing.obsDb = this.observabilityDB;
+    (globalThis as any).__cobeingObsDb = this.observabilityDB;
+    // Market 分级服务：catalog 扫描 data/market，installer 负责依赖解析/分级安装/卸载。
+    // hooks 由 runtime 提供真实接线（Agent 注册 / 群组创建 / 技能重载）。
+    this.marketCatalog = new MarketCatalog(this.dataRoot);
+    this.marketInstaller = new MarketInstaller(this.marketCatalog, {
+      dataRoot: this.dataRoot,
+      hooks: {
+        registerAgent: (id, dir) => this.registerMarketAgent(id, dir),
+        createGroup: (id, name, memberIds, topic) => this.createMarketGroup(id, name, memberIds, topic),
+        destroyGroup: (id) => this.destroyMarketGroup(id),
+        reloadSkills: () => this.skillRepo.reload(),
+      },
+    });
     // 初始化 Global TODO Store（Butler 编排层）
     const butlerDataDir = path.join(this.dataRoot, "coreagents", "butler");
     this.globalTodoStore = new GlobalTodoStore(butlerDataDir);
@@ -255,6 +280,12 @@ export class CoBeingRuntime {
     // 加载 butler 自治配置（从 data/coreagents/butler/config.json）— deferred creation to start()
     const butlerPaths = AgentPaths.forAgent("butler", this.dataRoot);
     migratePermissionMode(path.dirname(butlerPaths.configPath));
+    this.reloadButlerSelfConfig();
+  }
+
+  /** 读取管家自治配置（ensureButlerDir 首次启动可能刚写入 config.json，start 前需重读） */
+  private reloadButlerSelfConfig(): void {
+    const butlerPaths = AgentPaths.forAgent("butler", this.dataRoot);
     let butlerSelfConfig: Partial<AgentSelfConfig> = {};
     if (fs.existsSync(butlerPaths.configPath)) {
       try {
@@ -287,27 +318,17 @@ export class CoBeingRuntime {
       retryAttempts: 3,
     });
 
-    // 创建管家
+    // 创建管家（systemPrompt 为短底座，人格/职责/转接规则由文件 prompt 承担：CHARACTER.md / JOB.md）
     this.butler = new ButlerAgent({
       id: "butler",
       name: butlerSelfConfig.name || "管家",
       role: butlerSelfConfig.role || "CoBeing 管家",
-      systemPrompt: butlerSelfConfig.systemPrompt || "你是管家，用户的第一联系人。像朋友一样跟用户聊天、帮忙、解决问题。\n\n创建群组时的规则：\n1. 先用 butler-list 查看已有的 Agent\n2. 如果已有 Agent 能胜任，直接用 butler-add-to-group 加入群组，不要重复创建\n3. 只有确实没有合适 Agent 时才用 butler-create-agent 创建新的\n4. Agent 按技能领域命名（如\"前端工程师\"），不按项目命名（如\"挂机游戏前端工程师\"）\n5. 同一个 Agent 可以同时属于多个群组\n\n## 多步推理能力\n当用户提出复杂任务（组建团队、项目开发等）时，你必须自主完成多步推理，在一次回复中连续调用多个工具直到任务完成。不要只返回分析文本然后等用户指示——直接调用工具执行。\n\n标准流程：\n1. butler-list → 了解已有 Agent 和群组\n2. 判断是否需要新建 Agent（复用优先）\n3. 如需新建 → butler-create-agent\n4. butler-create-group → 组建群组\n5. butler-run-group → 启动协作\n\n## 主动建议\n完成复杂任务后，在回复末尾评估是否需要向用户建议补充角色。如果群组缺少关键角色（如只有前端没有后端），自然地说\"我注意到当前团队还缺XX角色，需要我创建一个吗？\"",
+      systemPrompt: butlerSelfConfig.systemPrompt || BUTLER_DEFAULT_SYSTEM_PROMPT,
       provider: butlerProviderId,
       model: butlerModel,
       permissions: (butlerSelfConfig.permissions as any) || { mode: "full-access" },
       sandbox: (butlerSelfConfig.sandbox as any) || { enabled: true, filesystem: "isolated", network: { enabled: true, mode: "all" } },
-      tools: butlerSelfConfig.tools || [
-        "bash", "read-file", "write-file", "glob", "grep",
-        "butler-create-agent", "butler-destroy-agent",
-        "butler-create-group", "butler-destroy-group",
-        "butler-list", "butler-run-group", "butler-add-to-group",
-        "butler-read-registry", "butler-update-registry", "butler-check-group", "butler-modify-agent",
-        "butler-bind-workspace",
-        "group-members", "talk-create", "talk-send", "talk-read", "talk-close",
-        "group-send", "group-update-progress",
-        "group-experience-add", "group-experience-summarize",
-      ],
+      tools: butlerSelfConfig.tools || BUTLER_DEFAULT_TOOLS,
     }, butlerProvider, this.registry, this.groupManager, (providerId: string) => this.providers.get(providerId), this.router, this.config);
 
     // 注入 SkillRepository 到管家
@@ -495,6 +516,56 @@ export class CoBeingRuntime {
   }
 
   async start(): Promise<void> {
+    // 基础设施：进程级错误处理 + 全局日志级别
+    this.setupGlobalErrorHandlers();
+
+    // Docker 可用性检查（一次性，结果缓存到 this.dockerAvailable）
+    await this.checkDockerAvailability();
+
+    // 加载所有启用的插件（从 registry.json）— Provider/Channel/Tool/Extension
+    await this.loadAllPluginsStep();
+
+    // 创建管家（在 loadAllPlugins 之后，确保插件 providers 已加载）
+    await this.createCoreAgents();
+
+    // 注册表恢复：确保 master registry 存在（首次启动从文件系统迁移）+ 恢复持久化 Agent + 注册预置 Agent
+    this.restoreRegistryState();
+
+    // 连接 MCP 服务器到全局管理器（不自动推给 Agent）+ 注册 MCP 工具
+    await this.setupMCP();
+
+    // Restore persisted groups from data/groups/ (now reads from master registry)
+    this.restoreGroups();
+
+    // 初始化 Market 分级服务（同步内置官方资源 + 扫描 catalog + 确保目录）
+    this.initMarketServices();
+
+    // 配置 WS Server（收敛 8 个 setter 的 WS 接线）
+    this.configureWSServer();
+
+    // 连接 router → butler / agent
+    this.setupRouterCallbacks();
+
+    // 加载静态绑定
+    this.loadStaticBindings();
+
+    // 启动服务（WS start + WakeSystem resume + 广播最终状态 + 启动 Channels）
+    await this.startServices();
+
+    // 启动 TODO 扫描器
+    this.startTodoScanner();
+
+    // 确保 data/ 7 分类目录结构 + 初始化本地过滤引擎
+    await this.ensureRuntimeDirs();
+
+    log.info("Runtime started (dataRoot=%s). Butler: %s, WS: ws://localhost:%d",
+      this.dataRoot, this.butler.name, this.config.gui?.wsPort ?? DEFAULT_WS_PORT);
+    log.info("Providers: %s", [...this.providers.keys()].join(", "));
+    log.info("Channels: %d configured", Object.values(this.config.channels).filter(c => c.enabled).length);
+  }
+
+  /** 配置进程级错误处理（resilience：未处理拒绝/异常仅记录，不崩溃） */
+  private setupGlobalErrorHandlers(): void {
     // Process-level error handlers for resilience
     process.on("unhandledRejection", (reason, promise) => {
       log.error("Unhandled promise rejection:", reason);
@@ -505,7 +576,10 @@ export class CoBeingRuntime {
     });
 
     setGlobalLogLevel(this.config.core.logLevel as "debug" | "info" | "warn" | "error");
+  }
 
+  /** 检查 Docker 可用性（一次性，结果缓存到 this.dockerAvailable） */
+  private async checkDockerAvailability(): Promise<void> {
     // 检查 Docker 可用性（一次性，结果缓存到 this.dockerAvailable）
     const dockerCheck = await DockerSandbox.checkDockerAvailable();
     this.dockerAvailable = dockerCheck.available;
@@ -513,10 +587,21 @@ export class CoBeingRuntime {
     if (!this.dockerAvailable) {
       log.warn("Docker not available, all sandboxes disabled: %s", dockerCheck.error);
     }
+  }
 
+  /** 加载所有启用的插件（从 registry.json）— Provider/Channel/Tool/Extension */
+  private async loadAllPluginsStep(): Promise<void> {
     // 加载所有启用的插件（从 registry.json）— Provider/Channel/Tool/Extension
     await this.loadAllPlugins();
+  }
 
+  /** 创建管家（在 loadAllPlugins 之后，确保插件 providers 已加载） */
+  private async createCoreAgents(): Promise<void> {
+    // 确保管家文件体系（AGENTS/CHARACTER/JOB/MEMORY/EXPERIENCE + config.json）
+    // 必须先于 createButler — 管家 prompt 走文件（templates/butler → data/coreagents/butler/）
+    this.ensureButlerDir();
+    // ensureButlerDir 首次启动可能刚写入 config.json — 重读管家自治配置
+    this.reloadButlerSelfConfig();
     // 创建管家（在 loadAllPlugins 之后，确保插件 providers 已加载）
     this.createButler();
     // 如果 Docker 不可用，降级管家沙箱
@@ -524,12 +609,10 @@ export class CoBeingRuntime {
       await (this.butler as any)._sandbox.destroy();
       (this.butler as any)._sandbox = null;
     }
+  }
 
-    this.wsServer.setAgentRegistry(this.registry);
-    this.wsServer.setGroupManager(this.groupManager);
-    this.wsServer.setChannelRouter(this.router);
-    this.wsServer.registerAgent(this.butler);
-
+  /** 确保 master registry 存在（首次启动从文件系统迁移）+ 恢复持久化 Agent + 注册预置 Agent */
+  private restoreRegistryState(): void {
     // 确保 master registry 存在（首次启动从文件系统迁移）
     const rp = path.join(this.dataRoot, "registry.json");
     if (!fs.existsSync(rp)) {
@@ -546,38 +629,36 @@ export class CoBeingRuntime {
 
     // Register pre-built agents (e.g., HostAgent)
     this.registerPrebuiltAgents();
+  }
 
+  /** 连接 MCP 服务器到全局管理器（不自动推给 Agent）+ 注册 MCP 工具 */
+  private async setupMCP(): Promise<void> {
     // 连接 MCP 服务器到全局管理器（不自动推给 Agent）
     await this.connectAllMCPServers();
 
     // 注册 mcp-discover / mcp-register 工具到所有 Agent（按需发现和注册）
     this.registerMCPTools();
+  }
 
+  /** 恢复持久化的群组（现在从 master registry 读取） */
+  private restoreGroups(): void {
     // Restore persisted groups from data/groups/ (now reads from master registry)
     this.groupManager.restoreGroups();
+  }
+
+  /** 配置 WS Server — 收敛 8 个 setter（按原顺序注入所有依赖） */
+  private configureWSServer(): void {
+    this.wsServer.setAgentRegistry(this.registry);
+    this.wsServer.setGroupManager(this.groupManager);
+    this.wsServer.setChannelRouter(this.router);
+    this.wsServer.registerAgent(this.butler);
 
     // Inject provider resolver + data root to WS server for direct creation
     this.wsServer.setProviderResolver((id) => this.providers.get(id));
     this.wsServer.setOnProviderChange((providerId) => this.rebuildProvider(providerId));
     this.wsServer.setDataRoot(this.dataRoot);
     this.wsServer.setSkillRepository(this.skillRepo);
-
-    // 连接 router → butler / agent
-    this.router.setButlerCallback(async (msg) => {
-      return await this.butler.handleIncomingMessage(msg);
-    });
-    this.router.setAgentCallback(async (agentId, msg) => {
-      const agent = this.registry.get(agentId);
-      if (agent) {
-        return await agent.handleIncomingMessage(msg);
-      } else {
-        log.warn("Agent %s not found for channel routing, falling back to butler", agentId);
-        return await this.butler.handleIncomingMessage(msg);
-      }
-    });
-
-    // 加载静态绑定
-    this.loadStaticBindings();
+    this.wsServer.setMarketServices(this.marketCatalog, this.marketInstaller);
 
     // MCP 配置热重载
     this.wsServer.setOnMcpConfigChange(async (serverId, config) => {
@@ -603,7 +684,27 @@ export class CoBeingRuntime {
         }
       }
     });
+  }
 
+  /** 连接 router → butler / agent */
+  private setupRouterCallbacks(): void {
+    // 连接 router → butler / agent
+    this.router.setButlerCallback(async (msg) => {
+      return await this.butler.handleIncomingMessage(msg);
+    });
+    this.router.setAgentCallback(async (agentId, msg) => {
+      const agent = this.registry.get(agentId);
+      if (agent) {
+        return await agent.handleIncomingMessage(msg);
+      } else {
+        log.warn("Agent %s not found for channel routing, falling back to butler", agentId);
+        return await this.butler.handleIncomingMessage(msg);
+      }
+    });
+  }
+
+  /** 启动服务（WS start + WakeSystem resume + 广播最终状态 + 启动 Channels） */
+  private async startServices(): Promise<void> {
     await this.wsServer.start();
 
     // WS server 已启动，恢复所有群组的 WakeSystem（处理 restoreGroups 期间积压的唤醒队列）
@@ -614,7 +715,10 @@ export class CoBeingRuntime {
 
     // 启动 Channels
     await this.startChannels();
+  }
 
+  /** 启动 TODO 扫描器 */
+  private startTodoScanner(): void {
     // 启动 TODO 扫描器
     this.todoScanner = new AgentTodoScanner(this.dataRoot, this.registry, {
       onTrigger: async (agentId, _todo, message) => {
@@ -658,18 +762,16 @@ export class CoBeingRuntime {
       },
     });
     this.todoScanner.start();
+  }
 
+  /** 确保 data/ 7 分类目录结构 + 初始化本地过滤引擎 */
+  private async ensureRuntimeDirs(): Promise<void> {
     // 确保 data/ 7 分类目录结构
     this.ensureDataDirs();
     this.ensureHostDir();
 
     // 初始化本地过滤引擎
     await this.initLocalFilter();
-
-    log.info("Runtime started (dataRoot=%s). Butler: %s, WS: ws://localhost:%d",
-      this.dataRoot, this.butler.name, this.config.gui?.wsPort ?? DEFAULT_WS_PORT);
-    log.info("Providers: %s", [...this.providers.keys()].join(", "));
-    log.info("Channels: %d configured", Object.values(this.config.channels).filter(c => c.enabled).length);
   }
 
   /** 连接配置中的所有 MCP 服务器到全局 MCPManager（不自动注册到 Agent） */
@@ -705,17 +807,52 @@ export class CoBeingRuntime {
   async stop(): Promise<void> {
     log.info("Runtime stopping — notifying clients to flush data...");
     // 1. 先通知前端保存数据（发送 shutdown 信号 + 等待 flush）
-    await this.wsServer.stop();
+    await this.stopWSServer();
 
     // 2. 停止后台扫描器
-    this.todoScanner?.stop();
+    this.stopTodoScanner();
 
     // 3. 释放本地过滤引擎
+    this.disposeLocalFilter();
+
+    // 4. 关闭所有 Channel 并清理路由绑定
+    await this.stopChannels();
+
+    // 5. 关闭所有 Agent（释放 memory.db 等）
+    await this.disposeAgents();
+
+    // 6. 释放群组资源（SQLite 等）
+    this.disposeGroups();
+
+    // 7. 关闭 MCP 连接
+    await this.closeMCPConnections();
+
+    // 8. 清理全局变量
+    delete (globalThis as any).__cobeing;
+
+    this.observabilityDB.close();
+    log.info("Runtime stopped");
+  }
+
+  /** 停止 WS Server（先通知前端保存数据，发送 shutdown 信号 + 等待 flush） */
+  private async stopWSServer(): Promise<void> {
+    await this.wsServer.stop();
+  }
+
+  /** 停止后台扫描器 */
+  private stopTodoScanner(): void {
+    this.todoScanner?.stop();
+  }
+
+  /** 释放本地过滤引擎 */
+  private disposeLocalFilter(): void {
     if ((this as any)._localFilter) {
       (this as any)._localFilter.dispose();
     }
+  }
 
-    // 4. 关闭所有 Channel 并清理路由绑定
+  /** 关闭所有 Channel 并清理路由绑定 */
+  private async stopChannels(): Promise<void> {
     for (const ch of this.channels) {
       try {
         this.router.unbind(ch.id);
@@ -723,23 +860,23 @@ export class CoBeingRuntime {
       } catch { /* ignore */ }
     }
     this.channels = [];
+  }
 
-    // 5. 关闭所有 Agent（释放 memory.db 等）
+  /** 关闭所有 Agent（释放 memory.db 等） */
+  private async disposeAgents(): Promise<void> {
     for (const agent of this.registry.list()) {
       await agent.dispose();
     }
+  }
 
-    // 6. 释放群组资源（SQLite 等）
+  /** 释放群组资源（SQLite 等） */
+  private disposeGroups(): void {
     this.groupManager.disposeAll();
+  }
 
-    // 7. 关闭 MCP 连接
+  /** 关闭 MCP 连接 */
+  private async closeMCPConnections(): Promise<void> {
     await this.mcpManager.close();
-
-    // 8. 清理全局变量
-    delete (globalThis as any).__cobeing;
-
-    this.observabilityDB.close();
-    log.info("Runtime stopped");
   }
 
   /** 从 registry.json 加载所有启用的插件（统一入口，替代 loadProviderPlugins） */
@@ -937,7 +1074,8 @@ export class CoBeingRuntime {
       // 群组审核管道
       if (binding?.type === "group" && binding.groupId && this.groupManager) {
         const group = this.groupManager.get(binding.groupId);
-        if (group?.config.reviewer?.enabled !== false && group.config.reviewer?.maxRounds !== 0) {
+        const reviewerCfg = group?.config.reviewer ?? { enabled: true, maxRounds: 3 };
+        if (reviewerCfg.enabled !== false && reviewerCfg.maxRounds !== 0) {
           const runtime = (globalThis as any).__cobeing?.runtime;
           const provider = runtime?.getProvider(DEFAULT_PROVIDER) as import("@cobeing/providers").LLMProvider | undefined;
           if (provider) {
@@ -1092,9 +1230,112 @@ export class CoBeingRuntime {
 
   /** 确保 data/ 7 个分类目录结构存在 */
   private ensureDataDirs(): void {
-    const dirs = ["agents", "groups", "coreagents", "tools", "toolagents", "skills", "plugins"];
+    const dirs = ["agents", "groups", "coreagents", "tools", "toolagents", "skills", "plugins", "market"];
     for (const d of dirs) {
       fs.mkdirSync(path.join(this.dataRoot, d), { recursive: true });
+    }
+  }
+
+  /** 确保 data/market/<tier>/ 目录结构（official/certified/community） */
+  private ensureMarketDirs(): void {
+    for (const tier of ["official", "certified", "community"]) {
+      fs.mkdirSync(path.join(this.dataRoot, "market", tier), { recursive: true });
+    }
+  }
+
+  /** 首次启动时把 packages/core/src/market/bundled/ 内置资源同步到 data/market/（已存在不覆盖） */
+  private syncBundledMarketResources(): void {
+    const bundledRoot = path.resolve("packages/core/src/market/bundled");
+    if (!fs.existsSync(bundledRoot)) {
+      log.debug("Bundled market resources not found at %s, skipping sync", bundledRoot);
+      return;
+    }
+    for (const tier of ["official", "certified", "community"]) {
+      const tierDir = path.join(bundledRoot, tier);
+      if (!fs.existsSync(tierDir)) continue;
+      for (const id of fs.readdirSync(tierDir)) {
+        const srcDir = path.join(tierDir, id);
+        if (!fs.statSync(srcDir).isDirectory()) continue;
+        const dstDir = path.join(this.dataRoot, "market", tier, id);
+        if (fs.existsSync(dstDir)) continue;
+        try {
+          fs.cpSync(srcDir, dstDir, { recursive: true });
+          log.info("Market bundled resource synced: %s/%s", tier, id);
+        } catch (err) {
+          log.warn("Failed to sync bundled market resource %s/%s: %s", tier, id, err);
+        }
+      }
+    }
+  }
+
+  /** 初始化 Market 分级服务：确保目录 + 同步内置资源 + 重扫 catalog */
+  private initMarketServices(): void {
+    this.ensureMarketDirs();
+    this.syncBundledMarketResources();
+    this.marketCatalog.reload();
+    log.info("Market catalog loaded: %d resources, %d installed",
+      this.marketCatalog.list().length, this.marketCatalog.getInstalled().length);
+  }
+
+  /** Market 安装 Agent 后的注册钩子：读取 config.json 并注册 Agent 实例 */
+  private registerMarketAgent(id: string, dir: string): void {
+    if (this.registry.get(id)) return;
+    const cfgPath = path.join(dir, "config.json");
+    if (!fs.existsSync(cfgPath)) {
+      log.warn("Market agent %s has no config.json, skipped registration", id);
+      return;
+    }
+    let cfg: Record<string, any>;
+    try {
+      cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+    } catch (err) {
+      log.warn("Market agent %s config.json invalid: %s", id, err);
+      return;
+    }
+    const providerId = cfg.provider || DEFAULT_PROVIDER;
+    const prov = this.providers.get(providerId);
+    if (!prov) {
+      log.warn("Market agent %s provider %s not found, skipped registration", id, providerId);
+      return;
+    }
+    const config: AgentConfig = {
+      id,
+      name: cfg.name || id,
+      role: cfg.role || "",
+      systemPrompt: cfg.systemPrompt || `你是${cfg.name || id}，${cfg.role || "专业智能体"}`,
+      provider: providerId,
+      model: cfg.model || DEFAULT_MODEL,
+      permissions: cfg.permissions || { mode: "workspace-readwrite" },
+      sandbox: cfg.sandbox,
+      tools: cfg.tools,
+      skills: cfg.skills,
+    };
+    const agent = new Agent(config, prov, this.dataRoot);
+    this.registry.register(agent);
+    log.info("Market agent registered: %s", id);
+  }
+
+  /** Market 安装群组后的钩子：创建群组并写入 ButlerRegistry */
+  private createMarketGroup(id: string, name: string, memberIds: string[], topic?: string): void {
+    if (this.groupManager.get(id)) return;
+    const allMembers = ["host", ...memberIds.filter((m) => m !== "host")];
+    this.groupManager.create({ id, name, members: allMembers, owner: "host", topic });
+    for (const memberId of allMembers) {
+      const mAgent = this.registry.get(memberId);
+      if (mAgent) {
+        mAgent.injectGroupTools((gid) => this.groupManager.get(gid));
+      }
+    }
+    const butlerReg = new ButlerRegistry(this.dataRoot);
+    butlerReg.registerGroup({ id, name, members: allMembers });
+    log.info("Market group created: %s (%s)", name, id);
+  }
+
+  /** Market 卸载群组后的钩子 */
+  private destroyMarketGroup(id: string): void {
+    if (this.groupManager.get(id)) {
+      this.groupManager.delete(id);
+      log.info("Market group destroyed: %s", id);
     }
   }
 
@@ -1154,11 +1395,76 @@ export class CoBeingRuntime {
       log.info("Host JOB.md synced from template: %s", hostJobPath);
     }
 
+    // 人味表达规范（EXPRESSION.md，首次缺失时从 agent 模板复制；host 无角色，只约束说话方式）
+    const hostExpressionPath = path.join(hostDir, "EXPRESSION.md");
+    if (!fs.existsSync(hostExpressionPath)) {
+      const exprTemplate = path.resolve("packages/core/src/templates/agent/EXPRESSION.md");
+      if (fs.existsSync(exprTemplate)) {
+        fs.copyFileSync(exprTemplate, hostExpressionPath);
+        log.info("Host EXPRESSION.md created from template: %s", hostExpressionPath);
+      }
+    }
+
     for (const file of ["DECISIONS.md", "GROUPS_REGISTRY.md"]) {
       const filePath = path.join(hostDir, file);
       if (!fs.existsSync(filePath)) {
         fs.writeFileSync(filePath, `# ${file.replace(".md", "")}\n`, "utf-8");
       }
+    }
+  }
+
+  /**
+   * 确保 data/coreagents/butler/ 文件体系存在（类比 ensureHostDir）。
+   * 首次启动创建 {config.json, AGENTS.md, CHARACTER.md, JOB.md, MEMORY.md, EXPERIENCE.md}；
+   * 已存在文件一律不覆盖（用户修改过的人格/记忆/经验保留）。
+   * 默认人格为「亲密朋友」；config.json 含 provider/model/permissions/tools 白名单/skills。
+   */
+  private ensureButlerDir(): void {
+    const butlerDir = path.join(this.dataRoot, "coreagents", "butler");
+    fs.mkdirSync(butlerDir, { recursive: true });
+
+    // config.json — 不存在才写（已存在保留用户配置）
+    const configPath = path.join(butlerDir, "config.json");
+    if (!fs.existsSync(configPath)) {
+      fs.writeFileSync(configPath, JSON.stringify({
+        name: "管家",
+        role: "CoBeing 管家",
+        provider: DEFAULT_PROVIDER,
+        model: DEFAULT_MODEL,
+        permissions: { mode: "full-access" },
+        sandbox: { enabled: true, filesystem: "isolated", network: { enabled: true, mode: "all" } },
+        tools: BUTLER_DEFAULT_TOOLS,
+        skills: [],
+      }, null, 2) + "\n", "utf-8");
+      log.info("Butler config.json written (first start): %s", configPath);
+    }
+
+    // 模板根：项目根（源码树）优先，兼容 CWD=packages/core 与编译产物目录
+    const templatesRoot = [
+      path.resolve("packages/core/src/templates/butler"),
+      path.resolve("src/templates/butler"),
+      path.resolve("core/src/templates/butler"),
+    ].find((p) => fs.existsSync(p));
+
+    // base 三件套 + 默认人格（亲密朋友）两件套
+    const seedFiles: Array<[string, string]> = [
+      ["AGENTS.md", "base/AGENTS.md"],
+      ["MEMORY.md", "base/MEMORY.md"],
+      ["EXPERIENCE.md", "base/EXPERIENCE.md"],
+      ["CHARACTER.md", "personas/亲密朋友/CHARACTER.md"],
+      ["JOB.md", "personas/亲密朋友/JOB.md"],
+    ];
+    for (const [name, rel] of seedFiles) {
+      const target = path.join(butlerDir, name);
+      if (fs.existsSync(target)) continue; // 用户改过的人格/记忆/经验保留
+      if (!templatesRoot) {
+        log.warn("Butler templates root not found — skip creating %s", name);
+        continue;
+      }
+      const src = path.join(templatesRoot, rel);
+      if (!fs.existsSync(src)) continue;
+      fs.copyFileSync(src, target);
+      log.info("Butler %s seeded from template: %s", name, target);
     }
   }
 

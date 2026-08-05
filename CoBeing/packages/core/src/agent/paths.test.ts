@@ -55,6 +55,17 @@ describe("AgentFiles", () => {
     expect(f.readCharacter()).toBe("");
   });
 
+  it("writes and reads EXPRESSION.md (人味表达规范)", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    f.writeExpression("# EXPRESSION.md\n- 群聊回复 ≤3 句");
+    expect(f.readExpression()).toBe("# EXPRESSION.md\n- 群聊回复 ≤3 句");
+  });
+
+  it("returns empty string for missing EXPRESSION.md", () => {
+    const f = new AgentFiles(new AgentPaths(tmpDir));
+    expect(f.readExpression()).toBe("");
+  });
+
   it("writes and reads JOB.md", () => {
     const f = new AgentFiles(new AgentPaths(tmpDir));
     f.writeJob("# JOB.md\n- 角色: 测试员");

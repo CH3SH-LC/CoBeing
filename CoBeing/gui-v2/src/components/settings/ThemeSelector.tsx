@@ -36,17 +36,17 @@ export function ThemeSelector() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-xs text-txt-muted font-medium">选择主题</div>
+        <div className="text-sm text-txt-muted font-medium">选择主题</div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => exportTheme(current)}
-            className="px-2.5 py-1 rounded-lg bg-elevated text-xs text-txt-sub hover:bg-hover transition-colors"
+            className="px-2.5 py-1 rounded-lg bg-elevated text-sm text-txt-sub hover:bg-hover transition-colors"
           >
             导出当前
           </button>
           <button
             onClick={() => fileRef.current?.click()}
-            className="px-2.5 py-1 rounded-lg bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors"
+            className="px-2.5 py-1 rounded-lg bg-accent/10 text-accent text-sm font-medium hover:bg-accent/20 transition-colors"
           >
             导入主题
           </button>

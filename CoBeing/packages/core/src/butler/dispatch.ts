@@ -1,5 +1,5 @@
 import { createLogger } from "@cobeing/shared";
-import type { GlobalTodoItem } from "@cobeing/shared";
+import type { GlobalTodoItem, ButlerTaskReceiptPayload } from "@cobeing/shared";
 import type { AgentRegistry } from "../agent/registry.js";
 import { AgentFiles, AgentPaths } from "../agent/paths.js";
 import type { GroupManager } from "../group/manager.js";
@@ -41,10 +41,62 @@ function makeInboxId(): string {
   return `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function broadcast(deps: ButlerDispatchDeps): void {
+/** 目标展示名：Agent 取 agent.name，Group 取 group.config.name；取不到降级为 targetId */
+export function resolveAssigneeName(deps: ButlerDispatchDeps, targetType: "agent" | "group", targetId: string): string {
+  try {
+    if (targetType === "agent") {
+      const agent = deps.agentRegistry.get(targetId);
+      if (agent?.name) return agent.name;
+    } else {
+      const group = deps.groupManager?.get(targetId);
+      if (group?.config?.name) return group.config.name;
+    }
+  } catch {
+    // Fall through to targetId.
+  }
+  return targetId;
+}
+
+export type ButlerTaskReceiptBroadcast = ButlerTaskReceiptPayload | { timestamp: number };
+
+/**
+ * 组装 butler_task_updated 广播 payload：
+ * 从 butlerTaskStore 读最新视图；取不到视图时降级仅 { timestamp }（向后兼容）。
+ */
+export function buildButlerTaskReceiptPayload(
+  deps: ButlerDispatchDeps,
+  butlerTaskId?: string,
+): ButlerTaskReceiptBroadcast {
+  const fallback: ButlerTaskReceiptBroadcast = { timestamp: Date.now() };
+  if (!butlerTaskId) return fallback;
+  try {
+    const task = deps.butlerTaskStore.get(butlerTaskId);
+    if (!task) return fallback;
+    const globalTodo = task.globalTodoId ? deps.globalTodoStore.get(task.globalTodoId) : undefined;
+    return {
+      butlerTaskId: task.id,
+      globalTodoId: task.globalTodoId,
+      title: task.title,
+      targetType: task.targetType,
+      targetId: task.targetId,
+      assigneeName: resolveAssigneeName(deps, task.targetType, task.targetId),
+      status: task.status,
+      summary: task.latestSummary ?? globalTodo?.progressSummary,
+      nextAction: globalTodo?.nextAction,
+      timestamp: Date.now(),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function broadcast(deps: ButlerDispatchDeps, butlerTaskId?: string): void {
   try {
     deps.wsServer?.broadcastGlobalTodoUpdate?.();
-    deps.wsServer?.broadcast?.({ type: "butler_task_updated", payload: { timestamp: Date.now() } });
+    deps.wsServer?.broadcast?.({
+      type: "butler_task_updated",
+      payload: buildButlerTaskReceiptPayload(deps, butlerTaskId),
+    });
   } catch {
     // UI updates are best-effort; dispatch state is already persisted.
   }
@@ -180,7 +232,7 @@ export async function dispatchButlerTask(
   } as any);
 
   const updatedGlobal = deps.globalTodoStore.get(globalTodo.id) ?? globalTodo;
-  broadcast(deps);
+  broadcast(deps, butlerTask.id);
 
   return {
     globalTodo: updatedGlobal,

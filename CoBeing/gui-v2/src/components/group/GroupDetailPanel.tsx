@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GroupMembersTab } from "./GroupMembersTab";
 import { GroupWorkspaceTab } from "./GroupWorkspaceTab";
 import { GroupConfigTab } from "./GroupConfigTab";
+import { GroupHealthPanel } from "./GroupHealthPanel";
 import { TodoPanel } from "@/components/todo/TodoPanel";
 
 export function GroupDetailPanel() {
@@ -44,11 +45,12 @@ export function GroupDetailPanel() {
         {group && (
           <div className="flex-1 overflow-y-auto" style={{ padding: 20 }}>
             <Tabs defaultValue="members">
-              <TabsList className="w-full grid grid-cols-4 bg-elevated" style={{ padding: 4 }}>
-                <TabsTrigger value="members">成员</TabsTrigger>
-                <TabsTrigger value="workspace">工作区</TabsTrigger>
-                <TabsTrigger value="config">配置</TabsTrigger>
-                <TabsTrigger value="todo">TODO</TabsTrigger>
+              <TabsList className="w-full grid grid-cols-5 gap-2" style={{ padding: 4 }}>
+                <TabsTrigger value="members" className="py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">成员</TabsTrigger>
+                <TabsTrigger value="workspace" className="py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">工作区</TabsTrigger>
+                <TabsTrigger value="config" className="py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">配置</TabsTrigger>
+                <TabsTrigger value="todo" className="py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">TODO</TabsTrigger>
+                <TabsTrigger value="health" className="py-2.5 data-[state=active]:bg-accent/10 data-[state=active]:text-accent">健康</TabsTrigger>
               </TabsList>
               <TabsContent value="members">
                 <GroupMembersTab group={group} />
@@ -61,6 +63,9 @@ export function GroupDetailPanel() {
               </TabsContent>
               <TabsContent value="todo">
                 <TodoPanel groupId={group.id} />
+              </TabsContent>
+              <TabsContent value="health">
+                <GroupHealthPanel groupId={group.id} />
               </TabsContent>
             </Tabs>
           </div>

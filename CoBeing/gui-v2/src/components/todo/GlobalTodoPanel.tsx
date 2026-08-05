@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useTodoStore } from "@/stores/todo";
+import { useButlerTasksStore } from "@/stores/butlerTasks";
 import { getWsClient } from "@/hooks/useWebSocket";
 import type { GlobalTodoInfo } from "@/lib/types";
 import { SurfaceCard } from "@/components/layout/Surface";
@@ -27,14 +28,6 @@ function assigneeLabel(todo: GlobalTodoInfo) {
       : "\u7ba1\u5bb6";
   if (!todo.assigneeId) return prefix;
   return `${prefix} ${todo.assigneeId}`;
-}
-
-function executionRefLabel(ref: GlobalTodoInfo["executionRefs"][number]) {
-  const scope = ref.scope === "group" ? "\u7fa4\u7ec4" : "Agent";
-  const childCount = ref.todoIds?.length ?? 0;
-  return childCount > 0
-    ? `${scope} ${ref.id} \u00b7 ${childCount} \u4e2a\u5b50\u4efb\u52a1`
-    : `${scope} ${ref.id}`;
 }
 
 export function getGlobalTodoDisplayLines(todo: GlobalTodoInfo): { body: string[]; meta: string[] } {
@@ -71,11 +64,10 @@ function TodoItemRow({ todo }: { todo: GlobalTodoInfo }) {
 
   return (
     <div
-      className="rounded-xl cursor-pointer transition-colors border border-bdr/20"
+      className="rounded-xl cursor-pointer transition-colors bg-elevated hover:bg-hover"
       style={{
-        padding: "12px 16px",
+        padding: "14px 20px",
         borderLeft: `4px solid ${style.colorVar}`,
-        backgroundColor: `color-mix(in srgb, ${style.colorVar} 10%, var(--color-elevated))`,
       }}
     >
       <div className="text-sm font-medium text-txt leading-snug">{todo.title}</div>
@@ -93,6 +85,8 @@ function TodoItemRow({ todo }: { todo: GlobalTodoInfo }) {
 
 export function GlobalTodoPanel() {
   const { globalTodos, setGlobalTodos } = useTodoStore();
+  const butlerTaskCount = useButlerTasksStore((s) => s.tasks.length);
+  const butlerSummary = useButlerTasksStore((s) => s.summary);
 
   useEffect(() => {
     const ws = getWsClient();
@@ -171,6 +165,42 @@ export function GlobalTodoPanel() {
             </span>
           )}
         </div>
+
+        {/* 管家任务小计区(来自 butler_task_updated 事件流,空数据不渲染) */}
+        {butlerTaskCount > 0 && (
+          <div className="rounded-xl border border-bdr/40 bg-elevated shrink-0" style={{ padding: "14px 16px", marginTop: 16 }}>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-txt">管家任务</span>
+              <span className="text-xs text-txt-muted">{butlerTaskCount} 个</span>
+            </div>
+            <div className="flex flex-wrap" style={{ gap: 8, marginTop: 10 }}>
+              {butlerSummary.running > 0 && (
+                <span
+                  className="rounded-lg text-xs font-medium"
+                  style={{ padding: "4px 9px", color: "var(--color-accent)", backgroundColor: "color-mix(in srgb, var(--color-accent) 15%, transparent)" }}
+                >
+                  运行中 {butlerSummary.running}
+                </span>
+              )}
+              {butlerSummary.waitingUser > 0 && (
+                <span
+                  className="rounded-lg text-xs font-medium"
+                  style={{ padding: "4px 9px", color: "var(--color-warning-fg)", backgroundColor: "color-mix(in srgb, var(--color-warning) 15%, transparent)" }}
+                >
+                  等待你 {butlerSummary.waitingUser}
+                </span>
+              )}
+              {butlerSummary.completed > 0 && (
+                <span
+                  className="rounded-lg text-xs font-medium"
+                  style={{ padding: "4px 9px", color: "var(--color-success)", backgroundColor: "color-mix(in srgb, var(--color-success) 15%, transparent)" }}
+                >
+                  已完成 {butlerSummary.completed}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {globalTodos.length === 0 ? (
           <div className="text-sm text-txt-muted text-center" style={{ padding: "40px 0" }}>

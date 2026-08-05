@@ -1,69 +1,59 @@
 param([int]$Port = 18765)
 
-# Use -p TCP to limit output (much faster on systems with many connections)
-$netstatArgs = @('-ano', '-p', 'TCP')
+# 杀掉占用指定端口的进程（旧版用 Start-Job 包裹 netstat，子进程启动慢导致 15s 超时后跳过，旧进程残留）。
+# 修复：改用 Get-NetTCPConnection 同步查询（毫秒级），失败时 netstat 同步兜底。
 
 Write-Host "[INFO] Checking port $Port..."
 
-# Run netstat with a 15-second timeout via a background job
-$job = Start-Job -ScriptBlock {
-    param($args, $Port)
-    netstat @args 2>&1 | Select-String ":$Port\b"
-} -ArgumentList $netstatArgs, $Port
-
-$completed = Wait-Job $job -Timeout 15
-if (-not $completed) {
-    Write-Host "[WARN] netstat timed out after 15s, skipping port check"
-    Stop-Job $job -ErrorAction SilentlyContinue
-    Remove-Job $job -ErrorAction SilentlyContinue
-    exit 0
+$pids = @()
+try {
+    $conns = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop |
+        Where-Object { $_.OwningProcess -and $_.OwningProcess -ne 0 }
+    $pids = @($conns | Select-Object -ExpandProperty OwningProcess -Unique)
+} catch {
+    # 兜底：同步 netstat（不再用 Start-Job）
+    $lines = & netstat -ano -p TCP 2>$null | Select-String ":$Port\s"
+    foreach ($line in $lines) {
+        $parts = $line.ToString() -split '\s+'
+        $procId = $parts[-1]
+        if ($procId -and $procId -ne '0') { $pids += [int]$procId }
+    }
+    $pids = @($pids | Select-Object -Unique)
 }
 
-$connections = Receive-Job $job -ErrorAction SilentlyContinue
-Remove-Job $job -ErrorAction SilentlyContinue
-
-if (-not $connections) {
+if ($pids.Count -eq 0) {
     Write-Host "[INFO] No process found on port $Port"
     exit 0
 }
 
-foreach ($line in $connections) {
-    $parts = $line -split '\s+'
-    $procId = $parts[-1]
-    if ($procId -and $procId -ne '0') {
-        try {
-            Stop-Process -Id $procId -Force -ErrorAction Stop
-            Write-Host "[INFO] Killed process PID $procId on port $Port"
-        } catch {
-            Write-Host "[WARN] Failed to kill PID $procId : $_"
-        }
+foreach ($procId in $pids) {
+    try {
+        Stop-Process -Id $procId -Force -ErrorAction Stop
+        Write-Host "[INFO] Killed process PID $procId on port $Port"
+    } catch {
+        Write-Host "[WARN] Failed to kill PID $procId : $_"
     }
 }
 
 Start-Sleep -Seconds 2
 
-# Double-check
-$remaining = netstat @netstatArgs 2>&1 | Select-String ":$Port\b"
-if ($remaining) {
-    foreach ($line in $remaining) {
-        $parts = $line -split '\s+'
+# 验证端口是否释放
+$remaining = @()
+try {
+    $remaining = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop |
+        Where-Object { $_.OwningProcess -and $_.OwningProcess -ne 0 })
+} catch {
+    $lines = & netstat -ano -p TCP 2>$null | Select-String ":$Port\s"
+    foreach ($line in $lines) {
+        $parts = $line.ToString() -split '\s+'
         $procId = $parts[-1]
-        if ($procId -and $procId -ne '0') {
-            try {
-                Stop-Process -Id $procId -Force -ErrorAction Stop
-                Write-Host "[WARN] Force-killed remaining PID $procId on port $Port"
-            } catch {
-                Write-Host "[WARN] Force-kill failed for PID $procId : $_"
-            }
-        }
+        if ($procId -and $procId -ne '0') { $remaining += $procId }
     }
-    Start-Sleep -Seconds 1
 }
 
-# Final check
-$finalCheck = netstat @netstatArgs 2>&1 | Select-String ":$Port\b"
-if ($finalCheck) {
+if ($remaining.Count -gt 0) {
     Write-Host "[WARN] Port $Port is still occupied after cleanup attempts"
-} else {
-    Write-Host "[INFO] Port $Port is now free"
+    exit 1
 }
+Write-Host "[INFO] Port $Port is now free"
+exit 0

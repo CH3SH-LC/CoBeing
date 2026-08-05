@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { emit } from "@tauri-apps/api/event";
+import { isTauri } from "@/lib/utils";
 
 interface TrayStore {
   /** 运行中的 Agent 数量 */
@@ -29,8 +30,8 @@ export const useTrayStore = create<TrayStore>((set, get) => ({
     const statusText = parts.length > 0 ? parts.join("，") : "就绪";
     set({ runningAgents, activeGroups, statusText });
 
-    // 通知 Rust 侧更新菜单
-    emit("tray-update-status", { statusText });
+    // 通知 Rust 侧更新菜单（非 Tauri 环境跳过）
+    if (isTauri()) emit("tray-update-status", { statusText });
   },
 
   incrementUnread: () => {

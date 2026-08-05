@@ -145,7 +145,7 @@ export function Clock({ hour, minute, onChange }: ClockProps) {
                   textAnchor="middle"
                   dominantBaseline="central"
                   style={{
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: isSelected ? 600 : 400,
                     fill: isSelected ? "var(--color-white)" : "var(--color-txt-sub)",
                   }}

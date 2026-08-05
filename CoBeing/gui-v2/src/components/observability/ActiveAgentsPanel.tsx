@@ -18,7 +18,7 @@ function ProcessingItem({ agentId, source }: { agentId: string; source?: string 
     if (ws) ws.send({ type: "stop_agent", payload: { agentId } });
   };
   return (
-    <div className="flex items-center rounded-lg bg-accent/8 border border-accent/25" style={{ padding: "8px 12px", gap: 10 }}>
+    <div className="flex items-center rounded-lg bg-accent/8 border border-accent/25" style={{ padding: "14px 20px", gap: 10 }}>
       <span className="inline-block w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin shrink-0" />
       <span className="flex-1 text-sm text-txt min-w-0 truncate">
         <strong>{resolveAgentName(agentId)}</strong>
@@ -26,8 +26,8 @@ function ProcessingItem({ agentId, source }: { agentId: string; source?: string 
         {source && <span className="text-txt-muted text-xs ml-1.5">{source}</span>}
       </span>
       <button
-        className="rounded-md bg-danger/15 text-danger text-xs font-medium transition-colors hover:bg-danger/25 shrink-0"
-        style={{ padding: "4px 10px" }}
+        className="rounded-lg bg-danger/15 text-danger text-sm font-medium transition-colors hover:bg-danger/25 shrink-0"
+        style={{ padding: "6px 12px" }}
         onClick={handleStop}
       >
         停止
@@ -39,7 +39,7 @@ function ProcessingItem({ agentId, source }: { agentId: string; source?: string 
 function QueuedItem({ entry }: { entry: WakeQueueEntry }) {
   const name = resolveAgentName(entry.targetAgentId);
   return (
-    <div className="flex items-center rounded-lg bg-elevated/60 border border-bdr/25" style={{ padding: "8px 12px", gap: 10 }}>
+    <div className="flex items-center rounded-lg bg-elevated/60 border border-bdr/25" style={{ padding: "14px 20px", gap: 10 }}>
       <span className="shrink-0 text-sm">⏳</span>
       <span className="flex-1 text-sm text-txt-sub min-w-0 truncate">
         <strong className="text-txt">{name}</strong>
@@ -87,7 +87,7 @@ export function ActiveAgentsPanel() {
   const hasAny = totalQueued > 0 || groupActive.length > 0 || independentActive.length > 0;
 
   return (
-    <div className="flex flex-col rounded-xl bg-surface border border-bdr/40" style={{ padding: 18, boxShadow: "var(--shadow-surface)", minHeight: 200 }}>
+    <div className="flex flex-col rounded-xl bg-surface border border-bdr/40" style={{ padding: 20, boxShadow: "var(--shadow-surface)", minHeight: 200 }}>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-txt">活跃 Agent</h3>
         <span className="text-xs text-txt-muted">
@@ -98,11 +98,12 @@ export function ActiveAgentsPanel() {
       </div>
 
       {!hasAny ? (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-sm text-txt-muted">所有 Agent 空闲</p>
+        <div className="flex-1 flex flex-col items-center justify-center text-center" style={{ gap: 8 }}>
+          <div className="text-3xl">💤</div>
+          <p className="text-sm text-txt-muted">所有 Agent 空闲，等待任务唤醒</p>
         </div>
       ) : (
-        <div className="flex flex-col overflow-y-auto" style={{ gap: 6, maxHeight: 300 }}>
+        <div className="flex flex-col overflow-y-auto" style={{ gap: 10, maxHeight: 300 }}>
           {/* 群组活跃 Agent（从 activeAgents 中携带 groupId 的） */}
           {groupActive.map((a) => {
             const source = a.groupId ? `群组 ${resolveGroupName(a.groupId)}` : "群组任务";

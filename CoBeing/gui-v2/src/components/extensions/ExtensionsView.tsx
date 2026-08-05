@@ -4,11 +4,13 @@ import type { ExtensionsTab } from "@/lib/types";
 import { SkillsTab } from "./SkillsTab";
 import { McpsTab } from "./McpsTab";
 import { PluginsTab } from "./PluginsTab";
+import { MarketTab } from "./MarketTab";
 
 const TABS: { id: ExtensionsTab; label: string; icon: string }[] = [
   { id: "skills", label: "技能", icon: "📦" },
   { id: "mcps", label: "MCPs", icon: "🔌" },
   { id: "plugins", label: "插件", icon: "🧩" },
+  { id: "market", label: "Market", icon: "🛍️" },
 ];
 
 export function ExtensionsView() {
@@ -42,6 +44,7 @@ export function ExtensionsView() {
         {activeTab === "skills" && <SkillsTab />}
         {activeTab === "mcps" && <McpsTab />}
         {activeTab === "plugins" && <PluginsTab />}
+        {activeTab === "market" && <MarketTab />}
       </div>
     </div>
   );

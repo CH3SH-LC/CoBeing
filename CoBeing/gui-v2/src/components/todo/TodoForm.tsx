@@ -82,7 +82,7 @@ export function TodoForm({ onSubmit, onCancel }: TodoFormProps) {
           {/* 日历 */}
           <div
             className="bg-elevated rounded-xl border border-bdr/30"
-            style={{ padding: 16 }}
+            style={{ padding: 20 }}
           >
             <Calendar value={date} onChange={setDate} />
           </div>
@@ -90,7 +90,7 @@ export function TodoForm({ onSubmit, onCancel }: TodoFormProps) {
           {/* 时钟 */}
           <div
             className="bg-elevated rounded-xl border border-bdr/30 flex items-center justify-center"
-            style={{ padding: 16 }}
+            style={{ padding: 20 }}
           >
             <Clock hour={hour} minute={minute} onChange={handleTimeChange} />
           </div>

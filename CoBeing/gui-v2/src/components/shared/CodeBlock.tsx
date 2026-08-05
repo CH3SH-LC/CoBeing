@@ -20,7 +20,7 @@ export function CodeBlock({ className, children }: CodeBlockProps) {
   }, [codeText]);
 
   return (
-    <div className="my-2 rounded-lg overflow-hidden border border-bdr">
+    <div className="my-2 rounded-xl overflow-hidden border border-bdr">
       {/* 顶部栏 */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-bdr"
            style={{ backgroundColor: "var(--code-header-bg)" }}>
@@ -41,7 +41,7 @@ export function CodeBlock({ className, children }: CodeBlockProps) {
       </div>
       {/* 代码内容 */}
       <pre className="code-block-pre !m-0 !rounded-none !border-0 !p-3 overflow-x-auto"
-           style={{ backgroundColor: "var(--code-header-bg)" }}>
+           style={{ backgroundColor: "var(--code-header-bg)", color: "var(--hljs-fg)" }}>
         <code className={className}>{children}</code>
       </pre>
     </div>

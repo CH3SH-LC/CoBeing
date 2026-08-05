@@ -1,0 +1,19 @@
+{
+  "id": "travel-team",
+  "type": "group",
+  "name": "旅行规划小队",
+  "description": "旅行规划协作群组：旅行规划师主笔方案，可按需接入记账小助手等成员，一站式完成行程规划与预算记录",
+  "version": "1.0.0",
+  "tier": "official",
+  "author": "CoBeing Team",
+  "icon": "🧳",
+  "tags": ["旅行", "群组", "协作", "规划"],
+  "riskLevel": "low",
+  "permissions": ["workspace:readwrite"],
+  "dependencies": [
+    {
+      "type": "agent",
+      "id": "travel-planner"
+    }
+  ]
+}

@@ -79,6 +79,17 @@ export class DockerSandbox implements SandboxRunner {
     return this.pool.getStatus();
   }
 
+  /** 获取实时指标（真实 CPU/内存/运行时长；docker stats 不可用时返回 null） */
+  async getMetrics(): Promise<{
+    uptime: number;
+    memoryUsage: number;
+    memoryLimit: number;
+    cpuPercent: number;
+  } | null> {
+    const stats = await this.pool.stats();
+    return stats ?? null;
+  }
+
   /** 检测 Docker 是否可用 */
   static async checkDockerAvailable(): Promise<{ available: boolean; error?: string }> {
     return new Promise((resolve) => {

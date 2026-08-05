@@ -36,7 +36,7 @@ export function WorkspaceBindingSection({ agentId }: Props) {
       {/* 原始工作区 — 只读展示 */}
       <div className="flex items-center gap-2 text-sm text-txt-muted">
         <span className="w-16 shrink-0">默认</span>
-        <code className="flex-1 truncate rounded bg-hover px-2 py-1 text-xs">
+        <code className="flex-1 truncate rounded-lg bg-hover px-2 py-1 text-xs">
           data/agents/{agentId}/workspace/
         </code>
         <span className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-success/10 text-success">读写</span>
@@ -46,7 +46,7 @@ export function WorkspaceBindingSection({ agentId }: Props) {
       {bindings.map((b) => (
         <div key={b.path} className="flex items-center gap-2 text-sm">
           <span className="w-16 shrink-0 text-txt-muted">{b.label || "绑定"}</span>
-          <code className="flex-1 truncate rounded bg-hover px-2 py-1 text-xs">{b.path}</code>
+          <code className="flex-1 truncate rounded-lg bg-hover px-2 py-1 text-xs">{b.path}</code>
           <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded ${
             b.mode === "readwrite" ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
           }`}>
@@ -69,32 +69,32 @@ export function WorkspaceBindingSection({ agentId }: Props) {
 
       {/* 添加绑定 */}
       {showAdd ? (
-        <div className="space-y-2 rounded-lg border border-bdr/40 p-3 bg-surface">
+        <div className="space-y-2 rounded-lg border border-bdr/40 p-4 bg-surface">
           <input
             type="text"
             value={path}
             onChange={(e) => setPath(e.target.value)}
             placeholder="输入要绑定的目录路径..."
-            className="w-full rounded bg-hover px-2 py-1 text-sm text-txt outline-none"
+            className="w-full rounded-lg bg-input px-2 py-1 text-sm text-txt outline-none"
           />
           <div className="flex items-center gap-2">
             <select
               value={mode}
               onChange={(e) => setMode(e.target.value as "readonly" | "readwrite")}
-              className="rounded bg-hover px-2 py-1 text-sm text-txt outline-none"
+              className="rounded-lg bg-input px-2 py-1 text-sm text-txt outline-none"
             >
               <option value="readwrite">读写</option>
               <option value="readonly">只读</option>
             </select>
             <button
-              className="rounded bg-accent px-3 py-1 text-sm text-white disabled:opacity-40"
+              className="rounded-lg bg-accent px-3 py-1 text-sm text-white disabled:opacity-40"
               onClick={handleAdd}
               disabled={!path.trim() || adding}
             >
               确认
             </button>
             <button
-              className="rounded px-2 py-1 text-sm text-txt-muted hover:text-txt"
+              className="rounded-lg px-2 py-1 text-sm text-txt-muted hover:text-txt"
               onClick={() => setShowAdd(false)}
             >
               取消

@@ -56,7 +56,8 @@ export function UserProfileSection() {
           gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
         }}
       >
-        <section className="rounded-xl bg-elevated" style={{ padding: 20 }}>
+        <section className="rounded-xl bg-surface border border-bdr/40"
+                 style={{ padding: 20, boxShadow: "var(--shadow-surface)" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <div>
               <label htmlFor={nicknameInputId} className="block text-sm font-medium text-txt" style={{ marginBottom: 8 }}>

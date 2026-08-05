@@ -157,7 +157,7 @@ export function TodoPanel({ agentId, groupId }: { agentId?: string; groupId?: st
           <span className="flex-1">
             {upcoming.length} 个 TODO 将在 30 分钟内到期
           </span>
-          <span className="text-xs opacity-70">
+          <span className="text-sm opacity-70">
             {upcoming.map((t) => t.title).join("、")}
           </span>
         </div>
@@ -254,7 +254,7 @@ export function TodoPanel({ agentId, groupId }: { agentId?: string; groupId?: st
         {/* 视图切换 */}
         <div className="flex rounded-lg bg-elevated" style={{ padding: 2, gap: 2 }}>
           <button
-            className={`rounded-md text-xs font-medium transition-colors ${
+            className={`rounded-lg text-sm font-medium transition-colors ${
               viewMode === "list" ? "bg-accent text-white" : "text-txt-muted hover:text-txt"
             }`}
             style={{ padding: "5px 10px" }}
@@ -263,7 +263,7 @@ export function TodoPanel({ agentId, groupId }: { agentId?: string; groupId?: st
             列表
           </button>
           <button
-            className={`rounded-md text-xs font-medium transition-colors ${
+            className={`rounded-lg text-sm font-medium transition-colors ${
               viewMode === "kanban" ? "bg-accent text-white" : "text-txt-muted hover:text-txt"
             }`}
             style={{ padding: "5px 10px" }}

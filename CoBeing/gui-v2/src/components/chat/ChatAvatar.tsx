@@ -46,7 +46,7 @@ export function ChatAvatar({ name, avatar, tone = "assistant", className }: Chat
   return (
     <div
       className={cn(
-        "h-10 w-10 shrink-0 rounded-xl border border-bdr/30 flex items-center justify-center overflow-hidden text-center text-sm font-semibold leading-none",
+        "h-10 w-10 shrink-0 rounded-xl border border-bdr/40 flex items-center justify-center overflow-hidden text-center text-sm font-semibold leading-none",
         toneClass[tone],
         className,
       )}

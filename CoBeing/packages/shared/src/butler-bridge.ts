@@ -88,6 +88,22 @@ export interface ButlerTask {
   updatedAt: string;
 }
 
+// ========== Butler Task Receipt / Broadcast Payload ==========
+
+/** butler_task_updated 广播事件 payload — 派发回执结构化视图 */
+export interface ButlerTaskReceiptPayload {
+  butlerTaskId: string;
+  globalTodoId?: string;
+  title: string;
+  targetType: "agent" | "group";
+  targetId: string;
+  assigneeName: string;
+  status: string;
+  summary?: string;
+  nextAction?: string;
+  timestamp: number;
+}
+
 // ========== Global TODO Item ==========
 
 export type GlobalTodoStatus =

@@ -156,7 +156,7 @@ function AgentList() {
               "w-full shrink-0 rounded-lg text-left transition-colors",
               selectedAgent === agent.id ? "bg-elevated" : "hover:bg-hover",
             )}
-            style={{ padding: "14px 16px" }}
+            style={{ padding: "14px 20px" }}
           >
             <div className="flex items-center gap-4">
               <div className="w-9 h-9 rounded-lg bg-surface-solid border border-bdr/30 flex items-center justify-center text-txt text-sm font-medium shrink-0">
@@ -227,7 +227,7 @@ function GroupList() {
               "w-full shrink-0 rounded-lg text-left transition-colors",
               selectedGroup === group.id ? "bg-elevated" : "hover:bg-hover",
             )}
-            style={{ padding: "14px 16px" }}
+            style={{ padding: "14px 20px" }}
           >
             <div className="flex items-center gap-4">
               <div className="w-9 h-9 rounded-lg bg-purple/10 border border-purple/20 flex items-center justify-center text-purple text-sm shrink-0">

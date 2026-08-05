@@ -66,7 +66,7 @@ export function GroupHealthPanel({ groupId }: { groupId: string }) {
     <div className="flex flex-col" style={{ gap: 16 }}>
       {/* 任务完成率卡片 */}
       <div className="rounded-xl bg-elevated" style={{ padding: "18px 20px" }}>
-        <h4 className="text-xs font-semibold text-txt-muted uppercase tracking-wider" style={{ marginBottom: 12 }}>
+        <h4 className="text-sm font-semibold text-txt-muted" style={{ marginBottom: 12 }}>
           任务完成率
         </h4>
         <div className="flex items-end" style={{ gap: 8 }}>
@@ -87,7 +87,7 @@ export function GroupHealthPanel({ groupId }: { groupId: string }) {
 
       {/* 成员活跃度 */}
       <div className="rounded-xl bg-elevated" style={{ padding: "18px 20px" }}>
-        <h4 className="text-xs font-semibold text-txt-muted uppercase tracking-wider" style={{ marginBottom: 14 }}>
+        <h4 className="text-sm font-semibold text-txt-muted" style={{ marginBottom: 14 }}>
           成员活跃度 · {data.memberCount} 人
         </h4>
         <div className="flex flex-col" style={{ gap: 8 }}>
@@ -118,7 +118,7 @@ export function GroupHealthPanel({ groupId }: { groupId: string }) {
       {/* 阻塞时间 */}
       {data.longestPendingHours > 0 && (
         <div className="rounded-xl bg-elevated" style={{ padding: "18px 20px" }}>
-          <h4 className="text-xs font-semibold text-txt-muted uppercase tracking-wider" style={{ marginBottom: 12 }}>
+          <h4 className="text-sm font-semibold text-txt-muted" style={{ marginBottom: 12 }}>
             最长阻塞
           </h4>
           <div className="flex items-end" style={{ gap: 8 }}>

@@ -54,7 +54,7 @@ export function PluginsTab() {
                   ? "bg-accent/10 text-accent"
                   : "text-txt-sub hover:bg-hover"
               )}
-              style={{ padding: "8px 10px", marginBottom: 1 }}
+              style={{ padding: "14px 20px", marginBottom: 2 }}
             >
               <div className="truncate text-left">
                 <div className="font-medium truncate">{plugin.name}</div>
@@ -67,7 +67,10 @@ export function PluginsTab() {
             </button>
           ))}
           {filtered.length === 0 && (
-            <p className="text-xs text-txt-muted text-center py-4">无已注册插件</p>
+            <div className="flex flex-col items-center text-center" style={{ padding: "32px 8px", gap: 8 }}>
+              <div className="text-3xl">🧩</div>
+              <p className="text-sm text-txt-muted">无已注册插件</p>
+            </div>
           )}
         </div>
       </div>
@@ -136,7 +139,7 @@ function PluginDetail({ plugin }: { plugin: PluginInfo }) {
           <div className="grid grid-cols-2 gap-3">
             {schema.fields.map((field) => (
               <div key={field.key} className={field.key.length > 20 ? "col-span-2" : ""}>
-                <label className="text-xs text-txt-muted block mb-1">{field.label}</label>
+                <label className="text-sm text-txt-muted block mb-1">{field.label}</label>
                 {field.secret ? (
                   <input
                     type="password"

@@ -118,7 +118,7 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
             <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="例如：前端开发专家" className="w-full h-9 px-3 rounded-lg bg-input border border-bdr text-sm text-txt placeholder:text-txt-muted focus:outline-none focus:border-accent/50" />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-sm text-txt-sub mb-1 block">Provider</label>
               <Select value={provider} onValueChange={(v) => {
@@ -162,7 +162,7 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
             <textarea value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder="自定义系统提示词..." rows={3} className="w-full px-3 py-2 rounded-lg bg-input border border-bdr text-sm text-txt placeholder:text-txt-muted focus:outline-none focus:border-accent/50 resize-none" />
           </div>
 
-          <button onClick={() => setShowAdvanced(!showAdvanced)} className="text-xs text-accent hover:text-accent/80 transition-colors">
+          <button onClick={() => setShowAdvanced(!showAdvanced)} className="text-sm text-accent hover:text-accent/80 transition-colors">
             {showAdvanced ? "\u25BC" : "\u25B6"} 高级配置
           </button>
 
@@ -187,9 +187,9 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
                 <>
                   {/* 网络模式选择 */}
                   <div>
-                    <label className="text-xs text-txt-sub mb-1 block">网络模式</label>
+                    <label className="text-sm text-txt-sub mb-1 block">网络模式</label>
                     <select value={networkMode} onChange={(e) => setNetworkMode(e.target.value as any)}
-                      className="w-full h-8 px-2 rounded-lg bg-input border border-bdr text-sm text-txt">
+                      className="w-full h-9 px-3 rounded-lg bg-input border border-bdr text-sm text-txt">
                       <option value="all">全开</option>
                       <option value="whitelist">白名单</option>
                       <option value="none">全关</option>
@@ -198,8 +198,8 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
 
                   {/* 域名白名单管理 */}
                   {networkMode === "whitelist" && (
-                    <div className="rounded-lg bg-surface-solid p-3 space-y-2">
-                      <label className="text-xs text-txt-sub block">域名白名单</label>
+                    <div className="rounded-xl bg-elevated" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                      <label className="text-sm text-txt-sub block">域名白名单</label>
                       {allowDomains.map((domain, i) => (
                         <div key={i} className="flex items-center gap-2">
                           <span className="text-sm text-txt flex-1">{domain}</span>
@@ -209,19 +209,19 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
                       ))}
                       <div className="flex gap-2">
                         <input value={newDomain} onChange={(e) => setNewDomain(e.target.value)}
-                          placeholder="输入域名" className="flex-1 h-7 px-2 rounded bg-input border border-bdr text-sm text-txt" />
+                          placeholder="输入域名" className="flex-1 h-9 px-3 rounded-lg bg-input border border-bdr text-sm text-txt" />
                         <button onClick={() => { if (newDomain) { setAllowDomains(prev => [...prev, newDomain]); setNewDomain(""); } }}
-                          className="h-7 px-3 rounded bg-accent text-white text-xs">添加</button>
+                          className="h-9 px-4 rounded-lg bg-accent text-white text-sm">添加</button>
                       </div>
                     </div>
                   )}
 
                   {/* 资源限制 */}
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <label className="text-xs text-txt-sub mb-1 block">内存限制</label>
+                      <label className="text-sm text-txt-sub mb-1 block">内存限制</label>
                       <select value={memoryLimit} onChange={(e) => setMemoryLimit(e.target.value)}
-                        className="w-full h-8 px-2 rounded-lg bg-input border border-bdr text-sm text-txt">
+                        className="w-full h-9 px-3 rounded-lg bg-input border border-bdr text-sm text-txt">
                         <option value="256m">256MB</option>
                         <option value="512m">512MB</option>
                         <option value="1g">1GB</option>
@@ -230,28 +230,28 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs text-txt-sub mb-1 block">CPU 核数</label>
+                      <label className="text-sm text-txt-sub mb-1 block">CPU 核数</label>
                       <select value={cpuLimit} onChange={(e) => setCpuLimit(Number(e.target.value))}
-                        className="w-full h-8 px-2 rounded-lg bg-input border border-bdr text-sm text-txt">
+                        className="w-full h-9 px-3 rounded-lg bg-input border border-bdr text-sm text-txt">
                         <option value={1}>1</option>
                         <option value={2}>2</option>
                         <option value={4}>4</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs text-txt-sub mb-1 block">超时(秒)</label>
+                      <label className="text-sm text-txt-sub mb-1 block">超时(秒)</label>
                       <input type="number" value={commandTimeout} min={5} max={300}
                         onChange={(e) => setCommandTimeout(Number(e.target.value))}
-                        className="w-full h-8 px-2 rounded-lg bg-input border border-bdr text-sm text-txt" />
+                        className="w-full h-9 px-3 rounded-lg bg-input border border-bdr text-sm text-txt" />
                     </div>
                   </div>
 
                   {/* 磁盘限制和镜像选择 */}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-xs text-txt-sub mb-1 block">磁盘限制</label>
+                      <label className="text-sm text-txt-sub mb-1 block">磁盘限制</label>
                       <select value={diskLimit} onChange={(e) => setDiskLimit(e.target.value)}
-                        className="w-full h-8 px-2 rounded-lg bg-input border border-bdr text-sm text-txt">
+                        className="w-full h-9 px-3 rounded-lg bg-input border border-bdr text-sm text-txt">
                         <option value="128m">128MB</option>
                         <option value="256m">256MB</option>
                         <option value="512m">512MB</option>
@@ -260,9 +260,9 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs text-txt-sub mb-1 block">镜像</label>
+                      <label className="text-sm text-txt-sub mb-1 block">镜像</label>
                       <select value={selectedImage} onChange={(e) => setSelectedImage(e.target.value)}
-                        className="w-full h-8 px-2 rounded-lg bg-input border border-bdr text-sm text-txt">
+                        className="w-full h-9 px-3 rounded-lg bg-input border border-bdr text-sm text-txt">
                         <option value="cobeing-sandbox:base">base (Node.js)</option>
                         <option value="cobeing-sandbox:python">python (Node.js + Python)</option>
                         <option value="cobeing-sandbox:full">full (Node.js + Python + Go)</option>
@@ -289,7 +289,7 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
 
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={() => onOpenChange(false)} className="h-10 px-4 rounded-lg text-sm text-txt-sub bg-hover hover:bg-elevated transition-colors">取消</button>
-            <button onClick={handleCreate} disabled={!canCreate} className="h-10 px-4 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">创建</button>
+            <button onClick={handleCreate} disabled={!canCreate} className="h-10 px-4 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">创建</button>
           </div>
         </div>
       </DialogContent>

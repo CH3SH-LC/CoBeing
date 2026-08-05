@@ -28,9 +28,9 @@ export function TodoItemCard({
   return (
     <div
       className={`bg-elevated rounded-xl transition-all duration-150 relative ${
-        selected ? "bg-accent/8 border-l-[3px] border-l-accent" : isOverdue ? "border-l-[3px] border-l-danger" : ""
+        !selected && isOverdue ? "border-l-[3px] border-l-danger" : ""
       }`}
-      style={{ padding: compact ? "12px 14px" : "16px 20px" }}
+      style={{ padding: compact ? "14px 16px" : "16px 20px" }}
     >
       {/* 选择框 */}
       <div

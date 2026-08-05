@@ -1,0 +1,14 @@
+{
+  "id": "expense-assistant",
+  "type": "agent",
+  "name": "记账小助手",
+  "description": "社区开发的开销记账 Agent：按分类记录日常消费与旅行开销、生成周报月报、预算超支提醒",
+  "version": "0.9.0",
+  "tier": "community",
+  "author": "社区开发者 阿宇",
+  "icon": "🧾",
+  "tags": ["记账", "财务", "开销", "预算"],
+  "riskLevel": "medium",
+  "permissions": ["workspace:readwrite", "agent-message"],
+  "dependencies": []
+}

@@ -137,8 +137,10 @@ export class OpenAICompatProvider implements LLMProvider {
           }
 
           // finish_reason 说明这一轮结束，输出完整的 tool_calls
+          // length=输出被 max_tokens 截断：仍把已累积的工具调用输出（可能不完整，
+          // 执行器会以 JSON 解析错误反馈给模型，促使其改用更小的分块写入）
           const finishReason = json.choices?.[0]?.finish_reason;
-          if (finishReason === "tool_calls" || finishReason === "stop") {
+          if (finishReason === "tool_calls" || finishReason === "stop" || finishReason === "length") {
             if (pendingToolCalls.size > 0) {
               for (const [, tc] of pendingToolCalls) {
                 yield {

@@ -9,6 +9,7 @@ import { getWsClient } from "@/hooks/useWebSocket";
 import { useConfigStore } from "@/stores/config";
 import { usePluginsStore } from "@/stores/plugins";
 import { getVisibleUserAgents } from "@/lib/coreAgents";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 
 interface GroupMembersTabProps {
   group: GroupInfo;
@@ -21,6 +22,7 @@ export function GroupMembersTab({ group }: GroupMembersTabProps) {
   const getModels = usePluginsStore((s) => s.getModels);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [editMember, setEditMember] = useState<{ agentId: string; provider: string; model: string } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null);
 
   const hostId = group.members[0];
   const nonMemberAgents = getVisibleUserAgents(agents).filter(
@@ -33,6 +35,11 @@ export function GroupMembersTab({ group }: GroupMembersTabProps) {
       type: "remove_group_member",
       payload: { groupId: group.id, agentId },
     });
+  };
+
+  const handleConfirmRemove = () => {
+    if (removeTarget) handleRemove(removeTarget);
+    setRemoveTarget(null);
   };
 
   const handleAdd = (agentId: string) => {
@@ -100,7 +107,7 @@ export function GroupMembersTab({ group }: GroupMembersTabProps) {
                 </span>
               ) : (
                 <button
-                  onClick={() => handleRemove(memberId)}
+                  onClick={() => setRemoveTarget(memberId)}
                   className="text-sm text-danger/70 hover:text-danger transition-colors rounded-lg hover:bg-danger/10" style={{ padding: "6px 10px" }}
                 >
                   移除
@@ -154,7 +161,7 @@ export function GroupMembersTab({ group }: GroupMembersTabProps) {
             <DialogTitle>切换模型</DialogTitle>
           </DialogHeader>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm text-txt-sub mb-1 block">Provider</label>
                 <Select value={editMember?.provider || ""} onValueChange={(v) => {
@@ -194,12 +201,22 @@ export function GroupMembersTab({ group }: GroupMembersTabProps) {
               </div>
             </div>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setEditMember(null)} className="h-9 px-4 rounded-lg text-sm text-txt-sub bg-hover hover:bg-elevated transition-colors">取消</button>
-              <button onClick={handleSaveModel} className="h-9 px-4 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent/90 transition-colors">确认</button>
+              <button onClick={() => setEditMember(null)} className="h-10 px-4 rounded-lg text-sm text-txt-sub bg-hover hover:bg-elevated transition-colors">取消</button>
+              <button onClick={handleSaveModel} className="h-10 px-4 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent/90 transition-colors">确认</button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!removeTarget}
+        onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}
+        title="移除成员"
+        description={`确定要将 ${removeTarget ? (agents.find((a) => a.id === removeTarget)?.name ?? removeTarget) : ""} 移出群组吗？此操作会移除其工作区访问权限。`}
+        confirmLabel="移除"
+        variant="danger"
+        onConfirm={handleConfirmRemove}
+      />
     </div>
   );
 }

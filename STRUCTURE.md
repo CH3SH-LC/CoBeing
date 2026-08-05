@@ -48,7 +48,7 @@ CoBeing/
 ├── packages/                 # 后端 monorepo 包
 ├── gui-v2/                   # React 19 + Tauri 2 前端
 ├── data/                     # 运行时数据
-├── scripts/                  # 开发脚本
+├── scripts/                  # 开发脚本（dev.ts、start-core.ts、clear-pvz-test-data.ts、smoke-butler.ts、smoke-market.ts、real-test-pvz.ts、build-sandbox.sh、kill-cobeing-port.ps1 等）
 └── sandbox/                  # Docker 沙箱镜像
 ```
 
@@ -61,6 +61,7 @@ CoBeing/packages/
 ├── core/                     # @cobeing/core：运行时主体
 │   └── src/
 │       ├── runtime.ts        # CoBeingRuntime 顶层编排器
+│       ├── runtime/          # runtime 辅助模块（ensureSandboxConfig 等纯函数）
 │       ├── agent/            # Agent、Butler、AgentRegistry、ToolAgent
 │       ├── api/              # WebSocket server 与 GUI 命令
 │       ├── butler/           # ButlerTaskStore、GroupButlerBindingStore
@@ -68,6 +69,7 @@ CoBeing/packages/
 │       ├── conversation/     # ConversationLoop、PromptBuilder
 │       ├── group/            # Group、GroupManager、WakeSystem、上下文与记忆
 │       ├── memory/           # MemoryStore、SQLite/FTS5、安全扫描
+│       ├── market/           # Market 分级机制：catalog/installer/tools/bundled 内置资源
 │       ├── mcp/              # MCP client、manager、transport、bridge tool
 │       ├── observability/    # 活动、指标、仪表盘数据
 │       ├── plugins/          # 插件运行时接入
@@ -150,6 +152,88 @@ CoBeing/packages/core/src/agent/tool-agent/
 └── types.ts                   # ToolAgent 类型、Spec、Memory 更新建议类型
 ```
 
+### core/src/agent/butler/tools 子目录
+
+```text
+CoBeing/packages/core/src/agent/butler/tools/
+├── agent-tools.ts            # Agent 生命周期工具：butler-create/destroy/modify/find-agent
+├── group-tools.ts            # 群组生命周期工具：butler-create/destroy/add-to-group/run-group/check-group
+├── dispatch-tools.ts         # Butler 可追踪派发：butler-dispatch-to-agent/group、get-work-status、cancel-work、reply-to-group、dispatch-task、getButlerDispatchDeps、formatDispatchReceipt
+├── workspace-tools.ts        # 工作区工具：butler-bind-workspace、butler-list
+├── channel-tools.ts          # Channel 绑定工具：channel-bind、channel-unbind
+├── registry-tools.ts         # 注册表工具：butler-read-registry、butler-update-registry
+├── workflow-tools.ts         # 工作流工具：workflow-analyze、workflow-plan
+├── review-tools.ts           # 成长建议审查：butler-review-proposals
+└── persona-tools.ts          # 管家 persona 工具：butler-list-personas/set-persona/update-style（对话式首启用）
+```
+
+同目录 `agent/butler/persona-utils.ts`：管家人格文件操作（list/apply persona、apply user style），WS 命令与管家工具共用。
+```
+
+### core/src/api 子目录（B1 ws-server 拆分）
+
+```text
+CoBeing/packages/core/src/api/
+├── ws-server.ts              # CoreWSServer 主类：连接生命周期 + 命令注册表分发（3111→571 行）
+├── ws-server.test.ts         # 纯函数测试（buildTodoMutationPayload/buildGroupCreatorDraftNote）
+├── security.ts               # 安全/脱敏工具：maskApiKey/cloneForClient/isSafeId/resolveWithin/isSafeConfigPath 等
+├── types.ts                  # WSMessage/TodoMutationAction/TodoMutationContext/buildTodoMutationPayload/buildGroupCreatorDraftNote
+├── capability.ts             # loadCapabilityCards/scoreCapability 能力卡扫描评分
+├── parsing.ts                # extractMentions/parseCurrentMd
+└── handlers/                 # 68 个 WS 命令按域分组
+    ├── types.ts              # WsCommandHandler/HandlerRegistrar
+    ├── system.ts             # _ping/get_state/get_log/get_config/update_config/subscribe_log
+    ├── agent.ts              # create/destroy/stop/update_agent、agent_files、chat_current、find_agent、dispatch_task（支持 agent/group 目标）
+    ├── butler-persona.ts     # butler_get_personas/set_persona/update_style（管家人格模板与风格，复用 persona-utils）
+    ├── onboarding.ts         # onboarding_apply/get（保留；首启已改为管家对话式，前端不再调用）
+    ├── group.ts              # create/destroy_group、group_member、group_workspace、group_history、group_health
+    ├── market.ts             # market_list/get/install/uninstall/installed（Market 分级 5 命令）
+    ├── plugin.ts             # list_ui_extensions/list_plugins/plugin_instance/toggle_plugin/update_plugin_config
+    ├── binding.ts            # add/remove/list_bindings、bind/unbind_channel
+    ├── message.ts            # get_wake_queue/send_message
+    ├── todo.ts               # get/add/complete/remove/update_todo、batch_*、get_global_todos
+    ├── observability.ts      # get_dashboard/llm_stats/tool_stats/screener_stats/agent_timeline/search_conversation/export_data
+    ├── sandbox.ts            # get_sandbox_status/sandbox_action
+    ├── skill.ts              # get_skills/skill_doc/execute_skill/skill_create
+    └── enhancement.ts        # get_agent_capability/inbox/proposals、approve/reject_proposal
+```
+
+### core/src/runtime 子目录
+
+```text
+CoBeing/packages/core/src/runtime/
+└── sandbox-helper.ts         # ensureSandboxConfig 纯函数
+```
+
+### core/src/templates/butler 子目录（管家模板体系，2026-08-04）
+
+```text
+CoBeing/packages/core/src/templates/butler/
+├── base/                          # 管家基础文件模板（AGENTS.md 运行边界 / MEMORY.md / EXPERIENCE.md）
+└── personas/                      # 4 人格模板 ×（CHARACTER.md 人设 + JOB.md 职责/分级转接规则/Market 推荐纪律/多步任务推进流程/首启对话范式）
+    ├── 亲密朋友/
+    ├── 专业秘书/
+    ├── 学习陪伴/
+    └── 家庭助理/
+```
+
+### core/src/market 子目录
+
+```text
+CoBeing/packages/core/src/market/
+├── types.ts                  # MarketResource/Tier/RiskLevel/Dependency/DepNode/InstallResult/InstalledEntry
+├── catalog.ts                # MarketCatalog（扫描 data/market/<tier>/<id>/market.json + installed.json 持久化）+ buildLocalResources
+├── installer.ts              # MarketInstaller（防环依赖树/社区门禁/拓扑序三类落盘/卸载/路径穿越防护）
+├── tools.ts                  # makeMarketRecommendTool / makeMarketInstallTool（Butler 工具）
+├── bundled/                  # 内置资源打包源（启动时同步到 data/market/）
+│   ├── official/travel-planning/    # 官方 skill「旅行规划」
+│   ├── official/travel-planner/     # 官方 agent「旅行规划师」（依赖 skill）
+│   ├── official/travel-team/        # 官方 group「旅行规划小队」（依赖 agent）
+│   └── community/expense-assistant/ # 社区 agent「记账小助手」（演示门禁）
+├── catalog.test.ts           # 9 测试：扫描/过滤/持久化/local 合成
+└── installer.test.ts         # 16 测试：依赖树/门禁/落盘/卸载/穿越/幂等
+```
+
 ### shared/src 关键文件
 
 ```text
@@ -174,10 +258,27 @@ CoBeing/gui-v2/
 │   ├── main.tsx
 │   ├── components/           # 视图、面板、对话框、共享组件
 │   │   ├── chat/             # 单聊/群聊消息组件、头像、主题化气泡框
+│   │   │   ├── ChatView.tsx          # 主入口（646→68 行）
+│   │   │   ├── ChatHeader.tsx        # 标题栏
+│   │   │   ├── MessageList.tsx       # 消息列表 + 自动滚动
+│   │   │   ├── MessageBubble.tsx     # 单条消息气泡
+│   │   │   ├── ToolCallsGroup.tsx    # 工具调用手风琴
+│   │   │   ├── ThinkingBubble.tsx    # 流式思考指示
+│   │   │   ├── ChatInput.tsx         # 输入框（斜杠命令/技能/@mention）
+│   │   │   ├── TodoInline.tsx        # TODO 内联预览
+│   │   │   ├── GroupChatView.tsx     # 群聊入口
+│   │   │   └── ...
 │   │   └── settings/         # 设置页、主题选择、个人资料设置
 │   ├── hooks/                # WebSocket、状态、业务 hook
-│   ├── lib/                   # 前端工具函数（coreAgents.ts、userProfile.ts 等）
-│   ├── stores/               # Zustand 状态（含 theme.ts、userProfile.ts、butlerTasks.ts）
+│   │   ├── useWebSocket.ts   # 主 hook（759→104 行），ctx + handler 表分发
+│   │   └── ws-handlers/      # 76 种 WS 消息 handler 按域分组
+│   │       ├── chat-handlers.ts / registry-handlers.ts / extension-handlers.ts / market-handlers.ts
+│   │       ├── butler-task-handlers.ts / onboarding-handlers.ts
+│   │       ├── todo-handlers.ts / system-handlers.ts / observability-handlers.ts
+│   │       ├── mentions-user.test.ts  # @用户 唤醒识别测试（2026-08-05）
+│   │       └── types.ts / helpers.ts  # helpers：extractMentions/mentionsUser（用户别名 @用户/@主人/@老板/@user）
+│   ├── lib/                   # 前端工具函数（coreAgents.ts、userProfile.ts、chat-utils.ts、taskReceipt.ts、notify.ts 等）
+│   ├── stores/               # Zustand 状态（含 theme.ts、userProfile.ts、butlerTasks.ts、market.ts、onboarding.ts）
 │   ├── types/                # 前端类型
 │   └── utils/                # 前端工具函数
 ├── src-tauri/                # Tauri 2 桌面壳
@@ -185,7 +286,7 @@ CoBeing/gui-v2/
     └── themes/               # 内置主题；sakura-mint 默认，executive-workbench 工作台主题
 ```
 
-当前 GUI 主入口为：管家、智能体、群组、仪表盘、扩展、设置。
+当前 GUI 主入口为：管家、智能体、群组、仪表盘、扩展、设置。扩展页含四个 tab：技能、MCP、插件、Market（Market 为分级资源浏览/安装入口，2026-08-03 新增）。
 
 ---
 
@@ -196,7 +297,7 @@ CoBeing/data/
 ├── agents/                   # 用户创建的 Agent
 │   └── <agent-id>/
 │       ├── AGENTS.md
-│       ├── CHARACTER.md
+│       ├── EXPRESSION.md          # 人味表达规范（2026-08-05 起取代 CHARACTER.md；旧 Agent 的 CHARACTER.md 兼容）
 │       ├── JOB.md
 │       ├── MEMORY.md
 │       ├── EXPERIENCE.md
@@ -206,7 +307,14 @@ CoBeing/data/
 │       ├── proposals/         # Agent 成长建议
 │       └── config.json
 ├── coreagents/               # butler、host 等核心 Agent
-├── groups/                   # 群组数据与工作区
+│   └── butler/               #   管家文件体系（config.json + AGENTS/CHARACTER/JOB/MEMORY/EXPERIENCE.md，首启 ensureButlerDir 创建）
+├── groups/                   # 群组数据与工作区（归档：data/archives/ 下 <group>.zip）
+├── archives/                 # 归档数据（2026-08-05 起）：群组 zip + 保留产物（如 plants-vs-zombies.html）
+├── market/                   # Market 资源目录（installer 管理）
+│   ├── official/             #   官方内置资源（首次启动从 bundled/ 同步）
+│   ├── certified/            #   官方认证资源
+│   ├── community/            #   社区资源
+│   └── installed.json        #   已安装记录（id → InstalledEntry）
 ├── plugins/                  # Provider、Channel、Tool、Extension 插件数据
 ├── skills/                   # SKILL.md 技能目录
 ├── prompts/                  # ToolAgent/经验提取等 prompt 数据
@@ -238,7 +346,7 @@ docs/
 │   ├── 使用说明.md           # 当前用户/进阶用户使用路径
 │   ├── 当前待办.md           # 当前仍有效的待办
 │   └── 非Market未实现项审查.md # 大版本更新非 Market 未实现项代码审查
-├── 调研/                     # 竞品调研与技术调查
+├── 调研/                     # 竞品调研与技术调查（含 真人说话模拟调研.md：人味表达规范 26 条草案，2026-08-05）
 ├── superpowers/              # 实现计划、规格、审计计划
 │   ├── plans/                # 分阶段实施计划
 │   └── specs/                # 设计规格与方案文档

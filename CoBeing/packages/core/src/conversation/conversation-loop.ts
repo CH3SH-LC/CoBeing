@@ -91,6 +91,9 @@ export interface ConversationLoopEvents {
   onUsage?: (usage: TokenUsage) => void;
 }
 
+/** 群组工作唤醒防"只说不做"：文本承诺但未产出文件时的推回指令 */
+const WORK_PUSHBACK_DIRECTIVE = `【系统提示】你本轮没有产出任何文件。如果当前任务需要交付文件（HTML/代码/文档等），请立即调用 write-file 工具写出完整交付物，然后回复结果；如果任务确实不需要产出文件，请先简要说明原因再回复。`;
+
 export class ConversationLoop {
   private config: ConversationLoopConfig;
   private contextWindow: ContextWindow;
@@ -98,6 +101,13 @@ export class ConversationLoop {
   private provider: LLMProvider;
   private fallbackProviders: LLMProvider[] = [];
   private observabilityDB?: import("../observability/observability-db.js").ObservabilityDB;
+
+  /** 群组工作推回：本轮是否产出过文件（write-file/edit-file 成功调用） */
+  private _producedFile = false;
+  /** 群组工作推回：已推回次数（上限 2，防止死循环） */
+  private _pushbackCount = 0;
+  /** 思考轮计数：推理模型只产出 reasoning 未产出正文的轮次（上限 3） */
+  private _thinkingRounds = 0;
 
   /** 唤醒周期轨迹记录器（群组审核用） */
   wakeSession?: WakeSession;
@@ -177,6 +187,10 @@ export class ConversationLoop {
     events?: ConversationLoopEvents,
     abortSignal?: AbortSignal,
   ): Promise<AgentResponse> {
+    // 每次 run 重置工作推回状态（loop 实例跨唤醒缓存，计数器不得跨 run 累积）
+    this._producedFile = false;
+    this._pushbackCount = 0;
+    this._thinkingRounds = 0;
     this.repairIncompleteToolCalls();
 
     if (userInput) {
@@ -275,6 +289,10 @@ export class ConversationLoop {
             messages,
             tools: this.config.tools,
             abortSignal,
+            // 历史 bug：provider 默认 max_tokens=4096，大参数工具调用
+            // （如 write-file 携带完整文件内容）在 4096 处被截断 → 工具调用
+            // 永远不完整 → 模型反复"思考"但发不出调用。配合分块写入指导提高到 8k。
+            maxTokens: 8192,
           })) {
             if (chunk.type === "content" && chunk.content) {
               fullContent += chunk.content;
@@ -379,8 +397,26 @@ export class ConversationLoop {
         return { content: accumulatedContent || providerError, usage: totalUsage };
       }
 
-      // 没有工具调用 → 返回最终回复
+      // 没有工具调用 → 返回最终回复（群组工作唤醒先做"只说不做"推回）
       if (toolCalls.length === 0) {
+        // 思考轮：推理模型只产出 reasoning（思考）未产出正文 → 继续循环而非当最终回复
+        // （历史问题：deepseek-v4-flash 某些轮 output 上万 tokens 但 content 为空，
+        //   被当作空最终回复触发推回空转；思考轮应让模型继续直到产出正文或工具调用）
+        if (!fullContent.trim() && fullReasoning.trim()) {
+          if (this._thinkingRounds < 3) {
+            this._thinkingRounds++;
+            this.history.push({ role: "assistant", content: fullContent, reasoningContent: fullReasoning || undefined });
+            log.info("Thinking round %d/3: reasoning-only, continuing", this._thinkingRounds);
+            continue;
+          }
+          // 思考轮超限：以推理摘要作为正文兜底，避免死循环
+          fullContent = `[思考超限] ${fullReasoning.slice(0, 300)}`;
+        }
+        if (this.pushbackWorkCommitment(fullContent)) {
+          this.history.push({ role: "assistant", content: fullContent, reasoningContent: fullReasoning || undefined });
+          this.history.push({ role: "user", content: WORK_PUSHBACK_DIRECTIVE });
+          continue;
+        }
         accumulatedContent += fullContent;
         this.history.push({ role: "assistant", content: fullContent, reasoningContent: fullReasoning || undefined });
         events?.onRoundComplete?.(round, fullContent);
@@ -443,12 +479,21 @@ export class ConversationLoop {
             log.error("Tool execution threw: %s", errMsg);
             result = { toolCallId: tc.id, content: `工具执行异常: ${errMsg}`, isError: true };
           }
+          // 工具结果截断：防止巨型结果（大文件读取/大输出）撑爆上下文窗口
+          const MAX_TOOL_RESULT_CHARS = 8000;
+          const toolResultContent = result.content.length > MAX_TOOL_RESULT_CHARS
+            ? result.content.slice(0, MAX_TOOL_RESULT_CHARS) + `\n...[已截断，原 ${result.content.length} 字符，如需完整内容请用 read-file 分块读取]`
+            : result.content;
           this.history.push({
             role: "tool",
-            content: result.content,
+            content: toolResultContent,
             toolCallId: tc.id,
           });
-          events?.onToolResult?.(tc.id, result.content);
+          events?.onToolResult?.(tc.id, toolResultContent);
+          // 记录是否产出过文件（供"只说不做"推回判断）
+          if (tc.function.name === "write-file" || tc.function.name === "edit-file") {
+            this._producedFile = true;
+          }
           // Record tool call in wake session for group review
           let callArgs: Record<string, unknown> = {};
           try { callArgs = JSON.parse(tc.function.arguments || "{}"); } catch { /* ignore parse errors */ }
@@ -484,6 +529,33 @@ export class ConversationLoop {
       content: accumulatedContent || "达到最大工具调用轮数限制",
       usage: totalUsage,
     };
+  }
+
+  /**
+   * 群组工作唤醒防"只说不做"：成员以文本承诺/状态回复结束但未产出文件时，
+   * 推回一条"立即调用 write-file 产出交付物"的指令并继续循环（上限 2 次）。
+   * 仅对具备写文件能力的群组成员生效（host 等协调者无 write-file 工具，不受影响）。
+   */
+  private pushbackWorkCommitment(fullContent: string): boolean {
+    if (this._pushbackCount >= 2) return false;
+    if (!this.config.sessionId?.startsWith("group:")) return false;
+    const hasWriteTool = this.config.tools?.some(t =>
+      t.function.name === "write-file" || t.function.name === "edit-file");
+    if (!hasWriteTool) return false;
+    if (this._producedFile) return false;
+    const trimmed = fullContent.trim();
+    // 空响应（模型空输出）同样推回，避免静默 0 字符结束
+    if (!trimmed) {
+      this._pushbackCount++;
+      log.info("Group work pushback %d/2: empty response, retrying with directive", this._pushbackCount);
+      return true;
+    }
+    // 承诺/状态句式（"收到/开始/开写/马上/我先…"）或过短回复 → 疑似只说不做
+    const commitment = /(收到|开始|动手|马上|立即|开写|正在做|稍等|我会|我来|这就|立刻|先看|先写|先做|先读|稍后|待会)/.test(trimmed);
+    if (!commitment && trimmed.length >= 30) return false;
+    this._pushbackCount++;
+    log.info("Group work pushback %d/2: no file produced, retrying with directive", this._pushbackCount);
+    return true;
   }
 
   /** 获取当前对话历史 */

@@ -1,15 +1,7 @@
 import { useEffect } from "react";
 import { useWakeQueueStore, type WakeQueueEntry } from "@/stores/wakeQueue";
 import { useAgentsStore } from "@/stores/agents";
-import { WsClient } from "@/lib/ws-client";
-
-/** 通过模块级 wsClient 引用发送命令 */
-let _wsClient: WsClient | null = null;
-export function setWakeQueueWsClient(c: WsClient | null) { _wsClient = c; }
-
-function getWsClient(): WsClient | null {
-  return _wsClient;
-}
+import { getWsClient } from "@/hooks/useWebSocket";
 
 function resolveAgentName(agentId: string): string {
   const agents = useAgentsStore.getState().agents;
@@ -21,7 +13,7 @@ function QueueEntryView({ entry }: { entry: WakeQueueEntry }) {
   const triggerCount = entry.triggerContents.length;
 
   return (
-    <div className="flex items-center rounded-lg bg-elevated/50 border border-bdr/30" style={{ padding: "10px 14px", gap: 12 }}>
+    <div className="flex items-center rounded-lg bg-elevated/50 border border-bdr/30" style={{ padding: "14px 20px", gap: 12 }}>
       <span className="text-base shrink-0 w-6 text-center">⏳</span>
       <span className="flex-1 text-sm">
         <strong className="font-semibold text-txt">{agentName}</strong>
@@ -39,7 +31,7 @@ function ProcessingView({ agentId }: { agentId: string }) {
   const agentName = resolveAgentName(agentId);
 
   return (
-    <div className="flex items-center rounded-lg bg-accent/5 border border-accent/30" style={{ padding: "10px 14px", gap: 12 }}>
+    <div className="flex items-center rounded-lg bg-accent/5 border border-accent/30" style={{ padding: "14px 20px", gap: 12 }}>
       <span className="text-base shrink-0 w-6 text-center inline-flex items-center justify-center">
         <span className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
       </span>
@@ -65,13 +57,24 @@ export function WakeQueueSection() {
     return () => clearInterval(interval);
   }, []);
 
+  // 无数据兜底：连接就绪后立即拉取一次（getWsClient 在 useWebSocket 连接前为 null）
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const ws = getWsClient();
+      if (ws && Object.keys(useWakeQueueStore.getState().queues).length === 0) {
+        ws.send({ type: "get_wake_queue" });
+      }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, []);
+
   const groupIds = Object.keys(queues);
   const totalQueued = groupIds.reduce((sum, gid) => sum + queues[gid].queue.length, 0);
   const totalProcessing = groupIds.reduce((sum, gid) => sum + (queues[gid].processing ? 1 : 0), 0);
   const isEmpty = groupIds.length === 0 || (totalQueued === 0 && totalProcessing === 0);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-200px)]">
+    <div className="flex flex-col">
       {/* 头部 */}
       <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
         <div>
@@ -90,11 +93,12 @@ export function WakeQueueSection() {
 
       {/* 队列列表 */}
       <div
-        className="flex-1 overflow-y-auto rounded-xl bg-elevated border border-bdr/40"
-        style={{ padding: 16, boxShadow: "var(--shadow-surface)" }}
+        className="overflow-y-auto rounded-xl bg-elevated border border-bdr/40"
+        style={{ padding: 20, boxShadow: "var(--shadow-surface)", maxHeight: 480, minHeight: 120 }}
       >
         {isEmpty ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex flex-col items-center justify-center text-center h-full" style={{ gap: 8 }}>
+            <div className="text-3xl">💤</div>
             <p className="text-sm text-txt-muted">当前没有等待唤醒或正在回答的智能体</p>
           </div>
         ) : (

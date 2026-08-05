@@ -40,7 +40,7 @@ export function ChatMessageFrame({
   return (
     <div
       className={cn(
-        "flex w-full items-end gap-3",
+        "flex w-full items-end gap-4",
         isRight ? "justify-end" : "justify-start",
         className,
       )}

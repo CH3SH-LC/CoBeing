@@ -332,8 +332,10 @@ export function makeGroupSendTool(getGroup: GroupGetter, getAgent?: AgentGetter)
         : (params.message as string);
 
       // === 审核拦截：消息发送前经过 Review Tool Agent 检查 ===
-      const reviewerCfg = group.config.reviewer;
-      if (getAgent && reviewerCfg?.enabled !== false && reviewerCfg?.maxRounds !== 0) {
+      // reviewer 未配置时视为启用（默认 maxRounds=3）；?? {} 修复 reviewerCfg 为 undefined 时
+      // `?.enabled !== false` 求值为 true 却随后访问 reviewerCfg.maxRounds 崩溃的问题
+      const reviewerCfg = group.config.reviewer ?? { enabled: true, maxRounds: 3 };
+      if (getAgent && reviewerCfg.enabled !== false && reviewerCfg.maxRounds !== 0) {
         const agent = getAgent(context.agentId);
         if (agent) {
           const runtime = (globalThis as any).__cobeing?.runtime;

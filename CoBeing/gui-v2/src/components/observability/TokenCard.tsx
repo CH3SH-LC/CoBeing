@@ -1,7 +1,12 @@
 import type { DashboardData } from "@/lib/types";
 
 function MiniBars({ daily }: { daily: DashboardData["tokens"]["daily"] }) {
-  if (daily.length === 0) return <p className="text-xs text-txt-muted mt-2">暂无数据</p>;
+  if (daily.length === 0) return (
+    <div className="flex flex-col items-center text-center mt-3" style={{ gap: 4 }}>
+      <div className="text-2xl leading-none">📊</div>
+      <p className="text-sm text-txt-muted">暂无数据</p>
+    </div>
+  );
   const maxVal = Math.max(...daily.map(d => d.input + d.output), 1);
   return (
     <div className="flex items-end gap-1 mt-2" style={{ height: 40 }}>
@@ -24,8 +29,8 @@ export function TokenCard({ data }: { data: DashboardData }) {
          style={{ boxShadow: "var(--shadow-surface)", padding: 20 }}>
       <h3 className="text-sm font-medium text-txt">Token 消耗</h3>
       <div className="flex gap-6 mt-3">
-        <div><p className="text-xs text-txt-muted">今日</p><p className="text-xl font-bold text-accent">{fmt(data.tokens.today)}</p></div>
-        <div><p className="text-xs text-txt-muted">累计</p><p className="text-xl font-bold text-txt">{fmt(data.tokens.total)}</p></div>
+        <div><p className="text-sm text-txt-muted">今日</p><p className="text-xl font-bold text-accent">{fmt(data.tokens.today)}</p></div>
+        <div><p className="text-sm text-txt-muted">累计</p><p className="text-xl font-bold text-txt">{fmt(data.tokens.total)}</p></div>
       </div>
       <MiniBars daily={data.tokens.daily} />
     </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGroupCreatorDraftNote, buildTodoMutationPayload } from "./ws-server.js";
+import { buildGroupCreatorDraftNote, buildTodoMutationPayload } from "./types.js";
 
 describe("buildTodoMutationPayload", () => {
   it("includes group scope context for removed todos", () => {

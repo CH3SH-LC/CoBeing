@@ -1,5 +1,482 @@
 ﻿# CoBeing 开发进度记录
 
+## 2026-08-05
+
+### 清理：遗留测试群组「塔防游戏开发组」归档（真实验证时发现仍在低频自触发工作）
+
+问题描述：
+真实验证过程中观察到遗留群组「塔防游戏开发组」（PVZ 真实测试数据）仍在低频自触发：wake-system 持续唤醒 游戏开发工程师/前端工程师 处理 plants-vs-zombies.html。排查确认：自触发源自 0time TODO「已触发但长期未完成 → 10 分钟低频重触发」机制，且该群组状态为 active（registry.json 未归档）；观察期间 TODO 最终全部 completed（12:31-12:35），scanner 对 completed TODO 不重触发（group-scanner.ts line 56/63-64），群组自此自然安静。
+
+处置方案（对齐代码 archiveGroup 语义，数据可恢复）：
+1. 产物保留：`data/archives/plants-vs-zombies.html`（27,060 bytes，浏览器直接可玩）
+2. 全量打包：`data/archives/塔防游戏开发组.zip`（1.8MB，含 context.jsonl/TODO/workspace/memory 等全部数据）
+3. registry.json 群组 status → archived
+4. 删除原目录 `data/groups/塔防游戏开发组/`（zip 已含全量数据）
+
+顺带修复的环境问题：
+- core 重启中断：destroy_agent 残留的 `临时验证资料员.deleted.*` 目录触发 pre-startup cleanup 删除失败（文件锁）导致 dev.ts 启动卡死（exit 127）；手动清理后恢复；另发现 TaskStop 只杀 tsx 父进程、node 子进程残留占用 18765 与 group.db（zip 打包失败根因），已停掉残留进程
+
+验证：
+- 重启 core：`[master-registry] Removing missing/deleting group from registry: 塔防游戏开发组` → `[group-manager] No groups in registry — skipping restore` → `getState: 4 agents, 0 groups`
+- 45 秒观察窗口内 wake-system/group-todo-scanner 事件数 = 0（无任何自触发）
+- 遗留 2 个测试 Agent（前端工程师/游戏开发工程师）保留（无自触发源，未在本次范围）
+
+修改文件：
+- Modify: `data/registry.json` — 群组条目 status=archived（重启后由 master-registry 自动移除缺失群组）
+- Delete: `data/groups/塔防游戏开发组/`（已打包归档）
+- Add: `data/archives/塔防游戏开发组.zip`、`data/archives/plants-vs-zombies.html`
+
+### 专项：人味分级与对话式产品化（真人模拟调研 → CHARACTER 体系重构 → 用户唤醒 → 多轮交互闭环 → 对话式首启）
+
+变更原因：
+用户提出三个产品方向修正并批准实施：①初次使用不应跳问卷，应由管家对话式收集用户信息（含对管家的喜好）；②真实工作应多轮交互（先澄清→推进→确认点→继续），而非"一句话直接出成果"；③人味分级——管家重人味，执行型智能体抛弃独立角色（CHARACTER）但保留"像真人说话"的表达质感。
+
+**一、真人模拟调研（独立产出）**
+- 调研真人对话语言学特征（短句/省略/话语标记/不流畅性/上下文承接）、anti-AI-slop 社区实践（禁词清单/句式规则/自检清单）、多 Agent 框架风格控制对比（openclaw 子代理不注入 SOUL.md 只给行为约束、Claude Code 简洁即人味）
+- 核心结论：**人味 = 说话方式而非身份设定**——"执行者抛弃人设但保留人味"完全可行
+- 产出：`docs/调研/真人说话模拟调研.md`（含 26 条可检查的「人味表达规范」草案）
+
+**二、CHARACTER 体系重构（执行型智能体抛弃独立角色）**
+- 新增 `templates/agent/EXPRESSION.md` 取代 `CHARACTER.md`：人味表达规范（篇幅≤3句/结论先行/第一人称主动句/禁词清单/标点纪律/真人信号/群聊纪律），无任何身份设定；删除旧角色模板
+- `prompt-builder.ts`：优先加载 EXPRESSION.md（无角色扮演指令）；历史 Agent 无 EXPRESSION 时兼容 CHARACTER.md + ROLE_PLAY（butler 保留人格走兼容路径）
+- `creator.ts` / `create_agent` / `onboarding.ts` / `butler-create-agent`：生成字段 character → expression（LLM 生成"表达规范"而非"人物小传"）
+- `AGENTS.md`/`JOB.md` 模板：启动流程与文件体系改为 EXPRESSION.md；「你的声音」改为"像同事说话不做角色扮演"
+- host 协调者同样走 EXPRESSION（ensureHostDir 首次复制表达规范）；`enhancement.ts` 成长建议 CHARACTER 目标改写入 EXPRESSION
+- 管家保留 CHARACTER（4 人格模板不变，默认人格检测/切换链路不受影响）
+
+**三、用户唤醒机制（低打扰）**
+- 前端 `helpers.ts`：`mentionsUser()` 用户别名识别（@用户/@主人/@老板/@user，2 字符短词不受 3 字符限制）；后端 `group-context-v2.ts` parseMentions 同步支持
+- `chat.ts` addMessage 增加 `countUnread` 显式开关；`chat-handlers.ts`：群组 agent 平时消息**不通知不计未读**（低打扰核心）；仅消息 @用户 时 maybeNotify + 未读；agent_response 群组分支持去掉无条件通知（单聊/管家消息保持唤醒）
+- 新增 `mentions-user.test.ts`（5 断言）
+
+**四、多轮交互闭环（澄清→推进→确认点→继续）**
+- 管家 JOB.md（data + 4 人格模板）「多步推理标准流程」重写为「多步任务推进流程」：第一步澄清关键约束（2-3 个问题后立即行动）→ 第二步推进（复用优先派发）→ **第三步确认点（方案出稿/主观偏好/群组需决策时必须停下等用户，等待期间任务置 waiting_user）**；分级转接规则增加"需求模糊→先澄清"档；决策原则增加"请求用户确认是常态"
+- 群组提示词（prompt-builder GROUP_MECHANICS_NOTICE + Agent 判断框架第 3 步）：新增「如何唤醒用户」机制说明——需要用户信息/确认时 `@用户` 直接唤醒（路线 B：用户进群组回复），或经群主收束转达（路线 A）
+- HOST_JOB.md（模板 + 运行时）：职责 7 与判断框架第 3 条补充 @用户 直接唤醒路径
+- 双路线落地：A=群组工作完成/需确认→管家收束给用户→用户反馈→管家转回群组；B=群组内 @用户→用户直接在群组回复（postMessage("user") 链路已存在）→成员继续
+
+**五、对话式首启（替换问卷）**
+- 前端：删除 `OnboardingOverlay.tsx` 问卷弹窗与 App.tsx 挂载；首启教程关闭后注入管家欢迎消息（改为对话式引导："你平时最想让我帮你处理哪类事？希望我怎么称呼你？"）
+- 管家新增 3 个 persona 工具（`butler-list-personas` / `butler-set-persona` / `butler-update-style`）——对话中按用户喜好切换人格/记录称呼语气偏好；`persona-utils.ts` 与 WS 命令（butler-persona.ts）共用文件操作逻辑（dry-run 修复：apply=false 不再误写入）
+- 管家 JOB.md（data + 4 模板）新增「首启对话」范式：自我介绍→分次收集用户信息（兴趣/称呼/相处方式）→按喜好切人格→创建 1-2 个初始 Agent→轻量推荐（≤1 次）
+- 后端 onboarding_apply handler 保留（能力不删，前端不再调用）；stores/onboarding.ts 保留（ws-handlers 防御引用）
+
+验证：全量 64 files / 574 tests 全绿（含新增 mentions-user 5 断言、EXPRESSION 读写、JOB 确认点断言）；`pnpm build`（core tsc + gui-v2 tsc+vite）通过；gui-v2 类型检查修复（WsHandlerContext.addMessage 签名同步）
+
+修改文件列表：
+- Add: `docs/调研/真人说话模拟调研.md`（调研报告：特征清单/反 AI 味实践/框架对比/26 条表达规范草案）
+- Add: `packages/core/src/templates/agent/EXPRESSION.md`（人味表达规范模板，取代 CHARACTER）
+- Add: `packages/core/src/agent/butler/persona-utils.ts`（人格文件操作：list/apply persona、apply user style，WS+工具共用）
+- Add: `packages/core/src/agent/butler/tools/persona-tools.ts`（butler-list-personas/set-persona/update-style 三工具）
+- Add: `gui-v2/src/hooks/ws-handlers/mentions-user.test.ts`（@用户 唤醒识别测试）
+- Delete: `packages/core/src/templates/agent/CHARACTER.md`（旧角色模板）
+- Delete: `gui-v2/src/components/onboarding/OnboardingOverlay.tsx`（问卷弹窗）
+- Modify: `packages/core/src/conversation/prompt-builder.ts` — EXPRESSION 优先/CHARACTER 兼容；GROUP_MECHANICS_NOTICE @用户 机制；判断框架第 3 步双路径；Speaking style 更新
+- Modify: `packages/core/src/agent/paths.ts` — expressionPath + readExpression/writeExpression（保留 character 兼容）
+- Modify: `packages/core/src/agent/tool-agent/creator.ts` — CreatorField character→expression；SYSTEM_PROMPT 改写为表达规范生成
+- Modify: `packages/core/src/api/handlers/agent.ts` + `onboarding.ts` — 创建链路 expression 字段 + EXPRESSION.md 模板复制
+- Modify: `packages/core/src/agent/butler/tools/agent-tools.ts` — butler-create-agent character 参数→expression
+- Modify: `packages/core/src/agent/butler.ts` — 注册 3 个 persona 工具 + 白名单
+- Modify: `packages/core/src/group/group-context-v2.ts` — parseMentions 用户别名（2 字符短词）识别
+- Modify: `packages/core/src/api/handlers/butler-persona.ts` — 复用 persona-utils；dry-run 修复
+- Modify: `packages/core/src/api/handlers/enhancement.ts` — 成长建议 CHARACTER→EXPRESSION 目标
+- Modify: `packages/core/src/runtime.ts` — ensureHostDir 补 EXPRESSION.md 复制
+- Modify: `packages/core/src/templates/agent/AGENTS.md` + `JOB.md` — EXPRESSION 文件体系 + 同事式说话准则 + @用户
+- Modify: `packages/core/src/templates/host/HOST_JOB.md` + `data/coreagents/host/JOB.md` — EXPRESSION 引用 + @用户 唤醒路径
+- Modify: `packages/core/src/templates/butler/personas/*/JOB.md`（4 文件）+ `data/coreagents/butler/JOB.md` — 首启对话范式 + 多步任务推进流程（确认点）+ waiting_user + 需求模糊先澄清
+- Modify: `gui-v2/src/App.tsx` — 移除问卷挂载；首启欢迎消息改为对话式引导
+- Modify: `gui-v2/src/stores/chat.ts` — addMessage countUnread 开关
+- Modify: `gui-v2/src/hooks/ws-handlers/chat-handlers.ts` — 群组低打扰（默认不通知不计未读）+ @用户 唤醒 + 通知收紧
+- Modify: `gui-v2/src/hooks/ws-handlers/helpers.ts` — mentionsUser + extractMentions 用户别名
+- Modify: `gui-v2/src/hooks/ws-handlers/types.ts` — addMessage 签名同步
+- Modify: `gui-v2/src/components/layout/surface-style-audit.test.ts` — 审计清单移除已删问卷
+- Modify: 测试 `paths.test.ts`（EXPRESSION 读写）、`prompt-builder.test.ts`（speaking style 断言）、`runtime.test.ts`（多步任务推进流程断言）
+
+### 专项：PVZ 真实测试复盘与修复（为什么产出不符合要求 → 7 类根因 → 12 项代码修复 → 6 轮重测通过）
+
+变更原因：
+用户要求重新检查 PVZ 真实测试（scripts/real-test-pvz.ts），真实读取工作过程弄清产出不符合要求的原因，修复后清空测试数据从零重测直至达标。
+
+**一、真实工作过程复盘（证据）**
+- 读取群组 context.jsonl（373 条消息）、PROGRESS.md（host 全程协调记录）、工程师 MEMORY/EXPERIENCE、群组 SQLite、TODO.json（**318 条重复 TODO**）、多轮测试 JSONL
+- 核心现象：游戏开发工程师 bash 沙箱持续不可用（Docker 镜像未建成）→ 逻辑版产不出；前端工程师 4 次"声明动手"（如"收到规格了，开写"）但从不调用 write-file → 无 HTML 产物；host 协调与审核管道本身正常
+
+**二、7 类根因**
+1. **群组 TODO 0time 无限重建循环**（group-scanner.ts）：每次扫描把"已触发未完成"的 0time TODO 标记 expired 并新建同内容条目 → 下一扫描再触发 → 每 2 分钟向群组上下文注入一条完整任务通知，数小时堆积 300+ 重复条目、TODO.json 膨胀 600KB
+2. **ConversationLoop 设计缺口**（conversation-loop.ts:383-408）：LLM 首轮无工具调用立即返回，WakeSystem 把任何文本回复当"完成"——成员"承诺开始"（如"收到规格了，开写"）即结束 run，无续做机制；GROUP_MECHANICS_NOTICE 反而写"被 @ 时优先响应"强化了只回状态的行为
+3. **bash 沙箱无降级**（bash.ts/container-pool.ts）：Docker daemon 在但镜像缺失时 sandbox 开启但 bash 必失败（ensureImage → doBuild 抛错），agent 的 bash 全部瘫痪；文件工具（write-file 等）是本地直写，形成"bash 挂、文件工具可用"的脑裂
+4. **WS 服务端 pong 超时误杀静默客户端**（ws-server.ts:238-254）：连接建立时立即武装 20s pong 超时，而心跳 ping 每 30s 一次——静默客户端（测试脚本发完消息后等待）在首个 ping 前（t=20s）被 terminate → 两轮测试都只收到前 20 秒事件（76-80 条）后全静默，误以为协作无产出
+5. **group-memory-search 100% 失效 + todo 工具群组级失效**（group-memory-search.ts:32 / agent.ts:291）：group-memory-search 读 `(context as any).groupId` 但 ToolContext 无该字段 → 永远报错；todo 工具注册时 groupStoreGetter 传 `undefined` → host 的 todo-list 群组级调用永远"无法确定 TODO 存储"
+6. **workingDir 认知混乱**：agent 不知道群组上下文的工作目录是群组工作区，用绝对路径访问自己 Agent 目录 → "path escapes working directory" 被权限系统拒绝 → 永远写不出文件；上下文也因 wake 窗口 200 条 + 大工具结果膨胀到单轮 115k-150k tokens
+7. **推理模型空输出 + max_tokens 截断大参数工具调用**（最终根因）：deepseek-v4-flash 是推理模型，每轮产出 1.7万-2.6万 reasoning tokens 但零 content（思考轮被当"空回复"结束）；且 provider 默认 max_tokens=4096，write-file 携带完整 HTML 内容（上万 token）在 4096 处被截断 → 工具调用永远不完整 → 模型无限"思考写文件"但发不出调用（butler 参数短所以正常）
+
+**三、修复（12 项，全量 535 测试通过）**
+- Modify: `packages/core/src/todo/group-scanner.ts` — 删除 0time 未完成重建逻辑，已触发即保持 pending；**后补 10 分钟低频重触发**（已触发但长期未完成时重新唤醒一次，防停滞且不刷屏）；配套测试 scanner.test.ts 更新（"does not recreate or retrigger an already-triggered 0time todo"，双扫描验证）
+- Modify: `packages/core/src/conversation/conversation-loop.ts` — ①新增"群组工作推回"机制：文本承诺/空响应但未产出文件时，注入「立即调用 write-file 产出交付物」指令继续循环（上限 2 次/run，**run 开始重置计数器**，修复跨唤醒累积）；仅对具备 write/edit 工具的群组成员生效（host 协调者不受影响）；②**思考轮机制**：推理模型只产出 reasoning 未产出正文时继续循环（上限 3 轮，超限以推理摘要兜底），修复 0 字符响应；③**工具结果截断 8000 字符**防上下文膨胀；④**chat 调用 maxTokens 4096→8192**（最终根因修复）
+- Modify: `packages/core/src/conversation/prompt-builder.ts` — GROUP_MECHANICS_NOTICE @mention 行强化：工作任务必须先调用工具产出文件，禁止只回复"收到/开始/马上做"
+- Modify: `packages/core/src/tools/bash.ts` — 沙箱基础设施故障（Docker 不可用/镜像缺失/daemon 错误）时降级本地执行（PowerShell），容器内命令失败不回退
+- Modify: `packages/core/src/api/ws-server.ts` — pong 超时改为仅在心跳 ping 后武装（20s 窗口），连接建立与客户端消息只清除不武装，修复静默客户端 20s 被误杀（心跳间隔 30s > 超时 20s 的时序矛盾）
+- Modify: `packages/shared/src/types.ts` + `packages/core/src/tools/executor.ts` + `group-memory-search.ts` — ToolContext 增加 groupId 字段并在群组 session 注入，修复 group-memory-search 100% 失效
+- Modify: `packages/core/src/agent/agent.ts` — ①群组提示词注入**工作目录说明**（相对路径、禁止绝对路径访问自己 Agent 目录，path escapes 归零）；②**大文件分块写入指导**（单次 write-file ≤3000 字符）；③**todo 工具 groupStoreGetter 全局解析**（`undefined` → `__cobeingGroupManager.getGroupTodoStore`，修复 host 的 todo-list "无法确定 TODO 存储"）
+- Modify: `packages/core/src/group/wake-system.ts` — 近期消息窗口 200→60 条，控制唤醒上下文体积
+- Modify: `packages/providers/src/openai-compat/openai-provider.ts` — finish_reason="length"（max_tokens 截断）时输出已累积的部分工具调用，让截断变为可见错误而非静默丢失
+- Add: `scripts/start-core.ts`（非交互 core 启动）、`scripts/clear-pvz-test-data.ts`（测试数据清理脚本，保留系统核心）
+
+**四、验证与重测（6 轮迭代后通过）**
+- 全量测试：core+shared 57 files/535 tests 全绿（含 scanner 18、bash 4、prompt-builder 25）
+- 第 1-2 轮：无 HTML；发现并修复 WS pong 超时误杀（20s vs 30s 心跳）、空响应推回、推回计数器跨 run 累积
+- 第 3 轮：WS 修复生效（456 事件完整流、回执 8 次、TODOboard 仅触发一次），但暴露新根因：agent 用绝对路径访问自己目录（path escapes working directory）、上下文膨胀 115k+ tokens、host todo 工具群组级失效
+- 第 4-5 轮：修复工作目录提示词（path escapes 归零）、上下文瘦身（wake 窗口 60/工具结果 8K 截断）、todo store getter 全局解析、0time 10 分钟低频重触发；第 5 轮确认思考轮修复；第 6 轮管家完成 + 回执 4 次，但发现**最终根因：provider max_tokens 默认 4096，大参数工具调用（write-file 携带完整文件内容）被截断 → 工具调用永远不完整 → 模型反复"思考"但发不出调用**（engineers 的 run 每轮 17k-26k reasoning tokens、零 content）
+- 第 7 轮修复：conversation-loop chat 调用 maxTokens 4096→8192 + 工作目录提示词增加"大文件分块写入（单次 ≤3000 字符）" + provider finish_reason=length 时输出已累积部分工具调用
+- **第 7 轮测试全部通过（exit 0）**：管家完成（40 工具事件）→ 创建 2 Agent → 建群组 → 派发（回执 6 次）→ 群组协作产出 **plants-vs-zombies.html（检测时 9.2KB，协作随后继续完善至 26KB，单文件完整可运行）**：阳光收集（自动掉落+向日葵产出+点击）、3 植物种植（向日葵/豌豆射手/坚果墙）、2 僵尸（普通/路障）、豌豆射击+碰撞+啃食战斗、3 波次、胜负判定（overlay+重开）、Canvas 图形化（天空/云/草坪/实体）、主循环 requestAnimationFrame、全部 DOM 引用完整、JS 语法合法（复验通过）
+- 测试数据已归档（2026-08-05）：`data/archives/plants-vs-zombies.html`（浏览器直接打开可玩）+ `data/archives/塔防游戏开发组.zip`（全量群组数据）
+
+
+
+变更原因：
+用户要求「整理从 1.3 开始以后的更新」。此前代码版本号自 2026-06-03 统一为 1.4.0，但 `PROGRESS-VERSION.md` 发布记录仍停在 v1.3.1（2026-05-26）。本次把 2026-06-01 ~ 2026-08-04 的全部开发工作按 10 个里程碑整理为 v1.4.0 条目补入发布记录。
+
+修改文件：
+- Modify: `PROGRESS-VERSION.md` — 新增 v1.4.0 条目，按里程碑组织：插件系统全能力 / 前端扩展系统重设计+基础架构重构 / TODOboard 三层架构+管家入口数据层 / 管家+通用智能体能力 / GUI A 方案优化与稳定性 / 聊天+群组稳定性大修 / 前端与后端重构 / Market 分级机制 / 管家入口产品化 / GUI 能力清理+美观化+真实测试
+
+修改内容摘要：
+- v1.4.0 条目注明"尚未产出发布包（releases/ 最新仍为 v1.3.1）"，与代码事实一致
+- 里程碑内容全部基于 PROGRESS.md 已有记录，无新增幻觉
+
+### 专项：数据清除 + GUI 全局美观化 + 真实测试（植物大战僵尸 demo 全链路验证，发现并修复 5 个真实 bug）
+
+变更原因：
+用户三项指令：① 清除已有运行数据减少干扰；② 自查 GUI 所有页面（含子页面）做美观化；③ 自主完成真实测试——与管家对话制作植物大战僵尸 demo，验证全部机制真实运行。
+
+**1. 数据清除**
+- 删除用户创建的 Agent（前端工程师/游戏开发工程师）、群组（植物大战僵尸---塔防游戏开发组）、观测数据（observability.db）、管家记忆与任务状态（butler-tasks/bindings/global-todos/current.md）、registry.json 用户条目；保留系统核心（butler/host/coreagents/toolagents/skills/plugins/market 官方资源）
+
+**2. GUI 全局美观化（4 组并行审计 + 3 组并行修复 + 自查修复）**
+- 派 4 个审计代理全量审查 ~60 个组件（chat/agent/group/todo/shared/onboarding/tutorial/layout/observability/extensions/sandbox/settings/ui），按用户 UI 偏好（层次化渲染/留白≥20px/字号≥14px/圆角统一/无硬编码色/浮层磨砂）输出 P0/P1/P2 违规清单
+- 3 个修复代理执行：面板组 16 文件（CreateAgentDialog 白名单块/高级配置 text-xs→text-sm/select 统一 h-9、AgentConfigTab 硬白块→bg-elevated、Butler persona chip、tabs 基础类冲突、两详情面板 tab 栏统一 grid、列表行 14px20px、GroupHealthPanel 标题、GroupMembersTab 移除成员加 ConfirmDialog、disabled 统一 opacity-50 等）；任务/浮层组 13 文件（GlobalTodoPanel 列表行去边框+hover、CodeBlock 暗底补前景色、Onboarding/Tutorial 遮罩对齐标准磨砂参数、Sidebar 行 padding、TodoPanel/Kanban/Calendar/Clock/TodoForm 字号与留白、ToggleSwitch 增大、SearchInput 等）；独立页组 19 文件（DashboardView KPI 卡升级+复活 Latency/Token/ToolRank 死代码卡、ActiveAgentsPanel/PluginsTab/SkillsTab/McpsTab/MarketTab/SandboxMonitor/SettingsView/UserProfile/ThemeSelector/ChatSearch/LogsSection/AgentTimeline/WakeQueue/WorkspaceBinding 全量整改 + 空态统一图标化）
+- 自查修复 chat 组：ChatInput 技能/@提及弹窗移出 overflow-hidden 容器（**P0 功能 bug：弹窗被裁剪不可见**）、ChatInputActions 去拥挤（padding 4px8px→8px12px、gap、text-sm）、ChatHeader/GroupHeader 统一复用 ChatAvatar+lucide Settings+text-sm 按钮、发送按钮统一 bg-accent、GroupMessageBubble 删重复 GroupToolCalls 改用共享 ToolCallsGroup、折叠卡统一 hover 态、TodoInline 溢出修复、ChatMessageFrame gap-4、删除死代码 ToolCallMessage.tsx
+- **P0 启动崩溃修复：浏览器模式 React 不挂载**（CDP 实测发现）：useTray 直接调用 Tauri API（getCurrentWindow）在非 Tauri 环境抛错导致 App 崩溃白屏；新增 `lib/utils.ts isTauri()` 守卫，useTray 三个 Tauri effect + tray store emit 全部加守卫，exitApp 回退 window.close()；`surface-style-audit.test.ts` 审计清单从 16 个文件扩展到 66 个
+- 验证：tsc 0 错误、vitest 568 全绿、vite build 通过、CDP 计算样式断言（渐变背景/20px padding/12px 圆角/粉色主按钮/弹窗在视口内/无横向溢出）通过
+
+**3. 真实测试（scripts/real-test-pvz.ts 新增）：与管家对话制作植物大战僵尸 demo**
+- 第 1 轮（未修复基线）：管家全链路可用（创建 2 Agent → 建群组 → 派发 → 回执 6 次 → 定时检查 TODO），但发现 **bug A：群组挂载失败**（沙箱镜像自动构建路径硬编码 `cobeing/sandbox/` 在项目根 CWD 不存在）→ Agent 未绑定群组工作区各自空转
+- 第 2 轮（修复 A + reviewer 修复）：**bug B：group-send 崩溃**（`group.config.reviewer` 为 undefined 时 `reviewerCfg?.enabled !== false` 求值 true 却访问 `reviewerCfg.maxRounds` 崩溃，runtime.ts:1077 同类）→ 修复后 group-send 全链路工作（host 消息通过审核管道 "message passed review" → 入组 → wake 两位工程师）
+- 第 3 轮：**bug C：镜像构建无依赖链**（Dockerfile.full FROM :python、:python FROM :base，自动构建只建目标）→ 补 base→python→full 链；**bug D：dockerCmd 30s 超时**杀死长构建 → 构建命令 600s；**bug E：Dockerfile.base `useradd -u 1000` 与 node:20-bookworm 自带 UID 1000 冲突** → 去掉固定 UID
+- 第 5 轮（全部修复）：管家环节全绿（48 工具事件），群组协作真实产出：视觉设计方案.md（967 字符）+ visual_draw.js（8441 字符，含草坪/向日葵/豌豆射手/坚果墙/僵尸/阳光全绘制函数）、host 协作协议（逻辑版先行→视觉叠加→里程碑同步）、审核管道通过、wake 系统 143 次调度、群组记忆库（4 个 SQLite）落盘
+- 残余环境阻塞（非代码）：Docker Hub 网络不稳定（EOF）导致沙箱镜像最终未能建成（国内网络建议配置 registry mirror）；LLM provider 偶发 "terminated" 中断游戏开发工程师产出轮次；demo HTML 在 15 分钟观察窗口内未完成
+- 测试脚本：WS 驱动 send_message → 全事件监听（agent_started/tool_event/butler_task_updated/agent_response/agent_completed/group_message/usage_stats）→ 等待群组工作区 HTML 产物 → 产物核验（Agent/群组/工作区文件/全局 TODO/回执/工具链路）
+
+修改文件列表（本次会话）：
+- Modify: `gui-v2/src/lib/utils.ts` — 新增 isTauri() 守卫
+- Modify: `gui-v2/src/hooks/useTray.ts` — Tauri effect 全量加 isTauri 守卫；exitApp 非 Tauri 回退 window.close()
+- Modify: `gui-v2/src/stores/tray.ts` — emit 加 isTauri 守卫
+- Modify: `gui-v2/src/components/chat/ChatInput.tsx` — 弹窗溢出修复（overflow-visible）+ padding 20 + 按钮/菜单 text-sm rounded-lg
+- Modify: `gui-v2/src/components/chat/ChatInputActions.tsx` — 去拥挤（8px12px/gap8/text-sm/size14）
+- Modify: `gui-v2/src/components/chat/ChatHeader.tsx`、`GroupChatView.tsx` — 复用 ChatAvatar、lucide Settings、text-sm 按钮、发送按钮统一 bg-accent、padding 20
+- Modify: `gui-v2/src/components/chat/GroupMessageBubble.tsx` — 删重复 GroupToolCalls 改用 ToolCallsGroup
+- Modify: `gui-v2/src/components/chat/ToolCallsGroup.tsx`、`TaskReceiptCard.tsx` — 折叠头 hover 态、p-4、gap 8
+- Modify: `gui-v2/src/components/chat/TodoInline.tsx`、`ChatAvatar.tsx`、`ChatMessageFrame.tsx` — 溢出修复/边框统一/gap-4
+- Delete: `gui-v2/src/components/chat/ToolCallMessage.tsx`（死代码）
+- Modify: 面板/任务/浮层/独立页 48 个组件（详见上节清单）
+- Modify: `gui-v2/src/components/layout/surface-style-audit.test.ts` — 审计清单 16→66 文件
+- Modify: `packages/core/src/tools/group-tools.ts` — reviewerCfg 默认 `{enabled:true, maxRounds:3}` 修复崩溃
+- Modify: `packages/core/src/runtime.ts` — 同 reviewer 修复（L1077 同类模式）
+- Modify: `packages/core/src/tools/sandbox/container-pool.ts` — resolveSandboxDir（cwd/module 双路径）、sandboxDockerfileFor、ensureImageExists 依赖链、dockerCmd 超时参数化（构建 600s）
+- Modify: `sandbox/Dockerfile.base` — useradd 去固定 UID 1000
+- Modify: `scripts/build-sandbox.sh` — full 构建补 -t cobeing-sandbox:latest
+- Add: `scripts/real-test-pvz.ts` — 真实测试脚本（WS 驱动 + 产物核验）
+
+### 修复：start.bat 端口清理失效导致新 core 启动失败（kill-cobeing-port.ps1 Start-Job 超时跳过 + start.bat 嵌套引号）
+
+问题描述：
+用户要求检查 start.bat 是否正常。实际运行 `start.bat /fast` 验证：主流程（前置检查 → 构建/快模式 → 启动 core → WS 就绪 → tauri dev → GUI 连接）能跑通，但发现 3 个缺陷：
+
+1. **kill-cobeing-port.ps1 失效**：本机 18765 端口被 2026-08-03 挂起的 smoke-market.ts 进程（tsx 语法检查 eval 未退出，4 个 node 进程占端口至今）占用。脚本用 `Start-Job` 包裹 netstat 查询，本机子进程启动慢导致 15s 超时 → 打印 "[WARN] netstat timed out after 15s, skipping port check" 后跳过 → **旧进程未被杀掉**。
+2. **新 core 绑定端口失败**：旧进程存活 → 新 core（pnpm dev）EADDRINUSE 启动失败（进程列表无 dev.ts）；start.bat 的 WS 就绪检测（TCP connect）连上的是**旧进程**，误判 "WS server is ready"，GUI 实际连的是昨天挂起的旧 core。
+3. **start.bat 嵌套引号隐患**：`start "CoBeing Core" cmd /k "cd /d "%ROOT%" && call pnpm dev"` 引号嵌套脆弱（当前路径无空格碰巧可用）。
+
+根因分析：
+- kill 脚本用 Start-Job 异步执行 netstat —— 在该环境子进程启动显著慢于 15s 超时窗口，属于"用异步兜底同步慢查询"的错误设计；应同步查询 + 快速 cmdlet。
+- start.bat 的 WS 就绪检测只验证 TCP 可连，无法区分新旧进程；端口 kill 失败时应显式告警。
+
+修改文件列表：
+- Modify: `CoBeing/scripts/kill-cobeing-port.ps1` — 弃用 `Start-Job`+netstat（超时跳过）；改用 `Get-NetTCPConnection -State Listen` 同步查询（毫秒级），失败时同步 netstat 兜底；杀进程后二次验证端口释放，`exit 0`（已释放）/ `exit 1`（仍占用）供调用方判断
+- Modify: `CoBeing/start.bat` — ① `start "CoBeing Core" /D "%ROOT%" cmd /k "call pnpm dev"`（/D 指定工作目录，消除嵌套引号）；② kill 脚本返回 errorlevel 1 时打印明确 WARN（端口仍占用，新 core 可能绑定失败），不再静默继续
+
+修改内容摘要：
+- 修复后实测：kill 脚本对占用 18765 的残留进程瞬间生效（Killed PID 23916 → Port 18765 is now free）；清理 4 个昨天挂起的 smoke-market 僵尸进程
+- 重新运行 `start.bat /fast` 端到端验证通过：Port free → 新 core 绑定成功（今日进程）→ WS 就绪（连的是新 core）→ tauri 编译 13s → cobeing.exe 启动 → **netstat 显示 GUI 与 core 之间 ESTABLISHED 连接**（GUI 真实连上新 core）
+- 验证后已清理全部测试进程与日志，端口释放
+
+### 新功能：GUI 未接入能力清理 + 真实数据流接入 + 视觉一致性（技能执行/孤儿组件/沙箱真实指标/通知音效/回执刷新）
+
+变更原因：
+用户指示「下一步完善 GUI 界面：把未更新的功能加入 GUI，同时保持前端美观」。按 `docs/项目信息/当前待办.md` P1「GUI 未接入能力清理」逐项核实，本次对「看起来可用其实不完整」的入口执行二选一（接入或删除），并补齐回执卡片状态流转与群组派发回执。
+
+**1. 孤儿组件接入主视图（全部有真实 WS 数据链路，此前无人挂载）**
+- Modify: `gui-v2/src/components/agent/AgentDetailPanel.tsx` — 新增「时间线」tab，挂载 `AgentTimeline`（`get_agent_timeline` / `agent_timeline` 事件，展示工具调用成功/失败时间线）
+- Modify: `gui-v2/src/components/group/GroupDetailPanel.tsx` — tabs 4→5，新增「健康」tab，挂载 `GroupHealthPanel`（`get_group_health`：任务完成率/成员活跃度/最长阻塞）
+- Modify: `gui-v2/src/components/settings/SettingsView.tsx` — 新增「唤醒队列」入口（运维组），挂载 `WakeQueueSection`
+- Modify: `gui-v2/src/components/settings/WakeQueueSection.tsx` — **修复 ws client 从未注入的断链**：`setWakeQueueWsClient` 无任何调用方，改为直接使用 `useWebSocket` 的 `getWsClient()`；高度从全屏页适配为设置页内嵌（maxHeight 480 + 空态 minHeight）
+- Modify: `gui-v2/src/components/observability/DashboardView.tsx` — Agent 活跃度改为柱状图卡片 `AgentActivityCard`（替换冗余的内联统计，删除无引用 StatItem）
+
+**2. 技能执行真实链路（此前「执行技能」按钮无 onClick，`execute_skill` 从未被发送）**
+- Modify: `gui-v2/src/components/extensions/SkillsTab.tsx` — 执行区：任务输入 → `execute_skill` → 监听 `ws-skill-result` 展示结果 / `ws-error` 展示失败；执行中 spinner 状态
+- Modify: `gui-v2/src/hooks/ws-handlers/system-handlers.ts` — `error` 消息额外广播 `ws-error` CustomEvent（供技能执行等组件捕获）
+
+**3. 沙箱监控真实指标（此前 CPU/内存/磁盘硬编码 0）**
+- Modify: `packages/core/src/tools/sandbox/container-pool.ts` — 新增 `stats()`（`docker stats --no-stream` 真实采集 CPU%/MemUsage）+ 导出 `parseDockerStats()` 解析器
+- Modify: `packages/core/src/tools/sandbox/docker-sandbox.ts` — 新增 `getMetrics()`（真实指标或 null）；`getStatus()` 保持同步，不破坏 `SandboxRunner` 接口
+- Modify: `packages/core/src/api/handlers/sandbox.ts` — `get_sandbox_status` 异步化：`getStatus()` + `getMetrics()` 合并，指标不可用降级 0
+- Modify: `gui-v2/src/components/sandbox/SandboxMonitor.tsx` — 指标不可用时不展示假数据（显示「—」+ 提示行），磁盘无限量时隐藏磁盘项
+- Modify: `packages/core/src/tools/sandbox/container-pool.test.ts` — 新增 parseDockerStats 3 测试
+
+**4. 通知音效开关真实化（此前 `sendNotification` 从未被调用、sound 无行为）**
+- Add: `gui-v2/src/lib/notify.ts` — `playNotificationSound()`（Web Audio 合成柔和双音，无需资源文件）+ `sendSystemNotification()`（Tauri 插件）+ `maybeNotify()`（仅目标会话非当前查看或窗口失焦时触发）
+- Modify: `gui-v2/src/hooks/ws-handlers/chat-handlers.ts` — `agent_response`（单聊回复）/群组响应接入 `maybeNotify`
+- Modify: `gui-v2/src/hooks/useTray.ts` — 删除从未被调用的 `sendNotification`（被 notify.ts 取代）
+
+**5. 任务回执卡片状态流转（此前同 butlerTaskId 回执到达即丢弃，卡片永不刷新；群组派发无回执）**
+- Modify: `gui-v2/src/stores/chat.ts` — 新增 `updateTaskReceipt(convId, receiptId, patch)`（按 id 合并更新消息 metadata.taskReceipt）
+- Add: `gui-v2/src/lib/taskReceipt.ts` — `toTaskReceipt()` + RECEIPT_STATUSES 从 ChatView 提取共享
+- Modify: `gui-v2/src/components/chat/ChatView.tsx` — 回执事件改为「已存在则更新卡片，不存在才追加」（running → waiting_user/completed/failed 实时刷新）
+- Modify: `gui-v2/src/components/chat/GroupChatView.tsx` — 监听 `ws-butler-task-receipt`，展示派发给当前群组的回执卡片（targetType=group 过滤）
+- Modify: `gui-v2/src/components/chat/GroupMessageBubble.tsx` — agent 消息渲染 `TaskReceiptCard`，空内容消息不渲染空白段
+
+**6. 视觉一致性**
+- Modify: `gui-v2/src/components/settings/SettingsView.tsx` — 左侧菜单分组标题从「── 组 ──」改为小标签 + 柔和分隔线（letter-spacing 0.12em）
+- Modify: `gui-v2/src/stores/settings.ts` — `SettingsSection` 增加 `"wakequeue"`
+
+验证：63 files / 568 tests 全绿（含新增 parseDockerStats 3 测试）；`pnpm -r run build`（shared/channels/providers/qqbot/office/plugin-sdk/core）+ `gui-v2 pnpm build`（tsc + vite）全部通过。
+
+### 新功能：管家入口产品化四阶段全部实施（阶段 A 转接真实化 / B 首次问卷 / C 模板+风格 / D 低打扰）
+
+变更原因：
+用户指示「完成全部阶段」。基于 `docs/superpowers/specs/2026-08-04-butler-entry-productization-research.md` 的分阶段方案，拆解 5 个并行子任务（task-butler-core-backend / task-butler-receipt-backend / task-onboarding-backend / task-butler-receipt-frontend / task-onboarding-persona-frontend）实施，主线程集成注册、接线与验证。
+
+**阶段 A：任务转接体验真实化（复活空壳资产）**
+- Modify: `packages/shared/src/butler-bridge.ts` — 新增 `ButlerTaskReceiptPayload`（butlerTaskId/globalTodoId/title/targetType/targetId/assigneeName/status/summary/nextAction/timestamp）
+- Modify: `packages/core/src/butler/dispatch.ts` — `buildButlerTaskReceiptPayload()`；`butler_task_updated` 广播携带完整结构化视图（原仅 timestamp）
+- Modify: `packages/core/src/agent/butler/tools/dispatch-tools.ts` — `formatDispatchReceipt` 结构化（文本不变 + 结构化视图）；派发/取消/回复广播完整 payload
+- Modify: `packages/core/src/tools/agent-task.ts` — 状态同步广播携带 status/title
+- Modify: `packages/core/src/api/handlers/agent.ts` — `dispatch_task` 支持 `targetType:"agent"|"group"` + groupId + notifyTarget 透传，旧 payload 向后兼容
+- Add: `packages/core/src/butler/dispatch.test.ts` — 10 测试
+- Add: `gui-v2/src/hooks/ws-handlers/butler-task-handlers.ts` — `butler_task_updated` → store upsert + `ws-butler-task-receipt` 事件
+- Modify: `gui-v2/src/stores/butlerTasks.ts` — 复活：新增 `upsertTask`（按 butlerTaskId 合并）+ `computeSummary`
+- Modify: `gui-v2/src/components/todo/GlobalTodoPanel.tsx` — 顶部「管家任务」小计区（运行中/等待你/已完成徽章），空数据不渲染
+- Modify: `gui-v2/src/components/chat/ChatInputActions.tsx` — 派发菜单升级为结构化 `dispatch_task`（选 Agent/Group 直接派发）
+- Modify: `gui-v2/src/components/chat/ChatView.tsx` — 监听回执事件 → 聊天流追加 metadata.taskReceipt 消息 → **TaskReceiptCard 首次真实点亮**（同 butlerTaskId 去重）
+
+**阶段 B：首次使用问卷 + 初始 Agent**
+- Add: `packages/core/src/api/handlers/onboarding.ts` — `onboarding_apply`（兴趣→角色映射→Creator 生成 1-2 个初始 Agent，失败模板 fallback 不阻塞；Market 官方推荐 ≤2 条不自动安装；data/onboarding.json 幂等）+ `onboarding_get`
+- Add: `gui-v2/src/stores/onboarding.ts` — 问卷状态机（submit/applyResult/20s 超时降级）+ localStorage 首启标记
+- Add: `gui-v2/src/components/onboarding/OnboardingOverlay.tsx` — 磨砂浮层兴趣问卷（7 项 chips 多选 + 自定义输入 → 结果视图：创建 Agent 列表 + Market 推荐卡）
+- Modify: `gui-v2/src/App.tsx` — OnboardingController（tutorial 后出问卷，两浮层不叠加）+ 首启管家欢迎消息注入
+- Modify: `gui-v2/src/components/chat/ChatHeader.tsx` — 副标题 undefined 修复（未加载显示「连接中…」）
+
+**阶段 C：管家模板 + 风格优化（含固定 prompt → 文件 prompt 地基改造）**
+- Add: `packages/core/src/templates/butler/base/` — AGENTS.md / MEMORY.md / EXPERIENCE.md 模板
+- Add: `packages/core/src/templates/butler/personas/` — 4 人格（亲密朋友/专业秘书/学习陪伴/家庭助理）×（CHARACTER.md + JOB.md）；JOB.md 含分级转接规则 + Market 推荐纪律 + 多步推理流程（原硬编码 prompt 整体迁移）
+- Modify: `packages/core/src/runtime.ts` — `ensureButlerDir()`（首启创建管家文件体系，已存在不覆盖，先于 createButler 执行）+ `reloadButlerSelfConfig()`；createButler 默认 prompt 改为短底座
+- Modify: `packages/core/src/agent/butler.ts` — 导出 `BUTLER_DEFAULT_TOOLS`/`BUTLER_DEFAULT_SYSTEM_PROMPT`；ConversationLoop 增加 promptBuilder（**管家首次走文件 prompt：EXPERIENCE.md/记忆进入 prompt**，实时生效无需重建 loop，工具注册零改动）
+- Add: `packages/core/src/api/handlers/butler-persona.ts` — `butler_get_personas`（4 模板 + current 内容匹配检测）/ `butler_set_persona`（复制模板文件，防路径穿越）/ `butler_update_style`（apply=true 写 CHARACTER.md 用户偏好段 + config.json name）
+- Add: `packages/core/src/runtime.test.ts` — 9 测试（含文件 prompt 生效与工具注册不退化断言）
+- Modify: `gui-v2/src/components/agent/ButlerConfigPanel.tsx` — 「管家形象」区：称呼/欢迎语输入 + 4 模板选择 + 保存
+
+**阶段 D：低打扰提示**
+- 推荐纪律写入 4 份 JOB.md：官方内置/认证且明显优于本地才轻量提示（每会话 ≤1 次）、社区必须 confirmed、本地已有能力时闭嘴
+
+**主线程集成**
+- Modify: `packages/core/src/api/ws-server.ts` — 注册 registerButlerPersonaHandlers / registerOnboardingHandlers
+- Modify: `gui-v2/src/hooks/useWebSocket.ts` — 并入 buildButlerTaskHandlers / buildOnboardingHandlers
+- Add: `gui-v2/src/hooks/ws-handlers/onboarding-handlers.ts` — onboarding_result → store；butler_personas/set/style_updated → CustomEvent
+- Add: `scripts/smoke-butler.ts` — 管家冒烟脚本（19 项断言，随机空闲端口）
+
+验证：
+- `pnpm build` 全 workspace 通过
+- `pnpm test` 63 files / 565 tests 全绿（此前 61/546；+runtime.test 9 + dispatch.test 10）
+- `npx tsx scripts/smoke-butler.ts` 19/19：管家文件体系/4 模板/切换/风格更新/agent+group 派发 + 结构化回执事件/onboarding（含无 API key 时 Creator 降级模板 fallback 仍成功）/幂等/Market 集成回归
+- `npx tsx scripts/smoke-market.ts` 25/25 回归通过
+- gui-v2 tsc + build + vitest 19/19 通过
+
+冒烟中修复的问题：
+1. smoke-butler 客户端响应 type 不匹配（butler_personas/dispatch_task_result/group_created 等响应 type ≠ 请求 type）——与 smoke-market 的 get_state 同类问题，统一改用 sendFor
+2. dispatch_task 无 API key 时通知目标 Agent 触发 LLM 挂起 → handler 透传 notifyTarget（工具层已有，WS 层遗漏）；冒烟用 notifyTarget:false 验证纯派发链路
+3. onboarding-handlers 类型引用语法错误（typeof x.y() 非法）→ 改用显式导入 OnboardingApplyResultPayload
+
+## 2026-08-04
+
+### 记录：GUI 未接入能力清理问题复查确认
+
+变更原因：
+用户确认「GUI 功能接入还有问题」，据此对 `当前待办.md` P1「GUI 未接入能力清理」做状态复查。2026-08-01 的骨架重构与 2026-08-03 的 Market 开发均未触碰这些组件，问题依旧：
+
+- 扩展页技能执行按钮：后端 `execute_skill` 命令真实存在，前端按钮发送链路未逐项验证
+- WakeQueueSection / GroupHealthPanel / AgentTimeline：组件已写但无任何主视图引用
+- 沙箱监控 CPU/内存/磁盘指标：前端展示位在，后端真实指标链路未确认
+- 通知音效开关：无真实行为链路
+
+修改文件：
+- Modify: `docs/项目信息/当前待办.md` — GUI 清理项补充 2026-08-04 复查结论与处理顺序建议（先管家产品化、后清理）
+
+### 研究：管家入口产品化专项（完成）
+
+变更原因：
+`当前待办.md` P1「管家入口产品化」优先级提升，用户指示「先研究加强管家」。完成专项研究：主线程一手核实 + 两路只读探索子智能体（后端管家能力 / 前端首次使用体验）交叉验证，对照战略五需求输出缺口分析与分阶段实施方案。
+
+关键发现（代码事实）：
+1. **任务转接断链**：后端广播 `butler_task_updated`（4 处）但前端零 handler；消息 metadata.taskReceipt 后端从不写入 → TaskReceiptCard 永不渲染；stores/butlerTasks.ts 零消费者（死代码）；ChatInputActions 派发/创建只插文本不触发结构化派发
+2. **管家无配置载体**：data/coreagents/butler/ 无 config.json/JOB.md/CHARACTER.md；管家走固定 prompt 路径（EXPERIENCE.md/memory 不进 prompt）；人格是 runtime.ts 硬编码 systemPrompt
+3. **无"自己答 vs 派发"分级规则**：只有 Agent 复用 5 条规则，转接决策全靠 LLM 临场发挥
+4. **首次使用零引导**：6 步告知型教程存在但非问卷；无兴趣/需求收集；空数据态只有一行文案；后端未就绪时头部渲染 undefined
+5. **管家模板/风格优化零实现**：无 templates/butler/；无称呼/语气/主动性配置面
+6. **假开关与断链**：通知声音/系统通知/Tauri 通知无实现；托盘未读恒 0；escalationPolicy 存而未用
+7. 已核实的真实资产：GlobalTodoPanel 数据流真实、find_agent/dispatch_task/get_global_todos 全部真实、派发链路闭环完整
+
+产出：
+- Add: `docs/superpowers/specs/2026-08-04-butler-entry-productization-research.md` — 现状盘点（§4.0 一手核实 + §4.1 后端 + §4.2 前端 + §4.3 未接入清单）、差距分析（§5 五需求逐项）、分阶段方案（§6：A 转接真实化 → B 问卷+初始 Agent → C 模板+风格优化 → D 低打扰策略）、风险与决策点（§7）
+
+建议：下一轮开发按阶段 A（转接体验真实化，复活已有资产）优先，预计一轮开发即可点亮回执卡片/butlerTasks store/ChatInputActions 结构化派发。
+
+## 2026-08-03
+
+### 新功能：Market 分级机制落地（P1 待办完成）
+
+变更原因：
+`docs/项目信息/当前待办.md` P1「Market 分级机制落地」与 `产品战略.md`「Market 战略」要求落地官方/认证/社区/本地四层信任分级、依赖树透明、社区资源用户审查门禁、管家推荐规则。此前代码仅有战略文档与 prompt 提示词引用，无任何 Market 模块。本次实现 v1：agent / group / skill 三类可安装资源（persona/plugin 资源标记为规划中）。
+
+修改文件（后端新增）：
+- Add: `packages/core/src/market/types.ts` — MarketResourceType / MarketTier（official/certified/community/local）/ MarketRiskLevel / MarketDependency / MarketResource / MarketResourceView / MarketDepNode / MarketInstallStatus / MarketInstallResult / InstalledEntry
+- Add: `packages/core/src/market/catalog.ts` — MarketCatalog（扫描 `data/market/<tier>/<id>/market.json`，非法/错位 id 跳过 warn，installed.json 原子持久化）+ buildLocalResources（现有 Agent/技能合成 local 层，排除 butler/host）
+- Add: `packages/core/src/market/installer.ts` — MarketInstaller：visited 防环依赖树（缺失依赖生成 community 保守节点）、社区门禁（无 confirmed 返回 approval_required）、拓扑序三类安装（skill→data/skills、agent→data/agents、group→data/groups + 先装 agent 依赖）、双重路径穿越防护（根 id 与依赖 id）、卸载不级联
+- Add: `packages/core/src/market/tools.ts` — makeMarketRecommendTool（butler-market-recommend：官方/认证优先、社区 ⚠️ 需用户审查标注、本地默认路径）+ makeMarketInstallTool（butler-market-install：approval_required 引导 confirmed:true）
+- Add: `packages/core/src/market/bundled/` — 4 个内置示例资源（中文真实内容）：official/travel-planning（skill 旅行规划）、official/travel-planner（agent 旅行规划师，依赖 skill）、official/travel-team（group 旅行规划小队，依赖 agent）、community/expense-assistant（agent 记账小助手，community/medium 演示门禁）
+- Add: `packages/core/src/market/catalog.test.ts`（9 测试）+ `installer.test.ts`（16 测试）— TDD 先行，覆盖依赖树/门禁/三类落盘/卸载/路径穿越/幂等/持久化
+
+修改文件（后端接线）：
+- Add: `packages/core/src/api/handlers/market.ts` — market_list / market_get / market_install / market_uninstall / market_installed 5 个 WS 命令；market_list 聚合文件型资源 + 本地私有资源并支持 type/tier/query 过滤
+- Modify: `packages/core/src/api/ws-server.ts` — 注册 market handlers；增加 marketCatalog/marketInstaller 字段与 setMarketServices()
+- Modify: `packages/core/src/runtime.ts` — 构造函数初始化 MarketCatalog + MarketInstaller（hooks 真实接线：registerMarketAgent 读 config.json 注册 Agent、createMarketGroup 建群+注册 ButlerRegistry、destroyMarketGroup、reloadSkills）；start() 增加 initMarketServices()（ensureMarketDirs + syncBundledMarketResources 首次把 bundled 复制到 data/market + catalog.reload）；ensureDataDirs 增加 market
+- Modify: `packages/core/src/agent/butler.ts` — 注册 butler-market-recommend / butler-market-install（经 globalThis.__cobeing.runtime 取 catalog/installer，local 资源经 __cobeing.agentRegistry/skillRepo 实时聚合）
+- Modify: `packages/core/src/skills/repository.ts` — 新增 public reload()（Market 安装/卸载技能后重扫）
+- Modify: `packages/core/src/index.ts` — 导出 MarketCatalog/buildLocalResources/MarketInstaller/make*Tool 与全部类型
+
+修改文件（前端）：
+- Add: `gui-v2/src/stores/market.ts` — useMarketStore：resources/installed/filters/detail/installState 状态机/pendingInstall/lastError + 11 个 action，统一 getWsClient().send
+- Add: `gui-v2/src/hooks/ws-handlers/market-handlers.ts` — 5 个 WS 消息 handler（含安装状态机、卸载同步 detail、emitActivity 日志）
+- Add: `gui-v2/src/components/extensions/MarketTab.tsx` — 类型 chips + 信任分级 chips + 搜索过滤栏；资源卡片网格（tier/risk 徽章、类型图标、两行截断、tags、安装/已安装+卸载/本地禁用）；详情 Sheet 浮层（描述/权限列表/递归依赖树/操作条）；社区确认流（approval_required 警告区 + 确认安装）；加载/错误/安装中状态；全主题 token
+- Modify: `gui-v2/src/lib/types.ts` — 追加 9 个 Market 类型；ExtensionsTab 增加 "market"
+- Modify: `gui-v2/src/components/extensions/ExtensionsView.tsx` — TABS 增加 Market 项并渲染 MarketTab
+- Modify: `gui-v2/src/hooks/useWebSocket.ts` — 并入 buildMarketHandlers
+
+修改文件（其他）：
+- Modify: `vitest.config.ts` — 根测试 include 追加 gui-v2/src/**/*.test.ts(x) + `@` 别名（修复既有问题：根 `pnpm test` 此前不覆盖 gui-v2 测试，gui-v2 需单独在子目录跑）
+- Add: `scripts/smoke-market.ts` — Market WS 冒烟脚本（随机空闲端口，不污染真实 data/，25 项断言）
+
+验证：
+- `pnpm build`（全 workspace）通过
+- `pnpm test` 61 files / 546 tests 全绿（此前 55/502；+25 Market 测试 + 19 gui-v2 测试纳入根命令）
+- gui-v2 `tsc --noEmit` + `vite build` 通过；gui-v2 vitest 4 files / 19 tests 全绿
+- `npx tsx scripts/smoke-market.ts` 25/25 通过：市场列表（4 内置 + 本地聚合）、type/tier 过滤、依赖树（agent→skill、group→agent）、官方资源直接安装落盘、already_installed 幂等、社区无确认门禁 approval_required、社区确认安装 + Agent 注册 registry、卸载删目录 + installed 记录同步
+
+产品规则落地对照：
+- 官方认证资源：管家可轻量推荐（butler-market-recommend 官方/认证优先）
+- 未认证社区资源：必须用户确认（installer 门禁 + 前端确认流 + Butler 工具引导 confirmed:true）
+- 私人生成资源：本地资源在 market_list 以 local 层展示，管家默认本地创建
+- Group > Agent > Skill 依赖树：安装前 market_get/market_install 返回完整依赖树，前端递归渲染
+
+## 2026-08-01
+
+### 重构：前端 ChatView.tsx 拆分 7 个子组件 + useWebSocket.ts 消息处理拆分
+
+变更原因：
+`gui-v2/src/components/chat/ChatView.tsx`（646 行）同文件堆叠 7 个子区块；`gui-v2/src/hooks/useWebSocket.ts`（759 行）useEffect 内巨型 switch 处理 71 种 WS 消息。拆分提升可读性与可维护性。
+
+修改文件：
+- Add: `gui-v2/src/components/chat/ChatHeader.tsx`、`MessageList.tsx`、`MessageBubble.tsx`、`ToolCallsGroup.tsx`、`ThinkingBubble.tsx`、`ChatInput.tsx`、`TodoInline.tsx` — 从 ChatView.tsx 原样提取
+- Add: `gui-v2/src/lib/chat-utils.ts` — statusLabel/statusStyle/getSenderDisplay/formatTime
+- Modify: `gui-v2/src/components/chat/ChatView.tsx` — 646 → 68 行，仅保留主入口
+- Add: `gui-v2/src/hooks/ws-handlers/` — chat/registry/extension/todo/system/observability-handlers.ts + types.ts + helpers.ts，覆盖全部 71 种消息 type
+- Modify: `gui-v2/src/hooks/useWebSocket.ts` — 759 → 104 行，改为 ctx + handler 表分发
+- Fix: 3 个预存类型错误（ChatHeader/GroupChatView 的 startNewConversation null 传参、GlobalTodoPanel 死代码 executionRefLabel）；GlobalTodoPanel.test.ts 过时断言对齐紧凑展示
+
+验证：gui-v2 `tsc && vite build` 通过；gui-v2 vitest 4 files / 19 tests 全绿。
+
+### 重构：僵尸全局变量修复（B3）
+
+变更原因：
+分析确认 8 个旧式独立全局变量（`__cobeingHookBus`/`__cobeingPromptLayers`/`__cobeingConfig`/`__cobeingDataRoot`/`__cobeingAgentRegistry`/`__cobeingVoteStore`/`__cobeingObsDb`/`__cobeingGetProvider`）从未被写入（zombie），真实值都在 `__cobeing` 命名空间子字段。读取它们=undefined → 插件 hook 事件、PromptLayer、投票静默失效。
+
+修改文件：
+- Modify: `packages/core/src/runtime.ts` — 构造函数补齐 8 个兼容别名，指向真实对象
+- Add: `packages/core/src/runtime-globals.test.ts` — 5 个聚焦测试（别名安装/同源/hook 触发/intercept/vote）
+
+验证：新增测试 5/5 通过；全量 `pnpm test` 55 files / 502 tests 全绿（此前 54/497）。
+
+### 重构：ws-server.ts 拆分（B1）
+
+变更原因：
+`packages/core/src/api/ws-server.ts`（3111 行）CoreWSServer 类内巨型 switch 处理 68 个 WS 命令，依赖访问方式不统一（部分 setter 注入、部分 `globalThis.__cobeing` 后门），可维护性差。
+
+修改文件：
+- Add: `packages/core/src/api/security.ts` — maskApiKey/cloneForClient/isSafeId/resolveWithin/isSafeConfigPath 等安全脱敏工具
+- Add: `packages/core/src/api/types.ts` — WSMessage/TodoMutationAction/TodoMutationContext/buildTodoMutationPayload/buildGroupCreatorDraftNote
+- Add: `packages/core/src/api/capability.ts` — loadCapabilityCards/scoreCapability
+- Add: `packages/core/src/api/parsing.ts` — extractMentions/parseCurrentMd
+- Add: `packages/core/src/api/handlers/` — system/agent/group/plugin/binding/message/todo/observability/sandbox/skill/enhancement.ts（68 个命令按域分组）
+- Add: `packages/core/src/api/handlers/types.ts` — WsCommandHandler/HandlerRegistrar
+- Modify: `packages/core/src/api/ws-server.ts` — 3111 → 571 行；巨型 switch 改为「命令注册表 + handler.call(this) 分发」；handler 通过 `function (this: CoreWSServer, ws, msg)` 原样保留 case 体
+- Modify: `packages/core/src/api/ws-server.test.ts` — 导入改指向 ./types.js
+
+验证：`pnpm build` 通过；`pnpm test` 54 files / 497 tests 全绿；冒烟脚本确认 68 命令全部注册、无缺失无多余。
+
+### 重构：butler.ts 按域拆分 Butler 工具工厂函数到独立模块
+
+变更原因：
+`packages/core/src/agent/butler.ts`（1428 行）文件顶部堆叠约 24 个 `make*Tool` 工厂函数与 2 个辅助函数，体量过大、可读性与可维护性差。本次仅做结构性拆分，把工具工厂函数按业务域原样移动到 `agent/butler/tools/` 下的独立模块；函数签名、参数、返回值、内部逻辑一字未改，行为完全不变。
+
+修改文件：
+- Add: `packages/core/src/agent/butler/tools/agent-tools.ts` — makeCreateAgentTool / makeDestroyAgentTool / makeModifyAgentTool / makeFindAgentTool
+- Add: `packages/core/src/agent/butler/tools/group-tools.ts` — makeCreateGroupTool / makeDestroyGroupTool / makeAddToGroupTool / makeRunGroupTool / makeCheckGroupTool
+- Add: `packages/core/src/agent/butler/tools/dispatch-tools.ts` — makeDispatchToAgentTool / makeDispatchToGroupTool / makeGetWorkStatusTool / makeCancelWorkTool / makeReplyToGroupTool / makeDispatchTaskTool / getButlerDispatchDeps / formatDispatchReceipt
+- Add: `packages/core/src/agent/butler/tools/workspace-tools.ts` — makeBindWorkspaceTool / makeListTool
+- Add: `packages/core/src/agent/butler/tools/channel-tools.ts` — makeChannelBindTool / makeChannelUnbindTool
+- Add: `packages/core/src/agent/butler/tools/registry-tools.ts` — makeReadRegistryTool / makeUpdateRegistryTool
+- Add: `packages/core/src/agent/butler/tools/workflow-tools.ts` — makeWorkflowAnalyzeTool / makeWorkflowPlanTool
+- Add: `packages/core/src/agent/butler/tools/review-tools.ts` — makeReviewProposalsTool
+- Modify: `packages/core/src/agent/butler.ts` — 删除被移走的函数定义，改为从 `./butler/tools/*.js` 导入；清理随之不再使用的导入（fs、AgentPaths、runAgentCreator、dispatchButlerTask、createLogger、DockerSandbox 等）；`ButlerAgent` 类本身与构造函数内的工具注册调用完全未改动（1428 → 150 行）
+
+修改内容摘要：
+- 每个 make 函数保持原签名/参数/返回类型/内部逻辑逐字节不变，仅补 `export` 关键字；模块内保留 `createLogger("butler")` 日志实例（标签不变）
+- 仅有的必要路径调整：原函数体内相对路径随文件下移两级（如 `../group/router.js` → `../../../group/router.js`），解析到的目标模块不变
+- 无外部 re-export：grep 确认没有任何文件从 `butler.js` 导入 make 函数，仅 `index.ts`/`runtime.ts`/`butler.test.ts` 导入 `ButlerAgent`
+
+验证：
+- `pnpm exec tsc --noEmit`（packages/core）通过
+- `pnpm build`（packages/core）通过
+- `pnpm test` 54 files / 497 tests 全绿（含 `butler.test.ts` 4 tests）
+
+### 重构：runtime.ts start()/stop() 拆分为职责清晰的私有辅助方法
+
+变更原因：
+`packages/core/src/runtime.ts` 的 `start()`（约 497-705 行，16 个初始化阶段）与 `stop()` 体量过大，可读性与可维护性差。本次仅做结构性重组，将巨型方法拆分为类内职责清晰、命名良好的私有辅助方法；行为保持不变（不新增/不修改任何逻辑、副作用顺序不变）。
+
+修改文件：
+- Modify: `packages/core/src/runtime.ts` — 拆分 start()/stop()；收敛 wsServer 的 8 个 setter 到 configureWSServer()；移除顶层 ensureSandboxConfig 改为导入
+- Add: `packages/core/src/runtime/sandbox-helper.ts` — 纯函数 ensureSandboxConfig 移至此处并导出
+
+修改内容摘要：
+- `start()` 拆分为（按原顺序调用）：setupGlobalErrorHandlers()、checkDockerAvailability()、loadAllPluginsStep()、createCoreAgents()、restoreRegistryState()、setupMCP()、restoreGroups()、configureWSServer()、setupRouterCallbacks()、startServices()、startTodoScanner()、ensureRuntimeDirs()，start() 本身变为短方法
+- `configureWSServer()` 收敛 wsServer 的 8 个 setter（setAgentRegistry/setGroupManager/setChannelRouter/setProviderResolver/setOnProviderChange/setDataRoot/setSkillRepository/setOnMcpConfigChange）按原顺序统一注入，同时保留 registerAgent(butler)
+- `stop()` 拆分为对称清理方法：stopWSServer()、stopTodoScanner()、disposeLocalFilter()、stopChannels()、disposeAgents()、disposeGroups()、closeMCPConnections()，不新增清理逻辑、不改变行为
+- `ensureSandboxConfig` 纯函数移至 `runtime/sandbox-helper.ts`（runtime.ts 导入使用）
+- 保持所有公共 API 签名、`globalThis.__cobeing` 组装逻辑不变
+
+验证：
+- `pnpm exec tsc --noEmit`（packages/core）通过
+- `pnpm build` 全 workspace 通过
+- `pnpm test` 497/497 全绿
+
 ## 2026-07-09
 
 ### 修复：管家页面发送消息时整体上浮

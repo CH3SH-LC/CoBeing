@@ -1,0 +1,14 @@
+{
+  "id": "travel-planning",
+  "type": "skill",
+  "name": "旅行规划",
+  "description": "系统化的旅行规划方法：需求澄清、行程设计、预算与预订、出行准备与应急预案",
+  "version": "1.0.0",
+  "tier": "official",
+  "author": "CoBeing Team",
+  "icon": "✈️",
+  "tags": ["旅行", "规划", "行程", "攻略", "预算"],
+  "riskLevel": "low",
+  "permissions": ["workspace:readwrite"],
+  "dependencies": []
+}

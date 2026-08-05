@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { LogMessage, ToolEvent } from "@/lib/types";
+import type { LogMessage, ToolEvent, TaskReceipt } from "@/lib/types";
 
 interface ChatStore {
   // Per-conversation message storage: conversationId → messages
@@ -20,7 +20,8 @@ interface ChatStore {
   currentLoaded: boolean;
 
   setActiveConversation: (id: string | null) => void;
-  addMessage: (msg: LogMessage, conversationId?: string) => void;
+  /** opts.countUnread 显式控制未读计数（默认：非活跃会话的 out/system 消息计数；群组场景由调用方决定） */
+  addMessage: (msg: LogMessage, conversationId?: string, opts?: { countUnread?: boolean }) => void;
   addToolEvent: (event: ToolEvent, conversationId?: string) => void;
   appendStreamToken: (token: string, conversationId?: string) => void;
   finalizeStream: (content: string, senderId?: string, senderName?: string, conversationId?: string) => void;
@@ -33,6 +34,8 @@ interface ChatStore {
   clearAllConversations: () => void;
   /** Update last user message's status in the active conversation */
   updateLastInMessage: (convId: string, update: Partial<Pick<LogMessage, 'status' | 'errorMessage'>>) => void;
+  /** 按回执 id 更新会话中已有消息的 metadata.taskReceipt（状态流转刷新用） */
+  updateTaskReceipt: (convId: string, receiptId: string, patch: Partial<TaskReceipt>) => void;
   prependMessages: (msgs: LogMessage[], conversationId?: string) => void;
   hasMoreMessages: Record<string, boolean>;
   setHasMore: (conversationId: string, hasMore: boolean) => void;
@@ -65,7 +68,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     });
   },
 
-    addMessage: (msg, conversationId) => {
+    addMessage: (msg, conversationId, opts) => {
     const targetId = conversationId || get().activeConversation;
     if (!targetId) return;
 
@@ -93,7 +96,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       : [...existing, msg];
 
     const isActive = targetId === get().activeConversation;
-    const shouldCount = !isActive && (msg.direction === "out" || msg.direction === "system");
+    // 显式 countUnread 优先（群组场景由调用方决定是否打扰用户）；缺省：非活跃会话的 out/system 消息计数
+    const shouldCount = opts?.countUnread ?? (!isActive && (msg.direction === "out" || msg.direction === "system"));
     const unreadCounts = { ...get().unreadCounts };
 
     set({
@@ -373,6 +377,24 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         return;
       }
     }
+  },
+
+  updateTaskReceipt: (convId, receiptId, patch) => {
+    const store = get().messageStore;
+    const msgs = store[convId];
+    if (!msgs) return;
+    let changed = false;
+    const updated = msgs.map((m) => {
+      if (m.metadata?.taskReceipt?.id !== receiptId) return m;
+      changed = true;
+      return { ...m, metadata: { ...m.metadata, taskReceipt: { ...m.metadata.taskReceipt, ...patch } } };
+    });
+    if (!changed) return;
+    const newStore = { ...store, [convId]: updated };
+    set({
+      messageStore: newStore,
+      messages: convId === get().activeConversation ? updated : get().messages,
+    });
   },
 
   prependMessages: (msgs, conversationId) => {

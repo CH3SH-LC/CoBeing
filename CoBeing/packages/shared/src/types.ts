@@ -257,6 +257,7 @@ export interface Tool {
 export interface ToolContext {
   agentId: string;
   sessionId: string;
+  groupId?: string;
   workingDir: string;
   sandbox: SandboxConfig;
   sandboxRunner?: SandboxRunner;

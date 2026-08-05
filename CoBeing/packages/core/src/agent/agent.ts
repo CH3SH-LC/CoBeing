@@ -288,19 +288,26 @@ export class Agent {
 
     // 注册 TODO 工具
     const todoDataRoot = path.dirname(path.dirname(this.paths.directory));
-    this.toolRegistry.register(makeTodoAddTool(todoDataRoot, undefined));
-    this.toolRegistry.register(makeTodoListTool(todoDataRoot, undefined));
+    // 群组 TODO 存储/扫描器经全局 __cobeingGroupManager 解析
+    // （历史 bug：store getter 传 undefined 导致群组成员的 todo-list 等工具
+    //   群组级调用永远返回"无法确定 TODO 存储"）
+    const getGroupTodoStore = (groupId: string) => {
+      const groupManager = (globalThis as any).__cobeingGroupManager;
+      return groupManager?.getGroupTodoStore?.(groupId);
+    };
     const getGroupTodoScanner = (groupId: string) => {
       const groupManager = (globalThis as any).__cobeingGroupManager;
       return groupManager?.getScanner?.(groupId);
     };
-    this.toolRegistry.register(makeTodoCompleteTool(todoDataRoot, undefined, getGroupTodoScanner));
-    this.toolRegistry.register(makeTodoRemoveTool(todoDataRoot, undefined));
-    this.toolRegistry.register(makeTodoReviewTool(todoDataRoot, undefined, getGroupTodoScanner));
+    this.toolRegistry.register(makeTodoAddTool(todoDataRoot, getGroupTodoStore));
+    this.toolRegistry.register(makeTodoListTool(todoDataRoot, getGroupTodoStore));
+    this.toolRegistry.register(makeTodoCompleteTool(todoDataRoot, getGroupTodoStore, getGroupTodoScanner));
+    this.toolRegistry.register(makeTodoRemoveTool(todoDataRoot, getGroupTodoStore));
+    this.toolRegistry.register(makeTodoReviewTool(todoDataRoot, getGroupTodoStore, getGroupTodoScanner));
     // 批量操作工具
-    this.toolRegistry.register(makeTodoBatchCompleteTool(todoDataRoot, undefined, getGroupTodoScanner));
-    this.toolRegistry.register(makeTodoBatchRemoveTool(todoDataRoot, undefined));
-    this.toolRegistry.register(makeTodoBatchUpdateTool(todoDataRoot, undefined));
+    this.toolRegistry.register(makeTodoBatchCompleteTool(todoDataRoot, getGroupTodoStore, getGroupTodoScanner));
+    this.toolRegistry.register(makeTodoBatchRemoveTool(todoDataRoot, getGroupTodoStore));
+    this.toolRegistry.register(makeTodoBatchUpdateTool(todoDataRoot, getGroupTodoStore));
     this.toolRegistry.register(currentTimeTool);
 
     // 注册投票工具（需要全局 VoteStore）
@@ -476,7 +483,17 @@ export class Agent {
           undefined,
           groupCtx || undefined,
         );
-        const parts = [this._sharedPrefix, GROUP_MECHANICS_NOTICE, this._agentPrefix];
+        const parts = [
+          this._sharedPrefix,
+          GROUP_MECHANICS_NOTICE,
+          `# 工作目录
+- 你的工作目录是：\`${workingDir ?? this.effectiveWorkspace}\`
+- 所有文件操作（write-file / read-file / edit-file / glob / grep / bash）请使用**相对路径**（相对于工作目录，如 \`game.html\`、\`src/main.js\`），**不要使用绝对路径**。
+- **绝对不要**访问你自己的 Agent 目录（data/agents/<你的ID>/...）或任何 data/ 下其他目录——那会被权限系统拒绝（path escapes working directory）。
+- 写入的产物文件会保存在工作目录，群组其他成员与用户都能看到。交付物（HTML/代码/文档）必须实际写入工作目录中的文件。
+- **大文件必须分块写入**：单次 write-file 的 content 不超过 3000 字符。先 write-file 写文件骨架，再用 edit-file 逐块追加/替换内容，直到完成。`,
+          this._agentPrefix,
+        ];
         if (volatile) parts.push(volatile);
         // Plugin prompt layers (with groupId)
         const promptLayers = (globalThis as any).__cobeingPromptLayers;

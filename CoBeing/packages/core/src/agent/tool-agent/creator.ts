@@ -8,7 +8,7 @@ import { createLogger } from "@cobeing/shared";
 
 const log = createLogger("agent-creator");
 
-export type CreatorField = "character" | "job";
+export type CreatorField = "expression" | "job";
 
 export interface AgentCreatorInput {
   name: string;
@@ -57,13 +57,13 @@ export interface GroupCreatorResult {
 const SYSTEM_PROMPT = `你是 Agent 创建专家。你的任务是为一个新 Agent 生成核心文件内容。
 
 核心文件定义：
-- character: AI 的人物形象 — 姓名、背景、外观、语言风格。要像一个活生生的人，有口癖、有小习惯、有态度。不要"专业、严谨、有条理"这种空话。必须包含典型表达示例（同意时/拒绝时/遇到困难时/思考时怎么说）、口头禅和习惯用语、绝对不说的话。
+- expression: AI 的人味表达规范 — 只约束"怎么说"，不涉及任何身份设定。这个 Agent 没有人物形象、没有背景故事、没有口头禅——它是团队里的同事，说话要像真人。规范必须覆盖：篇幅与结构（群聊 ≤3 句、结论先行、禁止总结腔）、词汇与句式（第一人称主动句、短句 ≤20 字、禁用词：赋能/底层逻辑/闭环/值得一提/综上所述等、标点纪律）、开场与收尾（禁"好的！""我来帮您！""好问题"、禁"有需要随时找我"）、真人信号（不确定就说出来、允许自我修正、承接上文、失败直接报告）、群聊纪律（未被 @ 不说话、不重复、不代答）。规则要具体可检查，不要空话。
 - job: AI 的工作范式 — 如何思考、工作流程、决策原则、输出规范。写具体工具和方法论，不只是"完成任务"。
 
 要求：
-- character 必须有血有肉：写出背景故事、外貌特征、说话习惯、真实的小癖好。像在介绍一个你认识的人。
+- expression 像一份"同事说话守则"：具体、可检查、有正反例。不是人物小传。
 - 像个人，不像客服。可以说"嗯"、"说实话"、"我觉得"。回答简洁自然，不堆砌"建议"、"推荐"。
-- 性格别太极端——太冷漠或太话多都会影响工作，但要有温度、有态度。
+- 不要给 Agent 编造性格、外貌、背景故事——它不需要"是谁"。
 - job 必须具体：思考方式、工作流程（理解→调研→执行→验证）、决策原则、输出规范
 - 定位面向技能领域（如"Python 数据分析师"），不面向具体项目（如"XX项目的分析师"）
 - 所有内容用中文写`;
@@ -93,7 +93,7 @@ function buildUserPrompt(input: AgentCreatorInput): string {
   return `为 Agent "${input.name}" 生成核心文件。角色：${input.role}。请生成以下字段：${fields}
 
 返回一个纯 JSON 对象，只包含请求的字段，不要其他内容：
-{"character": "...", "job": "..."}`;
+{"expression": "...", "job": "..."}`;
 }
 
 function buildGroupUserPrompt(input: GroupCreatorInput): string {
