@@ -2,6 +2,7 @@
  * ExperienceWriter — Agent 自主经验系统
  * 在工程过程中总结问题及解决方法，固化到 EXPERIENCE.md
  */
+import { chatWithGateway } from "../gateway/llm-gateway.js";
 import fs from "node:fs";
 import path from "node:path";
 import type { LLMProvider } from "@cobeing/providers";
@@ -71,7 +72,7 @@ export class ExperienceWriter {
 
     try {
       let result = "";
-      for await (const chunk of this.provider.chat({
+      for await (const chunk of await chatWithGateway(this.provider, {
         model: "",
         messages: [{ role: "user", content: prompt }],
       })) {

@@ -160,3 +160,51 @@ describe("PermissionEnforcer — 5-level", () => {
     expect(e.check("write-file", { path: "/data/groups/g1/workspace/task.md" }).allowed).toBe(true);
   });
 });
+
+describe("PermissionEnforcer — auto mode（安全分类器决策链, 决策 #10 / spec #5）", () => {
+  const auto = (policy: { allow?: string[]; deny?: string[] } = {}) =>
+    new PermissionEnforcer({ mode: "auto", ...policy }, TOOL_CONFIG, WS);
+
+  it("deny list is hard-denied even in auto mode", () => {
+    const e = auto({ deny: ["web-fetch"] });
+    expect(e.check("web-fetch", { url: "http://x" })).toEqual({ allowed: false, reason: expect.stringContaining("denied") });
+  });
+
+  it("read-only tools are allowed without classifier", () => {
+    const e = auto();
+    expect(e.check("read-file", { path: `${WS}/a.md` })).toEqual({ allowed: true });
+    expect(e.check("glob", { pattern: "**/*.md" })).toEqual({ allowed: true });
+    expect(e.check("grep", { pattern: "foo" })).toEqual({ allowed: true });
+  });
+
+  it("writes within workspace are allowed without classifier", () => {
+    const e = auto();
+    const r = e.check("write-file", { path: `${WS}/out.md` });
+    expect(r.allowed).toBe(true);
+    expect(r.needsClassifier).toBeUndefined();
+  });
+
+  it("writes escaping workspace are denied", () => {
+    const e = auto();
+    expect(e.check("write-file", { path: "/etc/passwd" }).allowed).toBe(false);
+  });
+
+  it("bash extreme-danger is denied (Stage 0 hard rule)", () => {
+    const e = auto();
+    expect(e.check("bash", { command: "rm -rf /" }).allowed).toBe(false);
+  });
+
+  it("bash normal command needs classifier", () => {
+    const e = auto();
+    const r = e.check("bash", { command: "npm install" });
+    expect(r.allowed).toBe(true);
+    expect(r.needsClassifier).toBe(true);
+  });
+
+  it("non-path high-impact tool needs classifier", () => {
+    const e = auto();
+    const r = e.check("agent-message", { content: "hello" });
+    expect(r.allowed).toBe(true);
+    expect(r.needsClassifier).toBe(true);
+  });
+});

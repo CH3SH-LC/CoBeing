@@ -3,9 +3,52 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@cobeing/shared";
-import type { TodoItem } from "./types.js";
+import type { TodoItem, TodoRepeat } from "./types.js";
 
 const log = createLogger("todo-store");
+
+/** 默认重唤醒冷却（毫秒）— 已触发待完成低频重触发防刷屏 */
+export const STALE_RETRIGGER_COOLDOWN_MS = 10 * 60 * 1000;
+
+/**
+ * 计算下一个重复触发时间点（本地时区语义）。
+ * - interval: fromMs + intervalHours
+ * - daily: 次日（带 timeOfDay 则归一化到该时刻，否则保持 base 时分）
+ * - weekly: 下个目标 weekday（带 timeOfDay 则归一化）
+ */
+export function computeNextTriggerAt(repeat: TodoRepeat, fromMs: number): number {
+  const from = new Date(fromMs);
+  switch (repeat.type) {
+    case "interval":
+      return fromMs + (repeat.intervalHours || 24) * 3600_000;
+    case "daily": {
+      const next = new Date(from);
+      next.setDate(next.getDate() + 1);
+      applyTimeOfDay(next, repeat.timeOfDay);
+      return next.getTime();
+    }
+    case "weekly": {
+      const target = repeat.weekday ?? from.getDay();
+      const next = new Date(from);
+      let diff = (target - next.getDay() + 7) % 7;
+      if (diff === 0) diff = 7; // 已是目标星期则推到下一周
+      next.setDate(next.getDate() + diff);
+      applyTimeOfDay(next, repeat.timeOfDay);
+      return next.getTime();
+    }
+  }
+}
+
+function applyTimeOfDay(d: Date, timeOfDay?: string): void {
+  if (timeOfDay) {
+    const [h, m] = timeOfDay.split(":").map(Number);
+    if (!Number.isNaN(h) && !Number.isNaN(m)) {
+      d.setHours(h, m, 0, 0);
+      return;
+    }
+  }
+  // 无 timeOfDay：保持 base 的时分（daily 即 +1 天同时刻，weekly 保持目标天此时刻）
+}
 
 export class TodoStore {
   private filePath: string;
@@ -67,15 +110,44 @@ export class TodoStore {
     return true;
   }
 
-  /** 获取所有到期 TODO（pending 且 triggerAt <= now 且尚未触发。默认 time 模式） */
+  /** 获取所有到期 TODO（pending 且 triggerAt <= now 且尚未触发。默认 time 模式；repeat TODO 走 getRepeatDueTodos） */
   getDueTodos(): TodoItem[] {
     const now = Date.now();
     return this.readAll().filter(i => {
       const mode = i.triggerMode || "time";
       return i.status === "pending" &&
         mode === "time" &&
+        !i.repeat &&
         !i.triggeredAt &&
         new Date(i.triggerAt).getTime() <= now;
+    });
+  }
+
+  /** 获取到期且本周期未触发的 repeat TODO（决策 #3 / spec #2） */
+  getRepeatDueTodos(): TodoItem[] {
+    const now = Date.now();
+    return this.readAll().filter(i => {
+      if (i.status !== "pending" || !i.repeat || !i.nextTriggerAt) return false;
+      const nextAt = new Date(i.nextTriggerAt).getTime();
+      if (nextAt > now) return false;
+      // 本周期未触发：triggeredAt 不存在，或最近触发早于 nextTriggerAt
+      if (i.triggeredAt && new Date(i.triggeredAt).getTime() >= nextAt) return false;
+      return true;
+    });
+  }
+
+  /** 触发后推进 repeat 周期（保持 pending）；超出 until 则清空 repeat */
+  advanceRepeat(id: string): TodoItem | undefined {
+    return this.updateItem(id, item => {
+      if (!item.repeat || !item.nextTriggerAt) return;
+      const base = new Date(item.nextTriggerAt).getTime();
+      const next = computeNextTriggerAt(item.repeat, base);
+      if (item.repeat.until && next > new Date(item.repeat.until).getTime()) {
+        item.repeat = undefined;
+        item.nextTriggerAt = undefined;
+        return;
+      }
+      item.nextTriggerAt = new Date(next).toISOString();
     });
   }
 
@@ -101,6 +173,31 @@ export class TodoStore {
       if (i.triggeredAt) return false;
       const triggerTime = new Date(i.triggerAt).getTime();
       return (now - triggerTime) > thresholdMs;
+    });
+  }
+
+  /**
+   * 获取「已触发待完成且超过冷却期」的 TODO — 低频重唤醒承担者（goal 机制核心一环）。
+   * overduePolicy 存在时用其 cooldownMinutes/maxRetries，否则用默认冷却、不限制重试。
+   */
+  getStalePendingTodos(cooldownMs = STALE_RETRIGGER_COOLDOWN_MS): TodoItem[] {
+    const now = Date.now();
+    return this.readAll().filter(i => {
+      if (i.status !== "pending" || !i.triggeredAt) return false;
+      const policy = i.overduePolicy;
+      const c = policy?.cooldownMinutes != null ? policy.cooldownMinutes * 60_000 : cooldownMs;
+      if (now - new Date(i.triggeredAt).getTime() <= c) return false;
+      const retries = i.reTriggerCount ?? 0;
+      if (policy?.maxRetries != null && retries >= policy.maxRetries) return false;
+      return true;
+    });
+  }
+
+  /** 标记重触发一次（刷新 triggeredAt + reTriggerCount，不推进 repeat 周期） */
+  markReTriggered(id: string): TodoItem | undefined {
+    return this.updateItem(id, item => {
+      item.reTriggerCount = (item.reTriggerCount ?? 0) + 1;
+      item.triggeredAt = new Date().toISOString();
     });
   }
 

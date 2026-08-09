@@ -7,7 +7,7 @@ import type { AppConfig } from "./config/schema.js";
 import type { AgentSelfConfig } from "./config/schema.js";
 import { AgentRegistry } from "./agent/registry.js";
 import { GroupManager } from "./group/manager.js";
-import { ButlerAgent, BUTLER_DEFAULT_TOOLS, BUTLER_DEFAULT_SYSTEM_PROMPT } from "./agent/butler.js";
+import { ButlerAgent, BUTLER_DEFAULT_TOOLS, BUTLER_DEFAULT_SYSTEM_PROMPT, stripButlerForbiddenTools } from "./agent/butler.js";
 import { CoreWSServer } from "./api/ws-server.js";
 import { LLMGateway } from "./gateway/llm-gateway.js";
 import { OpenAICompatProvider, PROVIDER_CATALOGS, registerProvider, getProvider } from "@cobeing/providers";
@@ -25,7 +25,6 @@ import { MarketCatalog } from "./market/catalog.js";
 import { MarketInstaller } from "./market/installer.js";
 import { makeGroupPlanTool, makeGroupInviteTalkTool, makeGroupSummarizeTool, makeGroupAssignTaskTool } from "./group/owner.js";
 import { SkillRepository } from "./skills/repository.js";
-import { VoteStore } from "./vote/store.js";
 import type { ChannelBindTo } from "./config/schema.js";
 import { createLogger, setGlobalLogLevel, readMasterRegistry, migrateFromFilesystem, cleanupOrphanDirectories, cleanupPendingDeletions, addAgentToRegistry, migratePermissionMode, DEFAULT_PROVIDER, DEFAULT_MODEL, DEFAULT_JUDGMENT_MODEL, DEFAULT_WS_PORT } from "@cobeing/shared";
 import type { AgentConfig } from "@cobeing/shared";
@@ -40,6 +39,7 @@ import { MCPManager } from "./mcp/manager.js";
 import { makeMCPDiscoverTool, makeMCPRegisterTool } from "./tools/mcp-tools.js";
 import { ObservabilityDB } from "./observability/observability-db.js";
 import { ensureSandboxConfig } from "./runtime/sandbox-helper.js";
+import { ToolAgentRegistry } from "./agent/tool-agent/registry.js";
 
 const log = createLogger("runtime");
 
@@ -64,7 +64,6 @@ export class CoBeingRuntime {
   readonly globalTodoStore: GlobalTodoStore;
   readonly butlerTaskStore: ButlerTaskStore;
   readonly butlerBindingStore: GroupButlerBindingStore;
-  readonly voteStore: VoteStore;
   private pluginLoader: PluginLoader;
   /** 已解析的插件注册表（loadAllPlugins 填充，startChannels 读取） */
   private pluginRegistry: import("@cobeing/plugin-sdk").PluginRegistry | null = null;
@@ -76,6 +75,8 @@ export class CoBeingRuntime {
   readonly uiExtensions = new UIExtensionRegistry();
   /** 全局 MCP 管理器（按需注册，非自动推给所有 Agent） */
   readonly mcpManager = new MCPManager();
+  /** 轻量 ToolAgent 注册表（决策 #8 / spec #4：统一注册/发现入口） */
+  readonly toolAgentRegistry = new ToolAgentRegistry();
   /** Docker 可用性（start() 中检查，用于沙箱降级） */
   private dockerAvailable = false;
   /** 全局可观测性数据库 */
@@ -96,7 +97,6 @@ export class CoBeingRuntime {
       runtime: this,
       agentRegistry: null as any,
       groupManager: null as any,
-      voteStore: null as any,
       dataRoot: this.dataRoot,
       config: config,
       getProvider: (id: string) => this.providers.get(id),
@@ -108,11 +108,12 @@ export class CoBeingRuntime {
       pluginTools: new Map(),
       pluginMemoryBackends: new Map(),
       toolAgents: new Map(),
+      toolAgentRegistry: this.toolAgentRegistry,
     };
 
     // B3 僵尸修复：为旧式独立全局变量补齐兼容别名。
     // 此前仅有 __cobeing 命名空间，旧式 __cobeingHookBus/__cobeingPromptLayers 等
-    // 从未被写入，导致插件 hook 事件、PromptLayer、投票静默失效。
+    // 从未被写入，导致插件 hook 事件、PromptLayer 静默失效。
     (globalThis as any).__cobeingHookBus = this.hookBus;
     (globalThis as any).__cobeingPromptLayers = this.promptLayerRegistry;
     (globalThis as any).__cobeingConfig = config;
@@ -136,9 +137,6 @@ export class CoBeingRuntime {
       },
     );
     (globalThis as any).__cobeing.groupManager = this.groupManager;
-    this.voteStore = new VoteStore(this.dataRoot);
-    (globalThis as any).__cobeing.voteStore = this.voteStore;
-    (globalThis as any).__cobeingVoteStore = this.voteStore;
     this.observabilityDB = new ObservabilityDB(this.dataRoot);
     (globalThis as any).__cobeing.obsDb = this.observabilityDB;
     (globalThis as any).__cobeingObsDb = this.observabilityDB;
@@ -209,7 +207,7 @@ export class CoBeingRuntime {
       registerToolAgent(agentDef: any) {
         const registry: Map<string, any> = (globalThis as any).__cobeing.toolAgents;
         registry.set(agentDef.id, agentDef);
-        log.info("Plugin registered tool-agent: %s (%s)", agentDef.id, agentDef.name);
+        this.toolAgentRegistry.registerPluginAgent(agentDef);
       },
       registerUIExtension(ext: any) {
         // Basic validation
@@ -303,6 +301,24 @@ export class CoBeingRuntime {
   /** 创建管家（在 loadAllPlugins 之后调用，确保插件 providers 可用） */
   private createButler(): void {
     const butlerSelfConfig = (this as any)._butlerSelfConfig as Partial<AgentSelfConfig>;
+
+    // 管家工具分级结构约束（决策 #1 / P2，对齐 host）：移除执行类工具 + 修复持久化 config.json
+    if (butlerSelfConfig.tools && butlerSelfConfig.tools.length > 0) {
+      const stripped = stripButlerForbiddenTools(butlerSelfConfig.tools);
+      if (stripped.length < butlerSelfConfig.tools.length) {
+        const removed = butlerSelfConfig.tools.length - stripped.length;
+        log.warn("Butler config had %d forbidden execution tools — stripped at runtime", removed);
+        butlerSelfConfig.tools = stripped;
+        try {
+          const butlerPaths = AgentPaths.forAgent("butler", this.dataRoot);
+          const fixed = JSON.parse(fs.readFileSync(butlerPaths.configPath, "utf-8"));
+          fixed.tools = stripButlerForbiddenTools(fixed.tools || []);
+          fs.writeFileSync(butlerPaths.configPath, JSON.stringify(fixed, null, 2) + "\n", "utf-8");
+          log.info("Butler config.json fixed: removed %d forbidden tools", removed);
+        } catch { /* best effort */ }
+      }
+    }
+
     const butlerProviderId = (this as any)._butlerProviderId as string;
     const butlerModel = (this as any)._butlerModel as string;
     const butlerProvider = this.providers.get(butlerProviderId);
@@ -310,13 +326,14 @@ export class CoBeingRuntime {
       throw new Error(`Provider not found: ${butlerProviderId}. Available: ${[...this.providers.keys()].join(", ")}`);
     }
 
-    // 创建 LLM Gateway
-    this.gateway = new LLMGateway(butlerProvider, {
+    // 创建 LLM Gateway（全局必经链路：并发 + RPM + 超时 + 重试；provider 由调用方传入）
+    this.gateway = new LLMGateway({
       maxConcurrency: 5,
       rpmLimit: 60,
       timeout: 120000,
       retryAttempts: 3,
     });
+    (globalThis as any).__cobeing.gateway = this.gateway;
 
     // 创建管家（systemPrompt 为短底座，人格/职责/转接规则由文件 prompt 承担：CHARACTER.md / JOB.md）
     this.butler = new ButlerAgent({
@@ -329,7 +346,7 @@ export class CoBeingRuntime {
       permissions: (butlerSelfConfig.permissions as any) || { mode: "full-access" },
       sandbox: (butlerSelfConfig.sandbox as any) || { enabled: true, filesystem: "isolated", network: { enabled: true, mode: "all" } },
       tools: butlerSelfConfig.tools || BUTLER_DEFAULT_TOOLS,
-    }, butlerProvider, this.registry, this.groupManager, (providerId: string) => this.providers.get(providerId), this.router, this.config);
+    }, butlerProvider, this.registry, this.groupManager, (providerId: string) => this.providers.get(providerId), this.router, this.config, this.dataRoot);
 
     // 注入 SkillRepository 到管家
     this.butler.injectSkillRepository(this.skillRepo);
@@ -558,6 +575,9 @@ export class CoBeingRuntime {
     // 确保 data/ 7 分类目录结构 + 初始化本地过滤引擎
     await this.ensureRuntimeDirs();
 
+    // 轻量 ToolAgent 注册表：从 data/toolagents/ 全量加载配置卡 spec（决策 #8）
+    this.toolAgentRegistry.loadAll(this.dataRoot);
+
     log.info("Runtime started (dataRoot=%s). Butler: %s, WS: ws://localhost:%d",
       this.dataRoot, this.butler.name, this.config.gui?.wsPort ?? DEFAULT_WS_PORT);
     log.info("Providers: %s", [...this.providers.keys()].join(", "));
@@ -762,6 +782,8 @@ export class CoBeingRuntime {
       },
     });
     this.todoScanner.start();
+    // 注入到 wsServer：Agent 完成发言后检查 Agent 级 condition TODO
+    this.wsServer.setAgentTodoScanner(this.todoScanner);
   }
 
   /** 确保 data/ 7 分类目录结构 + 初始化本地过滤引擎 */
@@ -1640,11 +1662,13 @@ export class CoBeingRuntime {
       makeHostRemoveMemberTool,
       makeHostSetScreenerPromptTool,
       makeHostManageWorkspaceTool,
+      makeHostReportEventTool,
     }) => {
       const groupGetter = (gid: string) => this.groupManager.get(gid);
       const hostDataDir = path.join(this.dataRoot, "coreagents", "host");
 
       agent.registerTool(makeHostGuideDiscussionTool(groupGetter));
+      agent.registerTool(makeHostReportEventTool());
       agent.registerTool(makeHostDecomposeTaskTool(groupGetter, (input: any) => {
         const store = this.groupManager.getGroupTodoStore(input.groupId);
         if (store) return store.add(input);

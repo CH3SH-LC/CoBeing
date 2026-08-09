@@ -4,6 +4,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
+import { detectDataPathMisuse } from "./path-guard.js";
+import { formatVersionLine } from "./file-version.js";
 
 export const readFileTool: Tool = {
   name: "read-file",
@@ -20,6 +22,12 @@ export const readFileTool: Tool = {
   async execute(params, context: ToolContext): Promise<ToolResult> {
     const workingDir = context.workingDir;
     const filePath = path.resolve(workingDir, params.path as string);
+
+    // 误用防护：Agent 把 data/... 项目相对路径当工作目录相对路径
+    const misuse = detectDataPathMisuse(workingDir, params.path as string);
+    if (misuse) {
+      return { toolCallId: "", content: misuse, isError: true };
+    }
 
     // Path containment: prevent escaping working directory
     const rel = path.relative(workingDir, filePath);
@@ -55,8 +63,11 @@ export const readFileTool: Tool = {
       // 带行号输出
       const startLine = offset ?? 0;
       const numbered = lines.map((line, i) => `${startLine + i}\t${line}`).join("\n");
+      const body = numbered || "(empty file)";
+      // 并发写保护：附带文件版本（写回时携带 baseVersion）
+      const contentWithVersion = body + formatVersionLine(filePath);
 
-      return { toolCallId: "", content: numbered || "(empty file)" };
+      return { toolCallId: "", content: contentWithVersion };
     } catch (err: any) {
       return { toolCallId: "", content: `读取文件失败: ${err.message}`, isError: true };
     }

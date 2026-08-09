@@ -34,6 +34,28 @@ export function makeTodoAddTool(
         },
         onFail: { type: "string", enum: ["remind", "recreate"], description: "条件不满足时的行为" },
         recurrenceHint: { type: "string", description: "续期提示（每天9:00 / 每周一10:00 / 不重复）" },
+        repeat: {
+          type: "object",
+          description: "重复触发（可选，仅 time 模式；与 0time/condition 显式互斥）。触发后自动计算 nextTriggerAt 保持 pending。",
+          properties: {
+            type: { type: "string", enum: ["daily", "weekly", "interval"], description: "daily=每天 / weekly=每周 / interval=间隔小时" },
+            timeOfDay: { type: "string", description: "HH:MM（daily/weekly 使用，本地时区）" },
+            weekday: { type: "number", description: "0-6（0=周日），weekly 使用" },
+            intervalHours: { type: "number", description: "interval 使用，两次触发的间隔小时数" },
+            until: { type: "string", description: "ISO 8601 截止时间，超过后停止续期" },
+          },
+          required: ["type"],
+        },
+        overduePolicy: {
+          type: "object",
+          description: "已触发待完成超时策略（可选）。超时后低频重唤醒承担者（带冷却 + 重试上限，只重触发不重建）。",
+          properties: {
+            action: { type: "string", enum: ["re-wake", "escalate-to-host"], description: "re-wake=重新唤醒承担者 / escalate-to-host=升级给群主 host" },
+            cooldownMinutes: { type: "number", description: "冷却分钟数（默认 10）" },
+            maxRetries: { type: "number", description: "最大重触发次数（默认不限）" },
+          },
+          required: ["action"],
+        },
         scope: { type: "string", description: "agent 或 group（默认 agent）" },
         groupId: { type: "string", description: "群组级时必填" },
         targetAgentId: { type: "string", description: "群组级时指派的目标 agent" },
@@ -71,6 +93,18 @@ export function makeTodoAddTool(
       if (triggerMode === "condition" && (!params.targetAgents || (params.targetAgents as string[]).length === 0)) {
         return { toolCallId: "", content: "triggerMode=condition 时必须提供 targetAgents（至少一个监视 Agent）", isError: true };
       }
+      if (params.repeat) {
+        if (triggerMode !== "time") {
+          return { toolCallId: "", content: "repeat 仅支持 triggerMode=time（与 0time/condition 显式互斥）", isError: true };
+        }
+        if (!params.triggerAt) {
+          return { toolCallId: "", content: "repeat 模式必须提供 triggerAt（首次触发时间）", isError: true };
+        }
+        const r = params.repeat as { type: string; intervalHours?: number };
+        if (r.type === "interval" && !r.intervalHours) {
+          return { toolCallId: "", content: "repeat.type=interval 时必须提供 intervalHours", isError: true };
+        }
+      }
 
       const todoInput: Omit<TodoItem, "id" | "createdAt" | "status"> = {
         title: params.title as string,
@@ -85,7 +119,13 @@ export function makeTodoAddTool(
         parentId: params.parentId as string | undefined,
         dependsOn: params.dependsOn as string[] | undefined,
         onComplete: params.onComplete as any,
+        repeat: params.repeat as any,
+        overduePolicy: params.overduePolicy as any,
       };
+      // repeat 的 nextTriggerAt 初始 = 首次触发时间
+      if (params.repeat && triggerMode === "time") {
+        todoInput.nextTriggerAt = params.triggerAt as string;
+      }
 
       if (triggerMode === "condition" && params.conditionType) {
         todoInput.condition = {

@@ -3,8 +3,10 @@
  *
  * 轻量 LLM 调用，不依赖 Agent 类。被 butler.ts / ws-server.ts 调用。
  */
+import { chatWithGateway } from "../../gateway/llm-gateway.js";
 import type { LLMProvider } from "@cobeing/providers";
 import { createLogger } from "@cobeing/shared";
+import { loadToolAgentData } from "./base.js";
 
 const log = createLogger("agent-creator");
 
@@ -198,7 +200,7 @@ async function collectText(
   abortSignal?: AbortSignal,
 ): Promise<string> {
   let content = "";
-  for await (const chunk of provider.chat({
+  for await (const chunk of await chatWithGateway(provider, {
     model,
     messages: [
       { role: "system", content: systemPrompt },
@@ -230,11 +232,14 @@ export async function runAgentCreator(
 
   const effectiveInput: AgentCreatorInput = { ...input, fields: needed };
   const userPrompt = buildUserPrompt(effectiveInput);
+  // 合并双份 prompt（spec #4）：data/toolagents/creator/prompt.md 为权威，源码内置为 fallback
+  const configPrompt = loadToolAgentData("creator").prompt;
+  const systemPrompt = configPrompt ?? SYSTEM_PROMPT;
 
   log.info("Generating agent core files for %s: %s", input.name, needed.join(", "));
 
   try {
-    const content = await collectText(provider, model, SYSTEM_PROMPT, userPrompt, abortSignal);
+    const content = await collectText(provider, model, systemPrompt, userPrompt, abortSignal);
     const files = parseResult(content, needed);
     log.info("Agent creator generated %d/%d fields for %s", Object.keys(files).length, needed.length, input.name);
     return { files };

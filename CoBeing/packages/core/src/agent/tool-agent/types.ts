@@ -120,6 +120,10 @@ export interface MemoryEntry {
   category: string;
   summary: string;
   detail?: string;
+  /** 记忆分级（决策 #6 / spec #3）：P0 永不过期（Q1 不看会犯错）/ P1 ~90 天 TTL / P2 只留日志 */
+  ttl?: "P0" | "P1" | "P2";
+  /** 来源 agent id（多 Agent 写同一记忆文件需 provenance） */
+  provenance?: string;
 }
 
 export interface MemoryFileUpdate {

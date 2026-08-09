@@ -25,7 +25,6 @@ const RUNTIME_GLOBALS = [
   "__cobeingConfig",
   "__cobeingDataRoot",
   "__cobeingAgentRegistry",
-  "__cobeingVoteStore",
   "__cobeingObsDb",
   "__cobeingGetProvider",
   "__cobeingWSServer",
@@ -175,8 +174,12 @@ describe("butler 文件体系与人格（ensureButlerDir / butler-persona handle
 
       // 工具注册不退化：完整管家工具面仍随 prompt 下发
       const toolNames = (captured[0].tools ?? []).map((t: any) => t.function?.name ?? t.name);
-      for (const expected of ["butler-list", "butler-create-agent", "butler-create-group", "butler-run-group", "butler-dispatch-to-agent", "butler-get-work-status", "group-send", "bash"]) {
+      for (const expected of ["butler-list", "butler-create-agent", "butler-create-group", "butler-run-group", "butler-dispatch-to-agent", "butler-get-work-status", "group-send", "read-file", "write-file"]) {
         expect(toolNames).toContain(expected);
+      }
+      // 管家工具分级结构约束（决策 #1 / P2）：执行类工具必须被移除
+      for (const forbidden of ["bash", "edit-file", "glob", "grep"]) {
+        expect(toolNames).not.toContain(forbidden);
       }
     } finally {
       process.chdir(oldCwd);

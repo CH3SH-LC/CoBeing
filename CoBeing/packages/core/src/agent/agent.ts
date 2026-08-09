@@ -6,6 +6,7 @@ import fs from "node:fs";
 import type { AgentConfig, AgentResponse, AgentStatus, ReviewInput, ReviewResult, WorkspaceBinding } from "@cobeing/shared";
 import type { LLMProvider } from "@cobeing/providers";
 import type { ChannelAdapter } from "@cobeing/channels";
+import { chatCompleteWithGateway } from "../gateway/llm-gateway.js";
 import { ConversationLoop, type ConversationLoopEvents } from "../conversation/conversation-loop.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -32,10 +33,8 @@ import { makeMemoryTool } from "../memory/memory-tool.js";
 import { AgentEventBus } from "./event-bus.js";
 import { makeTodoAddTool, makeTodoListTool, makeTodoCompleteTool, makeTodoRemoveTool, makeTodoReviewTool, makeTodoBatchCompleteTool, makeTodoBatchRemoveTool, makeTodoBatchUpdateTool } from "../todo/tools.js";
 import { currentTimeTool } from "../todo/time-tool.js";
-import { makeVoteCreateTool, makeVoteCastTool, makeVoteResultTool } from "../vote/tools.js";
 import { buildSystemPromptFromFiles, buildCacheablePrompt, GROUP_MECHANICS_NOTICE } from "../conversation/prompt-builder.js";
 import { makeGroupMemorySearchTool } from "../tools/group-memory-search.js";
-import { makeExperienceReflectTool } from "../tools/experience-reflect.js";
 import type { ObservabilityDB } from "../observability/observability-db.js";
 import { makeSummarizePhaseTool } from "../tools/summarize-phase.js";
 import { makeAgentCloneTool } from "../tools/agent-clone.js";
@@ -281,11 +280,6 @@ export class Agent {
     // 注册 memory 工具
     this.toolRegistry.register(makeMemoryTool(this.memoryStore));
 
-    // 注册经验总结工具（所有 agent 无条件可用）
-    this.toolRegistry.register(makeExperienceReflectTool(
-      this.paths.experiencePath,
-    ));
-
     // 注册 TODO 工具
     const todoDataRoot = path.dirname(path.dirname(this.paths.directory));
     // 群组 TODO 存储/扫描器经全局 __cobeingGroupManager 解析
@@ -309,14 +303,6 @@ export class Agent {
     this.toolRegistry.register(makeTodoBatchRemoveTool(todoDataRoot, getGroupTodoStore));
     this.toolRegistry.register(makeTodoBatchUpdateTool(todoDataRoot, getGroupTodoStore));
     this.toolRegistry.register(currentTimeTool);
-
-    // 注册投票工具（需要全局 VoteStore）
-    const voteStore = () => (globalThis as any).__cobeingVoteStore;
-    if (voteStore()) {
-      this.toolRegistry.register(makeVoteCreateTool(voteStore));
-      this.toolRegistry.register(makeVoteCastTool(voteStore));
-      this.toolRegistry.register(makeVoteResultTool(voteStore));
-    }
 
     // 群组记忆搜索工具
     this.toolRegistry.register(makeGroupMemorySearchTool(
@@ -487,9 +473,9 @@ export class Agent {
           this._sharedPrefix,
           GROUP_MECHANICS_NOTICE,
           `# 工作目录
-- 你的工作目录是：\`${workingDir ?? this.effectiveWorkspace}\`
-- 所有文件操作（write-file / read-file / edit-file / glob / grep / bash）请使用**相对路径**（相对于工作目录，如 \`game.html\`、\`src/main.js\`），**不要使用绝对路径**。
-- **绝对不要**访问你自己的 Agent 目录（data/agents/<你的ID>/...）或任何 data/ 下其他目录——那会被权限系统拒绝（path escapes working directory）。
+- 你的工作目录是：\`${workingDir ?? this.effectiveWorkspace}\`。所有文件操作（write-file / read-file / edit-file / glob / grep）都以它为基础。
+- **文件路径只使用工作目录内的相对路径**（如 \`note.md\`、\`docs/note.md\`、\`game.html\`）。**禁止以 \`data/\`、\`coreagents/\`、\`agents/\`、\`groups/\`、\`skills/\` 等前缀书写路径，也禁止绝对路径**——那会指向数据目录的其他位置，系统会拒绝（路径必须解析在你的工作目录内）。
+- 你的工作目录本身就在数据目录内，但你**不需要也不应该**引用任何 \`data/\` 下的其他目录；所有产物直接写在当前目录或子目录。
 - 写入的产物文件会保存在工作目录，群组其他成员与用户都能看到。交付物（HTML/代码/文档）必须实际写入工作目录中的文件。
 - **大文件必须分块写入**：单次 write-file 的 content 不超过 3000 字符。先 write-file 写文件骨架，再用 edit-file 逐块追加/替换内容，直到完成。`,
           this._agentPrefix,
@@ -1056,7 +1042,7 @@ export class Agent {
   async reviewOnce(input: ReviewInput): Promise<ReviewResult> {
     const prompt = this.buildReviewPrompt(input)
     try {
-      const response = await this.provider.chatComplete({
+      const response = await chatCompleteWithGateway<string>(this.provider, {
         model: this.config.model,
         messages: [{ role: "user", content: prompt }],
         maxTokens: 512,

@@ -167,10 +167,12 @@ export async function runMemoryAgent(
     workingDir,
   );
 
-  return parseMemoryOutput(result, mode);
+  return parseMemoryOutput(result, mode, mode === "personal"
+    ? (input as PersonalMemoryInput).agentId
+    : (input as GroupMemoryInput).groupId);
 }
 
-function parseMemoryOutput(result: ToolAgentResult, mode: MemoryMode): MemoryToolAgentResult {
+function parseMemoryOutput(result: ToolAgentResult, mode: MemoryMode, defaultProvenance?: string): MemoryToolAgentResult {
   try {
     const output = result.output.trim();
     if (!output || output === "[]" || output === "Nothing to save." || output === "Nothing to save") {
@@ -185,7 +187,7 @@ function parseMemoryOutput(result: ToolAgentResult, mode: MemoryMode): MemoryToo
     const parsed = JSON.parse(jsonMatch[0]);
 
     if (Array.isArray(parsed)) {
-      return { entries: parsed };
+      return { entries: normalizeEntries(parsed, defaultProvenance) };
     }
 
     const memoryUpdates = Array.isArray(parsed.memoryUpdates)
@@ -206,7 +208,7 @@ function parseMemoryOutput(result: ToolAgentResult, mode: MemoryMode): MemoryToo
       : undefined;
 
     return {
-      entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+      entries: normalizeEntries(Array.isArray(parsed.entries) ? parsed.entries : [], defaultProvenance),
       interfaceUpdates: mode === "group" && Array.isArray(parsed.interfaceUpdates) ? parsed.interfaceUpdates : undefined,
       memoryUpdates,
       warnings,
@@ -214,4 +216,24 @@ function parseMemoryOutput(result: ToolAgentResult, mode: MemoryMode): MemoryToo
   } catch {
     return { entries: [] };
   }
+}
+
+/**
+ * 记忆纪律（决策 #6 / spec #3）：归一化 entries —— 过滤非法、强制 category/summary、
+ * ttl 默认 P1（可过期）、provenance 缺省补执行者 id。
+ */
+function normalizeEntries(raw: unknown[], defaultProvenance?: string): MemoryEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      category: typeof item.category === "string" && item.category.trim() ? item.category.trim() : "经验",
+      summary: typeof item.summary === "string" ? item.summary.trim() : "",
+      detail: typeof item.detail === "string" && item.detail.trim() ? item.detail.trim() : undefined,
+      ttl: (item.ttl === "P0" || item.ttl === "P1" || item.ttl === "P2" ? item.ttl : "P1") as "P0" | "P1" | "P2",
+      provenance: (typeof item.provenance === "string" && item.provenance.trim())
+        ? item.provenance.trim()
+        : (defaultProvenance ?? undefined),
+    }))
+    .filter((item) => item.summary.length > 0);
 }

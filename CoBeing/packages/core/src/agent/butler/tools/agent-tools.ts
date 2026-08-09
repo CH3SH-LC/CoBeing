@@ -2,6 +2,7 @@
  * Butler agent lifecycle tools
  * (butler-create-agent, butler-destroy-agent, butler-modify-agent, butler-find-agent)
  */
+import { chatWithGateway } from "../../../gateway/llm-gateway.js";
 import type { AgentConfig, Tool, ToolContext, ToolResult } from "@cobeing/shared";
 import type { LLMProvider } from "@cobeing/providers";
 import path from "node:path";
@@ -132,8 +133,9 @@ export function makeCreateAgentTool(
       // 使用 resolver 或 fallback 到默认 provider
       const provider = providerResolver?.(providerId) ?? providerGetter();
 
-      // 写入自治配置到 agent 目录
-      const agentPaths = AgentPaths.forAgent(id);
+      // 写入自治配置到 agent 目录（dataRoot 必须与 runtime 一致，防止 Agent 文件错位到其他目录）
+      const dataRoot = (globalThis as any).__cobeingDataRoot || "data";
+      const agentPaths = AgentPaths.forAgent(id, dataRoot);
       agentPaths.ensureDirs();
       const agentFiles = new AgentFiles(agentPaths);
 
@@ -207,7 +209,7 @@ export function makeCreateAgentTool(
         skills: params.skills as string[] | undefined,
       }));
 
-      const agent = new Agent(config, provider);
+      const agent = new Agent(config, provider, dataRoot);
       registry.register(agent);
       agent.injectAgentMessageTool(registry);
       // Set up provider fallback
@@ -217,7 +219,6 @@ export function makeCreateAgentTool(
       }
 
       // 更新 master registry
-      const dataRoot = (globalThis as any).__cobeingDataRoot || "data";
       addAgentToRegistry(dataRoot, {
         id, name, role,
         status: "active",
@@ -428,7 +429,7 @@ export function makeFindAgentTool(registry: AgentRegistry, dataRoot: string, pro
       try {
         // Use synchronous chat for matching
         let text = "";
-        for await (const chunk of provider.chat({
+        for await (const chunk of await chatWithGateway(provider, {
           model,
           messages: [
             { role: "system", content: "你是一个 Agent 匹配器。根据任务描述从候选 Agent 中选择最合适的。返回 JSON: { bestAgentId: string, confidence: number, reasoning: string, alternatives: string[] }" },

@@ -3,6 +3,7 @@
  *
  * 不依赖 Agent 类，直接用 Provider.chat() + ToolExecutor 循环。
  */
+import { chatWithGateway } from "../../gateway/llm-gateway.js";
 import type { LLMProvider } from "@cobeing/providers";
 import type { Message, ToolCall, ToolResult } from "@cobeing/shared";
 import { ToolRegistry } from "../../tools/registry.js";
@@ -54,7 +55,7 @@ async function collectResponse(
   const toolCalls: ToolCall[] = [];
   const toolCallMap = new Map<number, ToolCall>();
 
-  for await (const chunk of provider.chat({
+  for await (const chunk of await chatWithGateway(provider, {
     model,
     messages,
     tools: tools.length > 0 ? tools : undefined,

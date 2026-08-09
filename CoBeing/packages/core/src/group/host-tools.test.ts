@@ -7,6 +7,7 @@ import {
   makeHostRecordDecisionTool,
   makeHostManageTodoTool,
   makeHostReviewTodoTool,
+  makeHostReportEventTool,
 } from "./host-tools.js";
 
 function mockGroup() {
@@ -171,5 +172,59 @@ describe("host-review-todo", () => {
       { agentId: "host" } as any,
     );
     expect(result.content).toContain("没有到期");
+  });
+});
+
+describe("host-report-event (Group → Butler 结构化事件桥, P0)", () => {
+  afterEach(() => {
+    delete (globalThis as any).__cobeing;
+  });
+
+  it("broadcasts butler_escalation with structured payload", async () => {
+    const broadcasts: any[] = [];
+    (globalThis as any).__cobeing = {
+      runtime: { wsServer: { broadcast: (m: any) => broadcasts.push(m) } },
+    };
+    const tool = makeHostReportEventTool();
+    const result = await tool.execute(
+      {
+        eventType: "blocked",
+        summary: "依赖外部 API 未就绪",
+        severity: "warning",
+        artifactPaths: ["docs/plan.md"],
+        suggestedNextStep: "等待外部 API 就绪后重试",
+      },
+      { agentId: "host", groupId: "g1" } as any,
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toContain("阻塞");
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0].type).toBe("butler_escalation");
+    expect(broadcasts[0].payload).toMatchObject({
+      type: "blocked",
+      groupId: "g1",
+      fromAgentId: "host",
+      severity: "warning",
+      summary: "依赖外部 API 未就绪",
+    });
+    expect(broadcasts[0].payload.artifacts).toHaveLength(1);
+  });
+
+  it("rejects unsupported event type", async () => {
+    const tool = makeHostReportEventTool();
+    const result = await tool.execute(
+      { eventType: "bogus", summary: "x" },
+      { agentId: "host", groupId: "g1" } as any,
+    );
+    expect(result.isError).toBe(true);
+  });
+
+  it("requires group context", async () => {
+    const tool = makeHostReportEventTool();
+    const result = await tool.execute(
+      { eventType: "completed", summary: "done" },
+      { agentId: "host" } as any,
+    );
+    expect(result.isError).toBe(true);
   });
 });

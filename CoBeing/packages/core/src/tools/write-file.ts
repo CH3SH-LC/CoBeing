@@ -5,6 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 import { scanContent } from "../memory/security-scan.js";
+import { detectDataPathMisuse } from "./path-guard.js";
+import { checkFileVersion } from "./file-version.js";
 
 const PROTECTED_AGENTS = new Set(["butler", "host"]);
 const MEMORY_FILES = new Set(["MEMORY.md", "EXPERIENCE.md"]);
@@ -27,12 +29,22 @@ export const writeFileTool: Tool = {
     properties: {
       path: { type: "string", description: "文件路径" },
       content: { type: "string", description: "文件内容" },
+      baseVersion: {
+        type: "string",
+        description: "并发写保护（可选）：read-file 返回的 [file-version: X] 值。若文件已被其他成员修改（版本不一致），写入将被拒绝，需重新读取后再写。",
+      },
     },
     required: ["path", "content"],
   },
   async execute(params, context: ToolContext): Promise<ToolResult> {
     const workingDir = context.workingDir;
     const filePath = path.resolve(workingDir, params.path as string);
+
+    // 误用防护：Agent 把 data/... 项目相对路径当工作目录相对路径（会造成 workspace/data/... 双重嵌套）
+    const misuse = detectDataPathMisuse(workingDir, params.path as string);
+    if (misuse) {
+      return { toolCallId: "", content: misuse, isError: true };
+    }
 
     // Path containment: prevent escaping working directory
     const rel = path.relative(workingDir, filePath);
@@ -77,6 +89,17 @@ export const writeFileTool: Tool = {
     }
 
     try {
+      // 并发写保护 CAS：baseVersion 与当前版本不一致 → 拒绝（防静默覆写）
+      if (params.baseVersion) {
+        const conflict = checkFileVersion(filePath, params.baseVersion as string);
+        if (conflict !== undefined) {
+          return {
+            toolCallId: "",
+            content: `并发写保护：文件已被其他成员修改（当前版本 ${conflict} 与你的基准 ${params.baseVersion} 不一致），请重新读取后再写入。`,
+            isError: true,
+          };
+        }
+      }
       const dir = path.dirname(filePath);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(filePath, content, "utf-8");

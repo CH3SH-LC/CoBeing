@@ -5,12 +5,31 @@ import type { ToolCall, ToolResult, SandboxConfig, SandboxRunner } from "@cobein
 import { EventEmitter, createLogger } from "@cobeing/shared";
 import { ToolRegistry } from "./registry.js";
 import { PermissionEnforcer } from "./permission.js";
+import { SafetyClassifier } from "./safety-classifier.js";
 import type { ObservabilityDB } from "../observability/observability-db.js";
 
 const log = createLogger("tool-executor");
 
+/** 参数摘要：裁剪 JSON，避免把敏感原文整段送入分类器 */
+function summarizeParams(params: Record<string, unknown>, max = 400): string {
+  try {
+    const s = JSON.stringify(params);
+    if (s.length <= max) return s;
+    // 优先保留 path/command/toolName 等关键字段
+    const keep: Record<string, unknown> = {};
+    for (const k of ["path", "command", "toolName", "old_string", "title", "agentId", "groupId"]) {
+      if (params[k] !== undefined) keep[k] = params[k];
+    }
+    const trimmed = JSON.stringify(keep) || "";
+    return trimmed.length <= max ? trimmed : trimmed.slice(0, max) + "…";
+  } catch {
+    return String(params).slice(0, max);
+  }
+}
+
 export class ToolExecutor {
   private agentName: string;
+  private classifier: SafetyClassifier | null;
 
   constructor(
     private registry: ToolRegistry,
@@ -20,8 +39,10 @@ export class ToolExecutor {
     private sandboxRunner?: SandboxRunner,
     private observabilityDB?: ObservabilityDB,
     agentName?: string,
+    classifier?: SafetyClassifier,
   ) {
     this.agentName = agentName ?? "unknown";
+    this.classifier = classifier ?? null;
   }
 
   async execute(toolCall: ToolCall, agentId: string, sessionId: string, workingDir: string, callDepth = 0): Promise<ToolResult> {
@@ -47,6 +68,34 @@ export class ToolExecutor {
       log.warn("[DENIED] %s — %s", tool.name, permResult.reason);
       this.events?.emit("tool:denied", { agentId, toolName: tool.name, reason: permResult.reason! });
       return { toolCallId: toolCall.id, content: `权限不足: ${permResult.reason}`, isError: true };
+    }
+
+    // 3.2 auto 模式安全分类器裁决（reasoning-blind LLM 判断；fail-closed）
+    if (permResult.needsClassifier) {
+      const classifier = this.classifier ?? new SafetyClassifier();
+      let classifyResult;
+      try {
+        classifyResult = await classifier.classify({
+          toolName: tool.name,
+          paramsSummary: summarizeParams(params),
+          agentId,
+          workingDir,
+        });
+      } catch (err: any) {
+        classifyResult = { verdict: "deny" as const, reason: `分类器调用异常: ${err?.message || err}` };
+      }
+      this.events?.emit("tool:classified", {
+        agentId, toolName: tool.name, verdict: classifyResult.verdict, reason: classifyResult.reason, stage: "auto-classifier",
+      });
+      if (classifyResult.verdict !== "allow") {
+        const reason = classifyResult.verdict === "ask"
+          ? `${classifyResult.reason}（需要人工确认，无确认通道则拒绝）`
+          : classifyResult.reason;
+        log.warn("[DENIED by classifier] %s — %s", tool.name, reason);
+        this.events?.emit("tool:denied", { agentId, toolName: tool.name, reason });
+        return { toolCallId: toolCall.id, content: `权限不足（安全分类器）: ${reason}`, isError: true };
+      }
+      log.info("[ALLOWED by classifier] %s", tool.name);
     }
 
     // 3.5 插件工具钩子 — tool:before（可拦截）

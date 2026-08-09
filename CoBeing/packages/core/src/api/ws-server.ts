@@ -55,6 +55,8 @@ export class CoreWSServer {
   /** handler 可访问的依赖（B1 拆分后由 handler 模块经 server 引用读取） */
   public agentRegistry: AgentRegistry | null = null;
   public groupManager: GroupManager | null = null;
+  /** Agent 级 TODO 扫描器（Agent 完成发言后检查 condition TODO） */
+  public agentTodoScanner: import("../todo/scanner.js").AgentTodoScanner | null = null;
   public router: ChannelRouter | null = null;
   private clients = new Set<WebSocket>();
   public messageLog: Array<{ timestamp: number; direction: string; content: string }> = [];
@@ -103,6 +105,11 @@ export class CoreWSServer {
   /** 注入 AgentRegistry — 后续 getState 直接读取 */
   setAgentRegistry(registry: AgentRegistry): void {
     this.agentRegistry = registry;
+  }
+
+  /** 注入 Agent 级 TODO 扫描器（Agent 完成发言后检查 condition TODO） */
+  setAgentTodoScanner(scanner: import("../todo/scanner.js").AgentTodoScanner | null): void {
+    this.agentTodoScanner = scanner;
   }
 
   /** 注入 GroupManager */

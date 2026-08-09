@@ -2,6 +2,7 @@
  * SkillMdLoader — 从 SKILL.md 文件加载技能定义
  * 支持 frontmatter (name, description, metadata) + markdown body 格式
  */
+import { chatWithGateway } from "../gateway/llm-gateway.js";
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
@@ -146,7 +147,7 @@ function skillMdToTool(
 
       try {
         let result = "";
-        for await (const chunk of provider.chat({
+        for await (const chunk of await chatWithGateway(provider, {
           model: "",
           messages: [
             { role: "system", content: prompt },

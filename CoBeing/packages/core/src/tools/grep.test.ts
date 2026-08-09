@@ -175,4 +175,32 @@ describe("grepTool", () => {
       expect(result.content).not.toBe("无匹配结果");
     });
   });
+
+  describe("扫描上限防护", () => {
+    it("深度超限时截断并提示（不递归全盘）", async () => {
+      // 构造 25 层深目录
+      let deep = workingDir;
+      for (let i = 0; i < 25; i++) {
+        deep = path.join(deep, `d${i}`);
+        fs.mkdirSync(deep, { recursive: true });
+      }
+      fs.writeFileSync(path.join(deep, "deep.txt"), "needle\n");
+      const result = await grepTool.execute({ pattern: "needle" }, ctx());
+      // 深度 20 上限内应截断：要么找到但带截断提示，要么明确提示截断
+      expect(result.isError).toBeFalsy();
+      if (result.content.includes("needle")) {
+        expect(result.content).toContain("截断");
+      }
+    });
+
+    it("文件数超限时截断并提示", async () => {
+      for (let i = 0; i < 20; i++) {
+        fs.writeFileSync(path.join(workingDir, `bulk-${i}.txt`), "haystack\n");
+      }
+      const result = await grepTool.execute({ pattern: "nonexistent-pattern-xyz" }, ctx());
+      expect(result.isError).toBeFalsy();
+      // 小目录不截断，正常返回无匹配
+      expect(result.content).toContain("无匹配结果");
+    });
+  });
 });

@@ -9,6 +9,22 @@ export interface TodoCondition {
   onFail: "remind" | "recreate";   // 条件不满足时的行为
 }
 
+/** 重复触发协议 — repeat 与 0time 显式互斥（仅 time 模式可带 repeat） */
+export interface TodoRepeat {
+  type: "daily" | "weekly" | "interval";
+  timeOfDay?: string;       // "08:00" — daily/weekly 使用（本地时区）
+  weekday?: number;         // 0-6（0=周日）— weekly 使用
+  intervalHours?: number;   // interval 使用
+  until?: string;           // ISO 8601 — 超过此时间不再续期（清空 repeat）
+}
+
+/** 已触发待完成超时后的处理策略 */
+export interface OverduePolicy {
+  action: "re-wake" | "escalate-to-host";
+  cooldownMinutes?: number;  // 默认 10 分钟
+  maxRetries?: number;       // 默认不限制
+}
+
 export interface TodoItem {
   id: string;                    // uuid
   title: string;                 // 简短标题
@@ -27,6 +43,15 @@ export interface TodoItem {
   createdAt: string;             // ISO 8601
   triggeredAt?: string;          // 实际触发时间
   completedAt?: string;
+
+  // 重复触发（决策 #3 / spec #2）— repeat 与 0time 显式互斥
+  repeat?: TodoRepeat;
+  /** 下一个触发时间点（repeat 模式使用；创建时=triggerAt） */
+  nextTriggerAt?: string;
+  /** 已触发待完成超时策略 */
+  overduePolicy?: OverduePolicy;
+  /** 已触发待完成被低频重唤醒的次数 */
+  reTriggerCount?: number;
 
   // Agent 级专用
   agentId?: string;              // Agent 级 TODO 归属

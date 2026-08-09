@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { AgentRegistry } from "./registry.js";
 import { GroupManager } from "../group/manager.js";
-import { ButlerAgent } from "./butler.js";
+import { ButlerAgent, BUTLER_DEFAULT_TOOLS, BUTLER_FORBIDDEN_TOOLS, stripButlerForbiddenTools } from "./butler.js";
 import { AgentFiles, AgentPaths } from "./paths.js";
 import { GlobalTodoStore } from "../todo/global-store.js";
 import { ButlerTaskStore } from "../butler/butler-task-store.js";
@@ -18,6 +18,29 @@ const mockProvider: LLMProvider = {
   listModels: async () => [],
   capabilities: () => ({ tools: true, vision: false, streaming: true, maxTokens: 4096, contextWindow: 128000 }),
 };
+
+describe("Butler tool tiering (管家工具分级, 决策 #1 / P2)", () => {
+  it("BUTLER_DEFAULT_TOOLS excludes execution tools (structural dispatch constraint)", () => {
+    // 管家靠协调/派发工作，结构上不得调用执行类工具
+    expect(BUTLER_DEFAULT_TOOLS).not.toContain("bash");
+    expect(BUTLER_DEFAULT_TOOLS).not.toContain("edit-file");
+    expect(BUTLER_DEFAULT_TOOLS).not.toContain("glob");
+    expect(BUTLER_DEFAULT_TOOLS).not.toContain("grep");
+    // 保留个人事务 md 读写（读日程/写购物清单）
+    expect(BUTLER_DEFAULT_TOOLS).toContain("read-file");
+    expect(BUTLER_DEFAULT_TOOLS).toContain("write-file");
+  });
+
+  it("stripButlerForbiddenTools removes execution tools and keeps coordination ones", () => {
+    const input = ["bash", "read-file", "write-file", "edit-file", "glob", "grep", "butler-list", "group-send"];
+    const result = stripButlerForbiddenTools(input);
+    expect(result).toEqual(["read-file", "write-file", "butler-list", "group-send"]);
+  });
+
+  it("BUTLER_FORBIDDEN_TOOLS lists the expected execution tools", () => {
+    expect([...BUTLER_FORBIDDEN_TOOLS]).toEqual(["bash", "edit-file", "glob", "grep"]);
+  });
+});
 
 describe("ButlerAgent", () => {
   let tmpDir: string;

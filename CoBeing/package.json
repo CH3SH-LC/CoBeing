@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "clean": "pnpm -r run clean"
+    "clean": "pnpm -r run clean",
+    "start:core": "node --max-old-space-size=4096 --import tsx scripts/start-core.ts"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",

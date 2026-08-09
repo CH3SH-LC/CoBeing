@@ -1,6 +1,7 @@
 /**
  * Skill Loader — 从 skills/ 目录加载技能定义，注册为 Tool
  */
+import { chatWithGateway } from "../gateway/llm-gateway.js";
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
@@ -66,7 +67,7 @@ function skillToTool(skill: SkillDefinition, providerGetter: () => LLMProvider):
 
       try {
         let result = "";
-        for await (const chunk of provider.chat({
+        for await (const chunk of await chatWithGateway(provider, {
           model: "",  // 由 provider 默认决定
           messages: [
             { role: "system", content: prompt },

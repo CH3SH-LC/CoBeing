@@ -5,6 +5,7 @@
  * 双存储: Markdown (权威) + SQLite (搜索索引)
  * 冻结快照保证会话内 system prompt 稳定
  */
+import { chatWithGateway } from "../gateway/llm-gateway.js";
 import fs from "node:fs";
 import path from "node:path";
 import { SqliteAdapter } from "./sqlite-adapter.js";
@@ -371,7 +372,7 @@ ${convText}
 
     try {
       let result = "";
-      for await (const chunk of provider.chat({
+      for await (const chunk of await chatWithGateway(provider, {
         model: model ?? "",
         messages: [{ role: "user", content: prompt }],
       })) {

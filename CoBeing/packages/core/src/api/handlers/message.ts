@@ -191,6 +191,10 @@ export function registerMessageHandlers(register: HandlerRegistrar): void {
     }).then((response) => {
 
       this.logMessage("out", response.content);
+      // Agent 级 condition TODO 检查（Agent 完成发言/任务）
+      if (this.agentTodoScanner) {
+        this.agentTodoScanner.notifyAgentSpoke(agentId).catch(() => {});
+      }
       // Broadcast agent_response so reconnected clients also receive the final text.
       // Previously sendToClient(ws) — lost on WS disconnect during tool execution.
       this.broadcast({ type: "agent_response", payload: { content: response.content, groupId: groupMatch?.[1], agentId, agentName: agent.config?.name || agentId } });

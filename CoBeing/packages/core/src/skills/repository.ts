@@ -11,6 +11,7 @@
  * - search(keyword) — 关键词搜索
  * - execute(name, task, params, provider) — 执行技能
  */
+import { chatWithGateway } from "../gateway/llm-gateway.js";
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
@@ -208,7 +209,7 @@ export class SkillRepository {
     }
 
     let result = "";
-    for await (const chunk of provider.chat({
+    for await (const chunk of await chatWithGateway(provider, {
       model: "",
       messages: [
         { role: "system", content: prompt },

@@ -1,6 +1,7 @@
 // packages/core/src/todo/continuation-judgment.ts
 import { createLogger } from "@cobeing/shared";
 import type { LLMProvider } from "@cobeing/providers";
+import { chatCompleteWithGateway } from "../gateway/llm-gateway.js";
 import type { TodoItem } from "./types.js";
 import type { GlobalTodoItem } from "@cobeing/shared";
 import type { GlobalTodoStore } from "./global-store.js";
@@ -67,7 +68,7 @@ export async function runContinuationJudgment(
 
   const prompt = buildPrompt(completedTodo, continuationPolicy, params.isGroupContext);
   try {
-    const content = await agentContext.provider.chatComplete({
+    const content = await chatCompleteWithGateway<string>(agentContext.provider, {
       model: agentContext.model,
       messages: [{ role: "user", content: prompt }],
       maxTokens: 500,

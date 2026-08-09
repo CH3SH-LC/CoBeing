@@ -10,6 +10,7 @@ import { buildSystemPrompt } from "./prompt-builder.js";
 import { createLogger } from "@cobeing/shared";
 import type { ToolExecutor } from "../tools/executor.js";
 import type { WakeSession } from "../agent/wake-session.js";
+import { chatWithGateway } from "../gateway/llm-gateway.js";
 
 const log = createLogger("conversation-loop");
 
@@ -129,6 +130,10 @@ export class ConversationLoop {
     return (
       errMsg.includes("timeout") || errMsg.includes("Timeout") ||
       errMsg.includes("ETIMEDOUT") || errMsg.includes("ECONNREFUSED") ||
+      errMsg.includes("fetch failed") || errMsg.includes("ENOTFOUND") ||
+      errMsg.includes("EAI_AGAIN") || errMsg.includes("ECONNRESET") ||
+      errMsg.includes("UND_ERR") || errMsg.includes("getaddrinfo") ||
+      errMsg.includes("socket") || errMsg.includes("network") ||
       errMsg.includes("503") || errMsg.includes("500") ||
       errMsg.includes("429") || errMsg.includes("rate limit") ||
       errMsg.includes("402") || errMsg.includes("quota") ||
@@ -139,6 +144,8 @@ export class ConversationLoop {
   private static buildProviderError(errMsg: string, model: string): string {
     if (errMsg.includes("timeout") || errMsg.includes("Timeout") || errMsg.includes("timed out") || errMsg.includes("ETIMEDOUT") || errMsg.includes("ECONNREFUSED")) {
       return "⚠️ 云端服务无响应（连接超时），请检查网络连接或 API 服务状态";
+    } else if (errMsg.includes("fetch failed") || errMsg.includes("ENOTFOUND") || errMsg.includes("EAI_AGAIN") || errMsg.includes("ECONNRESET") || errMsg.includes("UND_ERR") || errMsg.includes("getaddrinfo") || errMsg.includes("socket") || errMsg.includes("network") || errMsg.includes("unexpected server response")) {
+      return "⚠️ 网络连接不稳定（AI 服务暂不可达），请稍后重试或检查网络";
     } else if (errMsg.includes("401") || errMsg.includes("Unauthorized") || errMsg.includes("unauthorized") || errMsg.includes("API key") || errMsg.includes("api_key") || errMsg.includes("authentication")) {
       return "⚠️ API 密钥验证失败，请检查 Provider 配置中的 API Key 是否正确";
     } else if (errMsg.includes("402") || errMsg.includes("insufficient_quota") || errMsg.includes("quota") || errMsg.includes("rate limit") || errMsg.includes("429") || errMsg.includes("Too Many Requests")) {
@@ -284,7 +291,7 @@ export class ConversationLoop {
         if (!checkCircuit(providerId)) continue;
 
         try {
-          for await (const chunk of chatProvider.chat({
+          for await (const chunk of await chatWithGateway(chatProvider, {
             model: this.config.agentConfig.model,
             messages,
             tools: this.config.tools,
@@ -466,12 +473,19 @@ export class ConversationLoop {
             return { content: accumulatedContent || "[已停止]", usage: totalUsage };
           }
           let result: import("@cobeing/shared").ToolResult;
+          // 工作目录必须明确配置——缺失时拒绝执行工具并返回明确错误，
+          // 绝不静默兜底 process.cwd()（否则 grep/glob 等无 path 参数的工具会从项目根全盘扫描，内存耗尽崩溃）
+          if (!this.config.workingDir) {
+            log.error("Tool %s blocked: workingDir is not configured for session %s", tc.function?.name, this.config.sessionId);
+            this.history.push({ role: "tool", content: `工具执行被拒绝：会话工作目录未配置（workingDir 缺失）。请联系管理员检查 Agent 工作目录配置。`, toolCallId: tc.id });
+            continue;
+          }
           try {
             result = await this.config.toolExecutor.execute(
               tc,
               this.config.agentId ?? "unknown",
               this.config.sessionId ?? "unknown",
-              this.config.workingDir ?? process.cwd(),
+              this.config.workingDir,
             );
           } catch (err) {
             // 工具执行异常也必须写入 history，否则 tool_calls 链断裂

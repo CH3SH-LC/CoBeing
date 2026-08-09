@@ -3,8 +3,8 @@
  *
  * 背景：此前仅有 __cobeing 命名空间，旧式独立全局变量 __cobeingHookBus /
  * __cobeingPromptLayers / __cobeingConfig / __cobeingDataRoot / __cobeingAgentRegistry /
- * __cobeingVoteStore / __cobeingObsDb / __cobeingGetProvider 从未被写入（zombie），
- * 所有读取它们的地方拿到 undefined，导致插件 hook 事件、PromptLayer、投票静默失效。
+ * __cobeingObsDb / __cobeingGetProvider 从未被写入（zombie），
+ * 所有读取它们的地方拿到 undefined，导致插件 hook 事件、PromptLayer 静默失效。
  *
  * 本测试验证 runtime 构造函数已补齐兼容别名，且经别名总线的事件能真正触发。
  */
@@ -21,7 +21,6 @@ const ZOMBIE_GLOBALS = [
   "__cobeingConfig",
   "__cobeingDataRoot",
   "__cobeingAgentRegistry",
-  "__cobeingVoteStore",
   "__cobeingObsDb",
   "__cobeingGetProvider",
 ];
@@ -54,7 +53,6 @@ describe("B3 僵尸全局变量修复", () => {
     const g = globalThis as any;
     expect(g.__cobeingHookBus).toBeTruthy();
     expect(g.__cobeingPromptLayers).toBeTruthy();
-    expect(g.__cobeingVoteStore).toBeTruthy();
     expect(g.__cobeingObsDb).toBeTruthy();
     expect(g.__cobeingAgentRegistry).toBeTruthy();
     expect(typeof g.__cobeingGetProvider).toBe("function");
@@ -66,7 +64,6 @@ describe("B3 僵尸全局变量修复", () => {
     expect(g.__cobeingDataRoot).toBe(g.__cobeing.dataRoot);
     expect(g.__cobeingHookBus).toBe(g.__cobeing.hookBus);
     expect(g.__cobeingPromptLayers).toBe(g.__cobeing.promptLayers);
-    expect(g.__cobeingVoteStore).toBe(g.__cobeing.voteStore);
     expect(g.__cobeingObsDb).toBe(g.__cobeing.obsDb);
     expect(g.__cobeingAgentRegistry).toBe(g.__cobeing.agentRegistry);
   });
@@ -93,13 +90,5 @@ describe("B3 僵尸全局变量修复", () => {
     expect(result.allowed).toBe(false);
     expect(result.reason).toBe("blocked-by-test");
     hookBus.off("message:send", "test-plugin");
-  });
-
-  it("voteStore 别名可读可写（此前 __cobeingVoteStore 为 undefined）", () => {
-    const g = globalThis as any;
-    const voteStore = g.__cobeingVoteStore;
-    expect(voteStore).toBeTruthy();
-    // 验证有 vote 存储能力（createVote 或同类入口），存在即证明别名可用
-    expect(typeof voteStore).toBe("object");
   });
 });

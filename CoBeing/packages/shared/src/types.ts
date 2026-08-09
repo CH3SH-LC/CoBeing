@@ -155,7 +155,7 @@ export interface TokenUsage {
 // ============================================================
 
 export type PermissionMode = "read-only" | "workspace-readwrite"
-  | "workspace-access" | "basic-access" | "full-access";
+  | "workspace-access" | "basic-access" | "full-access" | "auto";
 
 export interface PermissionPolicy {
   mode: PermissionMode;

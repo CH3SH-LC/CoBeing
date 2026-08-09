@@ -1,7 +1,16 @@
 /**
  * Agent Resource 工具 — 向 Butler 请求资源
+ *
+ * P0 Butler 托管闭环：请求不再只返回文本——广播 `butler_resource_request` 事件
+ * 给前端/管家，并追加到管家工作区收件箱（RESOURCE_REQUESTS.md），管家据此检索
+ * Market 并征求用户确认。
  */
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
+import { createLogger } from "@cobeing/shared";
+import path from "node:path";
+import fs from "node:fs";
+
+const log = createLogger("agent-resource");
 
 export function makeAgentRequestResourceTool(): Tool {
   return {
@@ -17,13 +26,38 @@ export function makeAgentRequestResourceTool(): Tool {
       },
       required: ["resourceType", "description"],
     },
-    async execute(params, _context: ToolContext): Promise<ToolResult> {
+    async execute(params, context: ToolContext): Promise<ToolResult> {
       const resourceType = params.resourceType as string;
       const description = params.description as string;
       const urgency = (params.urgency as string) ?? "low";
 
       const typeLabel: Record<string, string> = { skill: "技能", plugin: "插件", template: "模板", tool: "工具", other: "资源" };
+      const request = {
+        id: `req-${Date.now()}`,
+        resourceType,
+        description,
+        urgency,
+        agentId: context.agentId,
+        groupId: (context as any).groupId,
+        createdAt: new Date().toISOString(),
+      };
 
+      // 广播给前端/管家（真实数据链路）
+      const runtime = (globalThis as any).__cobeing?.runtime;
+      runtime?.wsServer?.broadcast?.({ type: "butler_resource_request", payload: request });
+
+      // 追加到管家工作区收件箱（持久化，管家可读）
+      try {
+        const dataRoot = runtime?.dataRoot ?? (globalThis as any).__cobeingDataRoot;
+        if (dataRoot) {
+          const inboxPath = path.join(dataRoot, "coreagents", "butler", "workspace", "RESOURCE_REQUESTS.md");
+          fs.mkdirSync(path.dirname(inboxPath), { recursive: true });
+          const line = `\n- [${request.createdAt}] (${request.agentId || "unknown"}) ${typeLabel[resourceType] || resourceType} · ${urgency} · ${description}`;
+          fs.appendFileSync(inboxPath, line, "utf-8");
+        }
+      } catch { /* best effort */ }
+
+      log.info("Resource request from %s: %s (%s)", context.agentId, description, resourceType);
       return {
         toolCallId: "",
         content: `📋 资源请求已发送给管家:\n` +

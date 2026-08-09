@@ -6,9 +6,13 @@ import { classifyBash } from "./bash-classifier.js";
 export interface PermissionResult {
   allowed: boolean;
   reason?: string;
+  /** auto 模式下静态规则不足以判定，需安全分类器裁决（执行层调用） */
+  needsClassifier?: boolean;
 }
 
 const WRITE_TOOLS = new Set(["bash", "write-file", "edit-file"]);
+/** auto 模式直接放行的只读工具（Claude Code 规则：只读操作放行） */
+const READ_TOOLS = new Set(["read-file", "glob", "grep"]);
 
 function isMcpTool(toolName: string): boolean {
   return toolName.startsWith("mcp:");
@@ -42,7 +46,17 @@ export class PermissionEnforcer {
     }
 
     if (this.policy.allow?.includes(toolName)) {
+      // allow 命中但 bash 仍走 EXTREME_DANGER 正则 → 拒绝（allow 不豁免危险命令）
+      if (toolName === "bash" && mode === "auto") {
+        const cmd = typeof params.command === "string" ? params.command : "";
+        const cl = classifyBash({ command: cmd, workingDirs: this.allWorkingDirs(), level: mode });
+        if (!cl.allowed) return { allowed: false, reason: cl.reason };
+      }
       return { allowed: true };
+    }
+
+    if (mode === "auto") {
+      return this.checkAuto(toolName, params);
     }
 
     if (mode === "full-access") return { allowed: true };
@@ -87,6 +101,41 @@ export class PermissionEnforcer {
     }
 
     return { allowed: true };
+  }
+
+  /**
+   * auto 模式决策链（决策 #10 / spec #5，对齐 Claude Code auto 机制）：
+   * deny 已在入口处理 → 只读工具/工作目录内编辑直接放行 → 其余 needsClassifier
+   * 分类器不可用由执行层 fail-closed 拒绝。
+   */
+  private checkAuto(toolName: string, params: Record<string, unknown>): PermissionResult {
+    if (toolName === "bash") {
+      const cmd = typeof params.command === "string" ? params.command : "";
+      if (!cmd) return { allowed: false, reason: "bash command is empty" };
+      // Stage 0 硬规则（bash-classifier 正则分级）先裁决
+      const cl = classifyBash({ command: cmd, workingDirs: this.allWorkingDirs(), level: "auto" });
+      if (!cl.allowed) return { allowed: false, reason: cl.reason };
+      return { allowed: true, needsClassifier: true };
+    }
+
+    if (READ_TOOLS.has(toolName)) {
+      return { allowed: true };
+    }
+
+    if (WRITE_TOOLS.has(toolName) || isMcpTool(toolName)) {
+      const targetPath = extractPath(params);
+      if (targetPath) {
+        if (!isWithinAnyWorkingDir(targetPath, this.allWorkingDirs())) {
+          return { allowed: false, reason: `path ${targetPath} escapes allowed workspace directories` };
+        }
+        // 工作目录内编辑 → 直接放行（Claude Code 规则）
+        return { allowed: true };
+      }
+      // 无法提取路径（如 bash 之外的高影响工具）→ 分类器裁决
+      return { allowed: true, needsClassifier: true };
+    }
+
+    return { allowed: true, needsClassifier: true };
   }
 }
 

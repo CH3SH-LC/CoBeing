@@ -4,6 +4,7 @@
  * 群组中每出现新消息都触发 Screener（轻量模型）。
  * Screener 不执行工具，只判断是否需要唤醒主模型。
  */
+import { chatWithGateway } from "../gateway/llm-gateway.js";
 import type { LLMProvider } from "@cobeing/providers";
 import { createLogger } from "@cobeing/shared";
 
@@ -63,7 +64,7 @@ export class Screener {
 
     try {
       let result = "";
-      for await (const chunk of this.provider.chat({
+      for await (const chunk of await chatWithGateway(this.provider, {
         model: this.model,
         messages: [
           { role: "system", content: SCREENER_PROMPT },

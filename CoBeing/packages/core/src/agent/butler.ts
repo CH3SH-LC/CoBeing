@@ -41,9 +41,22 @@ import { buildCacheablePrompt } from "../conversation/prompt-builder.js";
 export const BUTLER_DEFAULT_SYSTEM_PROMPT = `你是管家，用户的第一联系人，负责与用户对话、管理 Agent 与群组。
 你的说话风格由 CHARACTER.md 定义，职责、分级转接规则与多步推理流程由 JOB.md 定义——按文件行事，不要自行发明规则。`;
 
+/**
+ * 管家禁止的执行类工具 — 结构约束（决策 #1 / P2 管家工具分级）。
+ * 管家靠协调/派发工作，不亲自执行：移除 bash（执行命令）、edit-file（编辑）、
+ * glob/grep（全盘扫描 — 陈默专项曾致管家 grep 扫描大目录 OOM）。
+ * 保留 read-file/write-file：用户个人事务（日程/购物清单 md）走本地文件。
+ */
+export const BUTLER_FORBIDDEN_TOOLS: readonly string[] = ["bash", "edit-file", "glob", "grep"];
+
+/** 运行时过滤管家禁止工具（对齐 host 结构约束），返回过滤后的清单 */
+export function stripButlerForbiddenTools(tools: string[]): string[] {
+  return tools.filter((t) => !BUTLER_FORBIDDEN_TOOLS.includes(t));
+}
+
 /** 管家默认工具白名单 — ensureButlerDir 写入 config.json，runtime createButler 兜底共用 */
 export const BUTLER_DEFAULT_TOOLS: string[] = [
-  "bash", "read-file", "write-file", "glob", "grep",
+  "read-file", "write-file",
   "butler-create-agent", "butler-destroy-agent",
   "butler-create-group", "butler-destroy-group",
   "butler-list", "butler-run-group", "butler-add-to-group",
@@ -68,8 +81,9 @@ export class ButlerAgent extends Agent {
     providerResolver?: (providerId: string) => LLMProvider | undefined,
     router?: import("../group/router.js").ChannelRouter,
     appConfig?: AppConfig,
+    runtimeDataRoot?: string,
   ) {
-    super(config, provider);
+    super(config, provider, runtimeDataRoot);
 
     // 初始化 ButlerRegistry
     this.butlerRegistry = new ButlerRegistry();

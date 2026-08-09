@@ -1,6 +1,7 @@
 /**
  * MemoryIndexer — 调用 LLM 总结历史对话，生成 MEMORY.md 索引
  */
+import { chatWithGateway } from "../gateway/llm-gateway.js";
 import fs from "node:fs";
 import path from "node:path";
 import type { LLMProvider } from "@cobeing/providers";
@@ -48,7 +49,7 @@ export class MemoryIndexer {
 
   private async summarize(content: string): Promise<string> {
     let result = "";
-    for await (const chunk of this.provider.chat({
+    for await (const chunk of await chatWithGateway(this.provider, {
       model: this.model,
       messages: [
         {

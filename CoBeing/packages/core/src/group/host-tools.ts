@@ -1,11 +1,97 @@
 // packages/core/src/group/host-tools.ts
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
 import type { Group } from "./group.js";
-import { createLogger, updateGroupMembers } from "@cobeing/shared";
+import { createLogger, updateGroupMembers, DEFAULT_ALLOWED_EVENTS } from "@cobeing/shared";
+import type { ButlerEscalationEvent, ButlerEscalationType } from "@cobeing/shared";
 
 const log = createLogger("host-tools");
 
 type GroupGetter = (groupId: string) => Group | undefined;
+
+// ---- host-report-event（Group → Butler 结构化事件桥, P0 Butler 托管闭环）----
+
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  blocked: "阻塞",
+  needs_user_decision: "需要用户决策",
+  completed: "任务完成",
+  failed: "任务失败",
+  scope_change: "范围变化",
+  status_digest: "状态摘要",
+};
+
+export function makeHostReportEventTool(): Tool {
+  return {
+    name: "host-report-event",
+    description: "群主向管家上报结构化事件（Group → Butler 事件桥）。遇到阻塞、需要用户决策、任务完成/失败、范围变化或阶段状态汇总时调用；管家据此收束给用户或继续编排。",
+    parameters: {
+      type: "object",
+      properties: {
+        eventType: {
+          type: "string",
+          enum: [...DEFAULT_ALLOWED_EVENTS],
+          description: "事件类型: blocked=阻塞 / needs_user_decision=需要用户决策 / completed=完成 / failed=失败 / scope_change=范围变化 / status_digest=状态摘要",
+        },
+        summary: { type: "string", description: "事件摘要（一句话）" },
+        severity: { type: "string", enum: ["info", "warning", "critical"], description: "严重程度（默认 info）" },
+        question: { type: "string", description: "需要用户决策的问题（needs_user_decision 时提供）" },
+        options: { type: "array", items: { type: "string" }, description: "决策选项（needs_user_decision 时提供）" },
+        artifactPaths: { type: "array", items: { type: "string" }, description: "产物相对路径列表（completed 时提供）" },
+        suggestedNextStep: { type: "string", description: "建议的下一步" },
+      },
+      required: ["eventType", "summary"],
+    },
+    async execute(params, context: ToolContext): Promise<ToolResult> {
+      const eventType = params.eventType as ButlerEscalationType;
+      if (!DEFAULT_ALLOWED_EVENTS.includes(eventType)) {
+        return { toolCallId: "", content: `不支持的事件类型: ${eventType}`, isError: true };
+      }
+      const groupId = (context as any).groupId as string | undefined;
+      if (!groupId) return { toolCallId: "", content: "无法确定群组上下文（未在群组中调用）", isError: true };
+
+      const runtime = (globalThis as any).__cobeing?.runtime;
+      // 关联 ButlerTask：从全局 TODO 的执行引用中找绑定此群组的任务
+      let butlerTaskId = "";
+      try {
+        const refs = runtime?.globalTodoStore?.list?.() ?? [];
+        const ref = refs.find((r: any) =>
+          r.executionRefs?.some((e: any) => e.scope === "group" && e.id === groupId),
+        );
+        if (ref) butlerTaskId = ref.butlerTaskId || ref.id;
+      } catch { /* best effort */ }
+
+      const options = Array.isArray(params.options)
+        ? params.options.filter((o): o is string => typeof o === "string" && o.trim().length > 0)
+        : undefined;
+      const artifacts = Array.isArray(params.artifactPaths)
+        ? params.artifactPaths.filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+            .map((p, i) => ({ name: p, path: p }))
+        : undefined;
+
+      const evt: ButlerEscalationEvent = {
+        id: `evt-${Date.now()}-${groupId}`,
+        type: eventType,
+        butlerTaskId: butlerTaskId || groupId,
+        groupId,
+        fromAgentId: context.agentId || "host",
+        severity: (params.severity as ButlerEscalationEvent["severity"]) || "info",
+        summary: params.summary as string,
+        question: params.question
+          ? { prompt: params.question as string, choices: options?.map((o, i) => ({ id: `opt-${i}`, label: o })), freeformAllowed: true }
+          : undefined,
+        artifacts,
+        suggestedNextStep: params.suggestedNextStep as string | undefined,
+        createdAt: new Date().toISOString(),
+      };
+
+      runtime?.wsServer?.broadcast?.({ type: "butler_escalation", payload: evt });
+      log.info("[%s] host reported %s to butler: %s", groupId, eventType, evt.summary);
+      return {
+        toolCallId: "",
+        content: `已向管家上报「${EVENT_TYPE_LABELS[eventType] || eventType}」事件。\n摘要: ${evt.summary}${evt.suggestedNextStep ? `\n建议下一步: ${evt.suggestedNextStep}` : ""}`,
+      };
+    },
+  };
+}
 
 // ---- host-guide-discussion ----
 

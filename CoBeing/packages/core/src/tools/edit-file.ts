@@ -4,6 +4,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Tool, ToolContext, ToolResult } from "@cobeing/shared";
+import { detectDataPathMisuse } from "./path-guard.js";
+import { checkFileVersion } from "./file-version.js";
 
 const PROTECTED_AGENTS = new Set(["butler", "host"]);
 
@@ -27,12 +29,22 @@ export const editFileTool: Tool = {
       old_string: { type: "string", description: "要替换的文本" },
       new_string: { type: "string", description: "替换后的文本" },
       replace_all: { type: "boolean", description: "是否替换所有匹配出现，默认 false" },
+      baseVersion: {
+        type: "string",
+        description: "并发写保护（可选）：read-file 返回的 [file-version: X] 值。若文件已被其他成员修改（版本不一致），编辑将被拒绝，需重新读取后再编辑。",
+      },
     },
     required: ["path", "old_string", "new_string"],
   },
   async execute(params, context: ToolContext): Promise<ToolResult> {
     const workingDir = context.workingDir;
     const filePath = path.resolve(workingDir, params.path as string);
+
+    // 误用防护：Agent 把 data/... 项目相对路径当工作目录相对路径
+    const misuse = detectDataPathMisuse(workingDir, params.path as string);
+    if (misuse) {
+      return { toolCallId: "", content: misuse, isError: true };
+    }
 
     // Path containment: prevent escaping working directory
     const rel = path.relative(workingDir, filePath);
@@ -63,6 +75,17 @@ export const editFileTool: Tool = {
     }
 
     try {
+      // 并发写保护 CAS：baseVersion 与当前版本不一致 → 拒绝（防静默覆写）
+      if (params.baseVersion) {
+        const conflict = checkFileVersion(filePath, params.baseVersion as string);
+        if (conflict !== undefined) {
+          return {
+            toolCallId: "",
+            content: `并发写保护：文件已被其他成员修改（当前版本 ${conflict} 与你的基准 ${params.baseVersion} 不一致），请重新读取后再编辑。`,
+            isError: true,
+          };
+        }
+      }
       const content = fs.readFileSync(filePath, "utf-8");
 
       const firstIdx = content.indexOf(oldStr);

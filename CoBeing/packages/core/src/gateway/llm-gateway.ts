@@ -1,6 +1,15 @@
 /**
- * LLMGateway — LLM 请求并发控制和队列调度
- * 所有 Agent 共享一个 Gateway 实例，自动排队执行请求
+ * LLMGateway — LLM 请求并发控制和队列调度（全局必经链路）
+ *
+ * 2026-08-09 决策：所有 LLM 调用统一经过 Gateway（队列 + RPM 限流 + 超时 + 重试）。
+ * Gateway 不绑定具体 Provider，调用方显式传入 provider 实例（保留 ConversationLoop
+ * 的 fallback 链与熔断器语义，gateway 负责跨调用点的并发治理）。
+ *
+ * 使用方式：
+ *   import { chatWithGateway, chatCompleteWithGateway } from "./gateway/llm-gateway.js";
+ *   for await (const chunk of await chatWithGateway(provider, params)) { ... }
+ *
+ * 无全局 gateway 时（单元测试/独立使用）自动降级为直接调用 provider，行为不变。
  */
 import type { ChatParams, ChatChunk } from "@cobeing/shared";
 import type { LLMProvider } from "@cobeing/providers";
@@ -16,33 +25,68 @@ export interface GatewayConfig {
 }
 
 interface QueueItem {
+  provider: LLMProvider;
   params: ChatParams;
-  resolve: (iterable: AsyncIterable<ChatChunk>) => void;
+  kind: "stream" | "complete";
+  resolveStream: (iterable: AsyncIterable<ChatChunk>) => void;
+  resolveComplete: (value: unknown) => void;
   reject: (err: Error) => void;
 }
 
+/** 获取全局 gateway（Runtime 启动时挂载），无则 undefined（直调降级） */
+export function getGlobalGateway(): LLMGateway | undefined {
+  return (globalThis as any).__cobeing?.gateway;
+}
+
+/** 统一的流式 LLM 调用入口：有全局 gateway 走 gateway，否则直调 provider */
+export async function chatWithGateway(provider: Pick<LLMProvider, "chat">, params: ChatParams): Promise<AsyncIterable<ChatChunk>> {
+  const gateway = getGlobalGateway();
+  if (gateway) return gateway.chat(provider as LLMProvider, params);
+  return provider.chat(params);
+}
+
+/** 统一的非流式 LLM 调用入口（chatComplete）：排队 + RPM 治理，无则直调 */
+export async function chatCompleteWithGateway<T>(provider: Pick<LLMProvider, "chatComplete">, params: ChatParams): Promise<T> {
+  const gateway = getGlobalGateway();
+  if (gateway) return gateway.chatComplete<T>(provider as LLMProvider, params);
+  return provider.chatComplete(params) as Promise<T>;
+}
+
 export class LLMGateway {
-  private provider: LLMProvider;
   private config: Required<GatewayConfig>;
   private queue: QueueItem[] = [];
   private activeCount = 0;
   private requestTimestamps: number[] = [];
 
-  constructor(provider: LLMProvider, config?: GatewayConfig) {
-    this.provider = provider;
+  constructor(config?: GatewayConfig) {
     this.config = {
       maxConcurrency: config?.maxConcurrency ?? 5,
       rpmLimit: config?.rpmLimit ?? 60,
       timeout: config?.timeout ?? 120000,
       retryAttempts: config?.retryAttempts ?? 3,
     };
-    log.info("Gateway initialized (concurrency=%d, rpm=%d)", this.config.maxConcurrency, this.config.rpmLimit);
+    log.info("Gateway initialized (concurrency=%d, rpm=%d, timeout=%dms, retries=%d)",
+      this.config.maxConcurrency, this.config.rpmLimit, this.config.timeout, this.config.retryAttempts);
   }
 
-  /** 提交 LLM 请求（排队执行） */
-  async chat(params: ChatParams): Promise<AsyncIterable<ChatChunk>> {
+  /** 提交流式 LLM 请求（排队执行；provider 由调用方传入） */
+  async chat(provider: LLMProvider, params: ChatParams): Promise<AsyncIterable<ChatChunk>> {
     return new Promise<AsyncIterable<ChatChunk>>((resolve, reject) => {
-      this.queue.push({ params, resolve, reject });
+      this.queue.push({
+        provider, params, kind: "stream",
+        resolveStream: resolve, resolveComplete: () => {}, reject,
+      });
+      this.schedule();
+    });
+  }
+
+  /** 提交非流式 LLM 请求（chatComplete：排队 + RPM + 重试） */
+  async chatComplete<T>(provider: LLMProvider, params: ChatParams): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.queue.push({
+        provider, params, kind: "complete",
+        resolveStream: () => {}, resolveComplete: (v) => resolve(v as T), reject,
+      });
       this.schedule();
     });
   }
@@ -55,7 +99,10 @@ export class LLMGateway {
       this.recordRequest();
 
       this.executeWithRetry(item)
-        .then(item.resolve)
+        .then((result) => {
+          if (item.kind === "stream") item.resolveStream(result as AsyncIterable<ChatChunk>);
+          else item.resolveComplete(result);
+        })
         .catch(item.reject)
         .finally(() => {
           this.activeCount--;
@@ -79,13 +126,16 @@ export class LLMGateway {
     return this.requestTimestamps.length;
   }
 
-  private async executeWithRetry(item: QueueItem): Promise<AsyncIterable<ChatChunk>> {
+  private async executeWithRetry(item: QueueItem): Promise<unknown> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < this.config.retryAttempts; attempt++) {
       try {
-        // 用 Promise 包装 provider.chat() 以支持超时
-        const iterable = await this.createTimedIterable(item.params);
+        if (item.kind === "complete") {
+          return await item.provider.chatComplete(item.params);
+        }
+        // 流式：用 Promise 包装 provider.chat() 以支持超时
+        const iterable = await this.createTimedIterable(item.provider, item.params);
         return iterable;
       } catch (err: any) {
         lastError = err;
@@ -101,8 +151,8 @@ export class LLMGateway {
     throw lastError ?? new Error("Unknown error");
   }
 
-  private async createTimedIterable(params: ChatParams): Promise<AsyncIterable<ChatChunk>> {
-    const iterable = await this.provider.chat(params);
+  private async createTimedIterable(provider: LLMProvider, params: ChatParams): Promise<AsyncIterable<ChatChunk>> {
+    const iterable = await provider.chat(params);
     // 包装 iterable：每个 chunk 超过 timeout 未到达则超时
     const timedIterable: AsyncIterable<ChatChunk> = {
       [Symbol.asyncIterator]: () => {

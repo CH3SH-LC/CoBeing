@@ -24,6 +24,8 @@ export { buildSystemPrompt } from "./conversation/prompt-builder.js";
 export { ToolRegistry } from "./tools/registry.js";
 export { ToolExecutor } from "./tools/executor.js";
 export { PermissionEnforcer, type PermissionResult } from "./tools/permission.js";
+export { SafetyClassifier, type ClassifyResult, type ClassifyInput, type SafetyVerdict } from "./tools/safety-classifier.js";
+export { ToolAgentRegistry } from "./agent/tool-agent/registry.js";
 export { DockerSandbox, resolveNetworkConfig, buildNetworkArgs, resolveSecurityConfig, buildSecurityArgs } from "./tools/sandbox/index.js";
 export { makeAgentMessageTool } from "./tools/agent-message.js";
 export { makeGroupMembersTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool } from "./tools/group-tools.js";
@@ -74,9 +76,6 @@ export { AgentTodoScanner } from "./todo/scanner.js";
 export { GroupTodoScanner } from "./todo/group-scanner.js";
 export type { TodoItem, TodoScope } from "./todo/types.js";
 
-export { VoteStore } from "./vote/store.js";
-export { makeVoteCreateTool, makeVoteCastTool, makeVoteResultTool } from "./vote/tools.js";
-
 export { LocalFilterEngine } from "./group/local-filter.js";
 export type { FilterResult, LocalModelConfig } from "@cobeing/shared";
 export {
@@ -86,4 +85,5 @@ export {
   makeHostRecordDecisionTool,
   makeHostManageTodoTool,
   makeHostReviewTodoTool,
+  makeHostReportEventTool,
 } from "./group/host-tools.js";

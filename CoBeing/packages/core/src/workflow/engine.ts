@@ -2,6 +2,7 @@
  * WorkflowEngine — 自动化任务执行管线
  * 串联: 分析任务 → 选择/创建 Agent → 组建群组 → 执行 → 收集结果
  */
+import { chatWithGateway } from "../gateway/llm-gateway.js";
 import type { LLMProvider } from "@cobeing/providers";
 import { createLogger } from "@cobeing/shared";
 
@@ -47,7 +48,7 @@ ${agentInfo || "(无)"}
 
     try {
       let result = "";
-      for await (const chunk of this.provider.chat({
+      for await (const chunk of await chatWithGateway(this.provider, {
         model: "",
         messages: [{ role: "user", content: prompt }],
       })) {
@@ -78,7 +79,7 @@ ${analysis}
 
     try {
       let result = "";
-      for await (const chunk of this.provider.chat({
+      for await (const chunk of await chatWithGateway(this.provider, {
         model: "",
         messages: [{ role: "user", content: prompt }],
       })) {

@@ -663,10 +663,13 @@ export class WakeSystem {
       }
 
       // 5. 唤醒 Agent（群组隔离：使用独立的 ConversationLoop，上下文已包含三层架构）
+      // 工作目录：群组 workspace 优先，取不到时 fallback 到 Agent 自身 workspace——
+      // 绝不传 undefined（conversation-loop 对 workingDir 缺失是 fail-fast，无兜底）
+      const groupEffectiveWs = this.getGroup?.()?.effectiveWorkspace;
       const response = await agent.run(enrichedContext, {
         groupId: this.ctx.groupId,
         guideContent: this.getGroup?.()?.workspace.readGuide() ?? undefined,
-        workingDir: this.getGroup?.()?.effectiveWorkspace,
+        workingDir: groupEffectiveWs || agent.effectiveWorkspace,
       });
       if (this._disposed) return;
 
@@ -765,10 +768,11 @@ export class WakeSystem {
 
         // 重新构建精简上下文（只用触发消息，不用完整历史）
         const retryContext = entry.triggerContents.join("\n\n");
+        const retryGroupEffectiveWs = this.getGroup?.()?.effectiveWorkspace;
         const response = await agent.run(retryContext, {
           groupId: this.ctx.groupId,
           guideContent: this.getGroup?.()?.workspace.readGuide() ?? undefined,
-          workingDir: this.getGroup?.()?.effectiveWorkspace,
+          workingDir: retryGroupEffectiveWs || agent.effectiveWorkspace,
         });
         if (this._disposed) return;
 

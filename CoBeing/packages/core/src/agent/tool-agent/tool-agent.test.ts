@@ -433,6 +433,50 @@ describe("runMemoryAgent", () => {
     );
     expect(result.entries).toEqual([]);
   });
+
+  it("记忆纪律：normalizes ttl/provenance and defaults missing ones (决策 #6 / spec #3)", async () => {
+    const provider = mockProvider([
+      textChunk(JSON.stringify({
+        entries: [
+          { category: "错误教训", summary: "不要直接删 data 目录", ttl: "P0" },
+          { category: "工具发现", summary: "chcp 65001 可解乱码", detail: "Windows 下" },
+        ],
+      })),
+    ]);
+    const result = await runMemoryAgent(
+      "personal",
+      {
+        agentName: "Test", agentId: "agent-1",
+        trace: { thinking: [], toolCalls: [], finalMessage: "" }, taskContext: "x",
+      },
+      provider, "test-model", tmpDir,
+    );
+    expect(result.entries).toHaveLength(2);
+    // P0 保留显式值；缺失 ttl 默认 P1
+    expect(result.entries[0].ttl).toBe("P0");
+    expect(result.entries[1].ttl).toBe("P1");
+    // provenance 缺省补执行者 agentId
+    expect(result.entries[0].provenance).toBe("agent-1");
+    expect(result.entries[1].provenance).toBe("agent-1");
+  });
+
+  it("记忆纪律：filters entries without summary", async () => {
+    const provider = mockProvider([
+      textChunk(JSON.stringify({
+        entries: [
+          { category: "经验", summary: "" },
+          { category: "有效模式", summary: "分批提交更稳", ttl: "P1" },
+        ],
+      })),
+    ]);
+    const result = await runMemoryAgent(
+      "personal",
+      { agentName: "Test", agentId: "a", trace: { thinking: [], toolCalls: [], finalMessage: "" }, taskContext: "x" },
+      provider, "test-model", tmpDir,
+    );
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0].summary).toBe("分批提交更稳");
+  });
 });
 
 // ---- creator.ts tests ----

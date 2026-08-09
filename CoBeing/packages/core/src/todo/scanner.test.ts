@@ -158,6 +158,112 @@ describe("TodoStore", () => {
     expect(store.get(item.id)?.title).toBe("查找我");
     expect(store.get("nonexistent")).toBeUndefined();
   });
+
+  it("getDueTodos excludes repeat todos (they flow through getRepeatDueTodos)", () => {
+    store.add({
+      title: "每日天气",
+      description: "报天气",
+      triggerAt: new Date(Date.now() - 1000).toISOString(),
+      recurrenceHint: "每天8:00",
+      createdBy: "user",
+      agentId: "butler",
+      repeat: { type: "daily", timeOfDay: "08:00" },
+      nextTriggerAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    expect(store.getDueTodos()).toHaveLength(0);
+    expect(store.getRepeatDueTodos()).toHaveLength(1);
+  });
+
+  it("advanceRepeat computes next interval trigger from current cycle", () => {
+    const item = store.add({
+      title: "每6小时",
+      description: "轮询",
+      triggerAt: "2026-08-09T00:00:00.000Z",
+      recurrenceHint: "每6小时",
+      createdBy: "user",
+      agentId: "butler",
+      repeat: { type: "interval", intervalHours: 6 },
+      nextTriggerAt: "2026-08-09T00:00:00.000Z",
+    });
+    const advanced = store.advanceRepeat(item.id);
+    expect(advanced?.nextTriggerAt).toBe("2026-08-09T06:00:00.000Z");
+    expect(advanced?.status).toBe("pending");
+  });
+
+  it("advanceRepeat daily keeps same clock time next day", () => {
+    const item = store.add({
+      title: "每日",
+      description: "daily",
+      triggerAt: "2026-08-09T00:00:00.000Z",
+      recurrenceHint: "每天",
+      createdBy: "user",
+      agentId: "butler",
+      repeat: { type: "daily" },
+      nextTriggerAt: "2026-08-09T00:00:00.000Z",
+    });
+    const advanced = store.advanceRepeat(item.id);
+    const next = new Date(advanced!.nextTriggerAt!).getTime();
+    expect(next).toBeGreaterThan(new Date("2026-08-09T00:00:00.000Z").getTime());
+    expect(next - new Date("2026-08-09T00:00:00.000Z").getTime()).toBe(24 * 3600_000);
+  });
+
+  it("advanceRepeat clears repeat when next trigger exceeds until", () => {
+    const item = store.add({
+      title: "限时重复",
+      description: "到 until 停止",
+      triggerAt: "2026-08-09T00:00:00.000Z",
+      recurrenceHint: "每小时",
+      createdBy: "user",
+      agentId: "butler",
+      repeat: { type: "interval", intervalHours: 6, until: "2026-08-09T05:00:00.000Z" },
+      nextTriggerAt: "2026-08-09T00:00:00.000Z",
+    });
+    const advanced = store.advanceRepeat(item.id);
+    expect(advanced?.repeat).toBeUndefined();
+    expect(advanced?.nextTriggerAt).toBeUndefined();
+  });
+
+  it("getStalePendingTodos respects overduePolicy cooldown and maxRetries", () => {
+    const item = store.add({
+      title: "写手大纲",
+      description: "超时重唤醒",
+      triggerAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+      recurrenceHint: "不重复",
+      createdBy: "user",
+      agentId: "butler",
+      overduePolicy: { action: "re-wake", cooldownMinutes: 1, maxRetries: 2 },
+    });
+    store.markTriggered(item.id); // triggeredAt = now，未超 1min 冷却
+    expect(store.getStalePendingTodos()).toHaveLength(0);
+
+    // 手动把 triggeredAt 拨回到 2 分钟前 → 超冷却
+    const file = item.id;
+    const all = JSON.parse(fs.readFileSync(store["filePath"], "utf-8"));
+    all[0].triggeredAt = new Date(Date.now() - 2 * 60_000).toISOString();
+    fs.writeFileSync(store["filePath"], JSON.stringify(all), "utf-8");
+
+    expect(store.getStalePendingTodos()).toHaveLength(1);
+    store.markReTriggered(file);
+    store.markReTriggered(file);
+    store.markReTriggered(file); // 3 次 > maxRetries 2
+    expect(store.getStalePendingTodos()).toHaveLength(0);
+  });
+
+  it("markReTriggered increments reTriggerCount and refreshes triggeredAt", () => {
+    const item = store.add({
+      title: "计数",
+      description: "重触发计数",
+      triggerAt: new Date().toISOString(),
+      recurrenceHint: "不重复",
+      createdBy: "user",
+      agentId: "butler",
+    });
+    store.markTriggered(item.id);
+    const before = item.triggeredAt;
+    const updated = store.markReTriggered(item.id);
+    expect(updated?.reTriggerCount).toBe(1);
+    expect(updated?.triggeredAt).not.toBe(before);
+  });
 });
 
 // Minimal mock for AgentRegistry
@@ -253,6 +359,130 @@ describe("AgentTodoScanner", () => {
     // 两者都应被触发
     expect(order).toContain("任务1");
     expect(order).toContain("任务2");
+  });
+
+  it("triggers 0time todos on scan", async () => {
+    const agentDir = path.join(tmpDir, "agents", "butler");
+    fs.mkdirSync(agentDir, { recursive: true });
+    const store = new TodoStore(agentDir);
+    store.add({
+      title: "即时任务",
+      description: "创建即触发",
+      triggerMode: "0time",
+      triggerAt: "",
+      check: "需要完成",
+      recurrenceHint: "不重复",
+      createdBy: "user",
+      agentId: "butler",
+    });
+
+    const triggered: string[] = [];
+    const scanner = new AgentTodoScanner(tmpDir, mockRegistry(["butler"]), {
+      onTrigger: async (_agentId, todo, _msg) => { triggered.push(todo.title); },
+    });
+
+    await scanner.scanOnce();
+    expect(triggered).toEqual(["即时任务"]);
+    // 已触发保持 pending，不重复
+    await scanner.scanOnce();
+    expect(triggered).toEqual(["即时任务"]);
+  });
+
+  it("triggers repeat todos and advances the cycle", async () => {
+    const agentDir = path.join(tmpDir, "agents", "butler");
+    fs.mkdirSync(agentDir, { recursive: true });
+    const store = new TodoStore(agentDir);
+    const item = store.add({
+      title: "每6小时轮询",
+      description: "轮询接口",
+      triggerAt: new Date(Date.now() - 5000).toISOString(),
+      recurrenceHint: "每6小时",
+      createdBy: "user",
+      agentId: "butler",
+      repeat: { type: "interval", intervalHours: 6 },
+      nextTriggerAt: new Date(Date.now() - 5000).toISOString(),
+    });
+
+    const triggered: string[] = [];
+    const scanner = new AgentTodoScanner(tmpDir, mockRegistry(["butler"]), {
+      onTrigger: async (_agentId, todo, _msg) => { triggered.push(todo.title); },
+    });
+
+    await scanner.scanOnce();
+    expect(triggered).toHaveLength(1);
+    const after = store.get(item.id)!;
+    expect(after.nextTriggerAt).toBeTruthy();
+    expect(new Date(after.nextTriggerAt!).getTime()).toBeGreaterThan(Date.now());
+    // repeat 已触发 → 不重复触发
+    await scanner.scanOnce();
+    expect(triggered).toHaveLength(1);
+  });
+
+  it("re-triggers stale pending todos after cooldown (goal re-wake)", async () => {
+    const agentDir = path.join(tmpDir, "agents", "butler");
+    fs.mkdirSync(agentDir, { recursive: true });
+    const store = new TodoStore(agentDir);
+    const item = store.add({
+      title: "写手大纲",
+      description: "超时重唤醒",
+      triggerAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      recurrenceHint: "不重复",
+      createdBy: "user",
+      agentId: "butler",
+      overduePolicy: { action: "re-wake", cooldownMinutes: 0, maxRetries: 1 },
+    });
+
+    const triggered: string[] = [];
+    const scanner = new AgentTodoScanner(tmpDir, mockRegistry(["butler"]), {
+      onTrigger: async (_agentId, todo, _msg) => { triggered.push(todo.title); },
+    });
+
+    await scanner.scanOnce(); // 首次 time 触发
+    expect(triggered).toHaveLength(1);
+    // 拨回 triggeredAt 使其 stale
+    const all = JSON.parse(fs.readFileSync(store["filePath"], "utf-8"));
+    all[0].triggeredAt = new Date(Date.now() - 30 * 60_000).toISOString();
+    fs.writeFileSync(store["filePath"], JSON.stringify(all), "utf-8");
+
+    await scanner.scanOnce(); // stale 重唤醒
+    expect(triggered).toHaveLength(2);
+    await scanner.scanOnce(); // maxRetries=1 已达上限
+    expect(triggered).toHaveLength(2);
+  });
+
+  it("notifyAgentSpoke triggers condition todos listening for that agent", async () => {
+    const agentDir = path.join(tmpDir, "agents", "butler");
+    fs.mkdirSync(agentDir, { recursive: true });
+    const store = new TodoStore(agentDir);
+    store.add({
+      title: "等上游发言",
+      description: "agent-b 完成后检查",
+      triggerMode: "condition",
+      triggerAt: "",
+      check: "上游是否交付",
+      recurrenceHint: "不重复",
+      createdBy: "user",
+      agentId: "butler",
+      condition: {
+        type: "agent_speak",
+        targetAgents: ["agent-b"],
+        check: "agent-b 完成后检查",
+        onFail: "remind",
+      },
+    });
+
+    const triggered: string[] = [];
+    const scanner = new AgentTodoScanner(tmpDir, mockRegistry(["butler"]), {
+      onTrigger: async (_agentId, todo, _msg) => { triggered.push(todo.title); },
+    });
+
+    await scanner.notifyAgentSpoke("agent-a");
+    expect(triggered).toEqual([]);
+    await scanner.notifyAgentSpoke("agent-b");
+    expect(triggered).toEqual(["等上游发言"]);
+    // 已触发 → 不再重复
+    await scanner.notifyAgentSpoke("agent-b");
+    expect(triggered).toEqual(["等上游发言"]);
   });
 });
 
