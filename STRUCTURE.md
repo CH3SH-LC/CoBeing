@@ -1,6 +1,6 @@
 # CoBeing 项目结构
 
-> 最后更新：2026-07-15  
+> 最后更新：2026-08-09  
 > 本文件记录当前工作区和 CoBeing 代码结构。新增、删除、重命名项目文件或目录时必须同步更新。
 
 ---
@@ -48,7 +48,7 @@ CoBeing/
 ├── packages/                 # 后端 monorepo 包
 ├── gui-v2/                   # React 19 + Tauri 2 前端
 ├── data/                     # 运行时数据
-├── scripts/                  # 开发脚本（dev.ts、start-core.ts、clear-pvz-test-data.ts、smoke-butler.ts、smoke-market.ts、real-test-pvz.ts、build-sandbox.sh、kill-cobeing-port.ps1 等）
+├── scripts/                  # 开发脚本（dev.ts、start-core.ts、clear-pvz-test-data.ts、smoke-butler.ts、smoke-market.ts、real-test-pvz.ts、real-test-chenmo.ts、verify-path-guard.ts、verify-extensions.ts、build-sandbox.sh、kill-cobeing-port.ps1 等）
 └── sandbox/                  # Docker 沙箱镜像
 ```
 
@@ -123,7 +123,13 @@ CoBeing/packages/core/src/tools/
 ├── agent-task.ts              # Agent 任务收件箱，和 Global TODO / ButlerTask 同步状态
 ├── agent-task.test.ts         # Agent task 与 Butler/Global TODO 同步测试
 ├── agent-growth.ts            # Agent 成长建议工具
-└── agent-resource.ts          # Agent 资源请求工具（审批闭环仍待补齐）
+├── agent-resource.ts          # Agent 资源请求工具（广播 butler_resource_request + 写管家收件箱 RESOURCE_REQUESTS.md）
+├── file-version.ts            # 并发写防护 CAS：文件版本（mtimeMs:size），read-file 附版本行，write/edit-file baseVersion 校验
+├── file-version.test.ts       # 并发写防护单测（过期 baseVersion 拒绝/正确版本通过/新文件放行）
+├── safety-classifier.ts       # 安全分类器（决策 #10）：reasoning-blind LLM 裁决 allow/deny/ask，fail-closed + 熔断 + allow 缓存
+├── safety-classifier.test.ts  # 安全分类器单测（裁决/缓存/熔断/无 provider fail-closed）
+├── path-guard.ts              # 路径误用防护：拦截 data/、coreagents/ 等数据目录段前缀路径（含 .bak 备份段），read/write/edit/glob/grep 5 工具接入
+└── path-guard.test.ts         # detectDataPathMisuse 单测（合法/绝对/逃逸/双重拼接/模拟目录/备份目录）
 ```
 
 ### core/src/observability 子目录
@@ -140,8 +146,10 @@ CoBeing/packages/core/src/observability/
 CoBeing/packages/core/src/agent/tool-agent/
 ├── base.ts                    # ToolAgent 独立 LLM 工具循环与 data/toolagents 读取
 ├── spec.ts                    # ToolAgentSpec 统一配置卡 loader（触发/可见性/写入/失败策略）
-├── creator.ts                 # Creator ToolAgent：Agent 核心文件与 Group 创建草案
-├── memory.ts                  # Memory ToolAgent：经验条目与 MEMORY.md 修改建议
+├── registry.ts                # 轻量 ToolAgentRegistry：统一注册/发现入口（loadAll + registerPluginAgent 复活插件死注册）
+├── registry.test.ts           # ToolAgentRegistry 单测（loadAll 8 spec/插件注册/creator 配置卡权威）
+├── creator.ts                 # Creator ToolAgent：Agent 核心文件与 Group 创建草案（prompt 配置卡权威）
+├── memory.ts                  # Memory ToolAgent：经验条目（含 ttl/provenance 归一化）与 MEMORY.md 修改建议
 ├── review.ts                  # Review ToolAgent：群组消息发送前审查
 ├── judgment.ts                # Judgment ToolAgent：群主唤醒判断
 ├── clone.ts                   # Clone ToolAgent：临时并行子任务
@@ -149,7 +157,7 @@ CoBeing/packages/core/src/agent/tool-agent/
 ├── growth-reviewer.ts         # 成长建议审查助手
 ├── task-archive.ts            # 任务归档助手
 ├── tool-agent.test.ts         # ToolAgent 单元测试
-└── types.ts                   # ToolAgent 类型、Spec、Memory 更新建议类型
+└── types.ts                   # ToolAgent 类型、Spec、Memory 更新建议类型（MemoryEntry 含 ttl/provenance）
 ```
 
 ### core/src/agent/butler/tools 子目录
@@ -180,7 +188,7 @@ CoBeing/packages/core/src/api/
 ├── types.ts                  # WSMessage/TodoMutationAction/TodoMutationContext/buildTodoMutationPayload/buildGroupCreatorDraftNote
 ├── capability.ts             # loadCapabilityCards/scoreCapability 能力卡扫描评分
 ├── parsing.ts                # extractMentions/parseCurrentMd
-└── handlers/                 # 68 个 WS 命令按域分组
+└── handlers/                 # 78 个 WS 命令按域分组
     ├── types.ts              # WsCommandHandler/HandlerRegistrar
     ├── system.ts             # _ping/get_state/get_log/get_config/update_config/subscribe_log
     ├── agent.ts              # create/destroy/stop/update_agent、agent_files、chat_current、find_agent、dispatch_task（支持 agent/group 目标）
@@ -346,6 +354,7 @@ docs/
 │   ├── 使用说明.md           # 当前用户/进阶用户使用路径
 │   ├── 当前待办.md           # 当前仍有效的待办
 │   └── 非Market未实现项审查.md # 大版本更新非 Market 未实现项代码审查
+├── information/               # 调研报告（2026-08-08-research-cobeing-first-principles.md 第一性原理分析）
 ├── 调研/                     # 竞品调研与技术调查（含 真人说话模拟调研.md：人味表达规范 26 条草案，2026-08-05）
 ├── superpowers/              # 实现计划、规格、审计计划
 │   ├── plans/                # 分阶段实施计划

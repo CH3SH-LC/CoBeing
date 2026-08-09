@@ -1,6 +1,6 @@
 # CoBeing 项目愿景
 
-> 最后更新：2026-06-07
+> 最后更新：2026-08-09
 
 ---
 
@@ -141,7 +141,7 @@ Market 不应该默认暴露给普通用户。
 - CoBeingRuntime 后端编排器。
 - Butler、Agent、Group 三层主体。
 - React/Tauri GUI 六入口。
-- Agent 文件体系：`AGENTS.md`、`CHARACTER.md`、`JOB.md`、`MEMORY.md`、`EXPERIENCE.md`、`config.json`。
+- Agent 文件体系：`AGENTS.md`、`EXPRESSION.md`（2026-08-05 起取代 CHARACTER.md；管家 Butler 保留 CHARACTER.md 人格）、`JOB.md`、`MEMORY.md`、`EXPERIENCE.md`、`config.json`。
 - 工具、权限、沙箱、记忆、TODO、技能、插件、MCP 基础设施。
 - 默认 DeepSeek Provider，以及通过数据插件扩展其他 Provider 的基础。
 
@@ -149,8 +149,8 @@ Market 不应该默认暴露给普通用户。
 
 - Market 官方认证/社区分级体验 —— 2026-08-03 已落地 v1（官方/认证/社区/本地四层、依赖树、社区确认门禁、管家推荐工具、扩展页 Market tab）；官方认证审核流程、认证远程市场、persona/plugin 资源安装、社区资源版本更新机制仍待跟进。
 - 管家自动推荐扩展的规则 —— 工具基础 + prompt 纪律已具备（2026-08-04），推荐评分与阈值策略待产品化。
-- 插件、MCP、投票、协作验收等端到端验证。
-- 普通用户初次使用引导 —— 2026-08-04 已落地（兴趣问卷 + 初始 Agent 生成 + 欢迎消息），问卷质量需真实用户验证。
+- 插件、MCP、协作验收等端到端验证。（投票已于 2026-08-09 删除）
+- 普通用户初次使用引导 —— 2026-08-05 已落地为管家对话式收集（替代问卷：收集兴趣/称呼/相处方式 → 创建 1-2 初始 Agent → 轻量推荐），效果需真实用户验证。
 - 生活场景闭环，证明系统真的能减少用户杂事。
 
 ---

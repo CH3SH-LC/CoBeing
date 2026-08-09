@@ -1,6 +1,313 @@
 ﻿# CoBeing 开发进度记录
 
+## 2026-08-09（目标：完成所有待办 — 10 批次全部落地，641 tests 全绿）
+
+变更原因：用户设定目标「完成所有待办」，按 spec 优先级逐批实现决策表与当前待办全部待排期项。每批 TDD + build + 全量测试；核心链路真实验证（冒烟 19/19 + 25/25 + verify-extensions 8/8）。
+
+### 批次1：TODOboard P0 改进（决策 #3 / spec #2）
+- **数据模型**（`todo/types.ts`）：TodoItem 加 `repeat?{type,daily|weekly|interval,timeOfDay,weekday,intervalHours,until}`、`nextTriggerAt?`、`overduePolicy?{action:re-wake|escalate-to-host,cooldownMinutes,maxRetries}`、`reTriggerCount?`
+- **触发引擎**（`todo/store.ts`）：`getRepeatDueTodos()`（本周期未触发判定）+ `advanceRepeat()`（推进周期、超 until 清空）+ `getStalePendingTodos()`（已触发待完成超冷却→重唤醒，按 overduePolicy 冷却/上限）+ `markReTriggered()` + `computeNextTriggerAt()`；`getDueTodos` 排除 repeat（repeat 走专属通道）
+- **AgentTodoScanner**（`todo/scanner.ts`）：补 0time（创建即触发）+ repeat（周期推进）+ stale 重唤醒（只重触发不重建，不推进周期）；新增 `notifyAgentSpoke()` 补 Agent 级 condition（接线到 message.ts run 完成后 + wsServer.setAgentTodoScanner）
+- **todo-add 工具**：支持 repeat/overduePolicy 参数（repeat 与 0time 显式互斥校验）
+- **GUI**：TodoItem 行内「下次触发/已触发待完成(重唤醒×N)」标记；GlobalTodoPanel 补 internalBlocker 展示
+- 新增 11 测试（store 7 + scanner 4）；陈默场景可注入 repeat 天气 TODO / overduePolicy re-wake 验证
+
+### 批次2：群组并发写防护（决策 #2 / spec #1）
+- 新增 `tools/file-version.ts`：文件版本 CAS（mtimeMs:size）；read-file 返回末尾附 `[file-version: X]`；write-file/edit-file 加可选 `baseVersion` 参数，写前校验不一致 → 拒绝「文件已被其他成员修改，请重新读取」（防静默覆写，验收场景：双 Agent 先后写同一文件，后者收到错误）
+- 新建文件不校验（首次写）；低配租约以 CAS 满足（单进程同步写无交错）
+- 新增 7 测试
+
+### 批次3：管家工具分级（决策 #1 / P2）
+- `butler.ts`：`BUTLER_DEFAULT_TOOLS` 移除执行类工具（bash/edit-file/glob/grep，保留 read-file/write-file 供个人事务 md）；新增 `BUTLER_FORBIDDEN_TOOLS` + `stripButlerForbiddenTools()`
+- `runtime.ts` createButler：运行时过滤禁止工具 + 修复持久化 config.json（对齐 host 结构约束）；同步更新 data/coreagents/butler/config.json + JOB.md（4 人格模板 + 运行时加「执行类工具已被系统移除」说明）
+- 陈默场景「应派发」由软约束升级为硬约束（管家无法调用执行工具）
+- 更新 butler.test/runtime.test 断言（+3 分级测试）
+
+### 批次4：GUI 入口收敛（决策 #11 / spec #6）
+- settings store 加 `advancedNav`（默认 false + localStorage `cobeing_advanced_nav`）+ `setAdvancedNav`
+- NavBar：常驻（管家/设置）+「⋯」Radix DropdownMenu 折叠（智能体/群组/仪表盘/扩展）；advancedNav=true 恢复全量六项
+- SettingsView GeneralSection 加「完整导航」开关；TutorialOverlay 第 5 步文案补「⋯ 菜单」提示；键盘快捷键固定映射不跟随开关
+
+### 批次5：安全分类器（决策 #10 / spec #5）
+- shared `PermissionMode` 加 `"auto"`
+- 新增 `tools/safety-classifier.ts`：`SafetyClassifier.classify()` 三值裁决（allow/deny/ask），复用 judgment 骨架（runToolAgent + AbortController 15s + JSON 严格输出），**reasoning-blind**（输入=用户消息+待裁决调用+工作区边界），**fail-closed**（无 provider/超时/解析失败→deny），熔断（连续3/累计20→deny），allow 缓存（deny 不缓存），judgeModel 可配置；不注册进任何 Agent 白名单（iron gate）
+- `permission.ts`：auto 决策链（deny→allow(排除 bash EXTREME_DANGER)→只读/工作目录内编辑放行→其余 needsClassifier）；`PermissionResult` 加 `needsClassifier`
+- `executor.ts`：check 后 needsClassifier → 调分类器 → deny/ask 降级 deny，emit `tool:classified` 审计事件
+- 新增 14 测试（classifier 7 + permission auto 7）；导出 SafetyClassifier
+
+### 批次6：ToolAgent 收敛 + 轻量注册（决策 #8 / spec #4）
+- **creator 双份 prompt 合并**：data/toolagents/creator/prompt.md 更新为权威（expression 字段，去 legacy character），creator.ts 读配置卡 prompt，源码降级 fallback
+- 新增 `agent/tool-agent/registry.ts`：`ToolAgentRegistry`（register/getSpec/listSpecs/registerPluginAgent/loadAll 从 data/toolagents 全量加载）；runtime 复活 registerToolAgent 死注册 + start() 挂载 `__cobeing.toolAgentRegistry`
+- 6 引擎确认已走 runToolAgent 薄封装（收敛结构满足，不改动）；新增 4 测试
+
+### 批次7：记忆纪律（决策 #6 / spec #3）
+- `MemoryEntry` 加 `ttl`（P0/P1/P2）+ `provenance`；memory.ts `normalizeEntries` 归一化（过滤无 summary、ttl 默认 P1、provenance 缺省补执行者 id）
+- memory/prompt.md 补 Q1/Q2/Q3 写入纪律（Q1 不看会犯错→P0 / Q2 将来可能查→P1 / 否则只留日志）+ ttl/provenance 输出协议
+- 管家 4 人格 + 运行时 JOB.md 加「记忆整合（每周）」；写 CAS 与批次 2 共用；「你记得我什么」入口 = 管家保留 read-file 可读自己 MEMORY.md
+- 新增 2 测试
+
+### 批次8：HRR Phase 2 + core 健壮性（决策 #4 / P2）
+- `memory/hrr.ts`：真实现替换 Stub（SHA-256 确定性相位向量：encodeAtom 128 次迭代展开 1024 相位 / bind / unbind / bundle 圆形均值 / similarity）；删除同名 interface/class 冲突；新增 6 测试（确定性/bind-unbind 检索/similarity）
+- `scripts/start-core.ts`：堆上限自检（`COBEING_HEAP_MB` 默认 4096，低于建议则 warn 提示 NODE_OPTIONS）；root package.json 加 `start:core`（`node --max-old-space-size=4096 --import tsx`）
+
+### 批次9：Butler 闭环 + 插件/MCP 端到端验证（P0）
+- 新增 `host-report-event` 工具（Group→Butler 结构化事件桥）：6 事件类型（blocked/needs_user_decision/completed/failed/scope_change/status_digest），构造 ButlerEscalationEvent → 广播 `butler_escalation` + 关联 ButlerTask；注册到 runtime registerHostTools
+- `agent-request-resource` 增强：广播 `butler_resource_request` + 追加管家工作区 RESOURCE_REQUESTS.md 收件箱（不再只返回文本）
+- 新增 `scripts/verify-extensions.ts`：扩展机制端到端验证 8 项全过（HookBus notify/intercept/transform、PromptLayer 排序注入、UIExtension 注册、PluginLoader 从 registry 加载 4 条、MCP 连接失败降级不崩溃）
+
+### 验证
+- `pnpm test` **70 files / 641 tests 全绿**（598 → +43）；全 workspace `pnpm build` 通过；gui `tsc --noEmit` 通过
+- 真实冒烟：`smoke-butler.ts` **19/19** + `smoke-market.ts` **25/25** + `verify-extensions.ts` **8/8**
+- 修改文件：todo/{types,store,scanner,tools}.ts + scanner.test、tools/{file-version,read-file,write-file,edit-file,safety-classifier,executor,permission,agent-resource}.ts + 3 测试、agent/tool-agent/{creator,memory,registry,types}.ts + 2 测试、group/host-tools.ts + 测试、agent/butler.ts、memory/hrr.ts + 测试、api/{ws-server.ts,handlers/message.ts}、runtime.ts + 2 测试、shared/types.ts、index.ts、gui-v2（NavBar/SettingsView/TutorialOverlay/stores/todo/stores/settings/GlobalTodoPanel/TodoItem）、data（creator/memory prompt.md、butler config.json/JOB.md、4 人格 JOB.md）、scripts/{start-core,verify-extensions}.ts、package.json
+
+### 四、真实测试闭环（Stop hook 要求「直到完全没有问题」）
+
+首轮完整陈默场景 26/28：2 项失败根因均为**测试脚本缺陷，非系统回归**：
+
+1. **TODOboard 语义断言失败**（「全局任务不含用户日程/购物清单」）：
+   - 根因一：复用数据残留（上一轮次管家把「按摩仪对比/耳机比价」建账为 Global TODO——旧违规产物，createdAt 05:12-05:29 UTC，非本次新建）
+   - 根因二：断言正则 `/客户a|改稿/` 误伤合法工作任务「客户A品牌VI改版需求整理」（设计工作室的大类任务，理应进 Global TODO）
+   - **修复**：断言改为**增量验证**（场景前快照 title 集合 → 只断言"本次场景未新增用户日程/购物清单类全局任务"，正则收窄为 `/猫粮|按摩仪|日程/`）——语义验证强度不变（管家不得把个人事务建账），且不受历史残留影响。修复后断言通过：**管家本次未把任何个人事务新建进全局任务**（S17 体检日程同样未进 TODOboard）
+2. **S4b 群组工作区产出失败**（「无」）：
+   - 根因：`groups[0]` 定位群组目录——readdirSync 按 Unicode 码点排序（内<周<品<生），`groups[0]`=「内容创作小队」（旧群组），而品牌设计工作室的产出（客户A_VI改版需求清单.md / 改稿要点清单.md，01:48 真实创建）从未被检查
+   - **修复**：按名称匹配 `groups.find(g => g.includes("品牌"))`（与 S8 既有模式对齐）
+3. **复验**：design 场景单独跑 🎉 全过 → **完整 all 场景 28/28 全绿**（S1-S19 全部断言 + TODOboard 增量断言，含群组真实协作产出/购物比价/旅行派发/Market 门禁/经验归属）
+
+修改文件：`scripts/real-test-chenmo.ts`（2 处断言修正）；sim core（18766）已停止，18765 用户 core 未触碰。
+
+## 2026-08-09（目标：文档整理 + 待办全量更新 + gateway 全局化 + 真实测试）
+
+### 一、gateway 全局化（决策 #12 补充：选用全局走 gateway 形式）
+
+变更原因：用户补充决策「12.gateway 选用全局走 gateway 的形式」——所有 LLM 调用统一经过 LLMGateway。
+
+- **改造 `gateway/llm-gateway.ts`**：不绑定单 Provider（调用方显式传入，保留 ConversationLoop 的 fallback 链与熔断器语义）；新增统一入口 `chatWithGateway` / `chatCompleteWithGateway`（有全局 gateway 走 gateway，无则直调降级——测试兼容）；chatComplete 加入队列（kind 分派统一队列）
+- **Runtime**：`new LLMGateway({5/60/120000/3})` + 挂载 `__cobeing.gateway`
+- **17 个调用点全量替换**：conversation-loop（主循环）、tool-agent base/creator、memory experience/indexer/memory-store、skills loader/md-loader/repository、workflow engine（×2）、group screener、butler agent-tools、agent reviewOnce + continuation-judgment（chatComplete 2 处）
+- **新增 `gateway/llm-gateway.test.ts`** 10 测试（排队/重试/重试耗尽 reject/并发限流/RPM 计数/降级/经 gateway 调用/chatComplete/状态）。测试暴露并固化真实语义：并发控制覆盖「获取 iterable」阶段（连接级），流式消费并行
+- 验证：build 全过、598 tests 全绿（588+10）、陈默 morning 场景真实 LLM 链路 S1/S2/S3 全过（TODOboard 语义断言失败为已知复用数据边界）
+
+### 二、文档全量整理（消除错误，核查报告 30 项）
+
+子智能体全量核查 docs/项目信息 7 篇 + GOAL.md + README.md + STRUCTURE.md vs 代码事实，修正：
+- 🔴 2 处投票残留：README（"投票有底层结构"→删除）、GOAL.md（端到端验证清单删投票）
+- CHARACTER→EXPRESSION 过期表述：README 文件体系表 + 使用说明「修改 Agent 个性」章节 + 架构说明 Agent 文件系统/Prompt 构建 + GOAL.md
+- 数量口径：ws-server 571→591 行、butler 150→222 行、WS 命令 68→78（11→14 模块）、useWebSocket 104→110 行
+- Market 状态（README 已落地 vs 建设中的矛盾）、项目现状兴趣问卷矛盾（改为对话式）、当前待办 45→66 个测试文件、__cobeingVoteStore 残留
+- STRUCTURE.md：docs 树补 information/、68→78 命令
+- 各文档头部日期统一 2026-08-09
+
+### 三、待办专项调研（4 项自主调研完成，spec 落盘 `docs/superpowers/specs/2026-08-09-research-followup.md`）
+
+- **决策 #2 并发写防护**：写前 CAS + 低配租约方案
+- **决策 #3 TODOboard 改进**：P0（repeat/nextTriggerAt/overduePolicy optional 字段 + getOverdueTodos 接线（现为死代码）+ Agent 级 0time 修复（现为 bug）+ GUI 标记）/ P1（统一 TriggerEngine、升级阶梯、cron 追赶、onComplete.createTodo）
+- **决策 #6 记忆纪律**：Memory ToolAgent 输出补 ttl/provenance/过滤 + 定期整合 + 写 CAS
+- **决策 #8 ToolAgent 确认**：2 真主体（clone/memory）+ 6 工具引擎（review/judgment/growth-reviewer/task-archive/capability-updater/creator）+ 轻量 ToolAgentRegistry（loadToolAgentSpec 生产零消费、插件 registerToolAgent 死注册）
+- **决策 #10 安全分类器**：Claude Code auto 模式机制（yoloClassifier 独立 LLM 裁决 + fast/thinking 两级流水线 + reasoning-blind + 熔断器 + FPR 0.4%）→ CoBeing 落地建议（safety-classifier.ts + PermissionEnforcer 决策链 + fail-closed + 熔断 + judgeModel 可配置 + Friendly Fire 等已知坑预防）
+- **决策 #11 GUI 入口收敛**：NavBar 折叠「更多」菜单 + advancedNav 进阶模式开关（localStorage 持久化）
+
+当前待办.md 决策表全部更新（✅4 📌5 🔬1）。
+
+### 四、真实测试（阶段 4）
+
+- 新增 `scripts/start-core-sim.ts`（dataDir=data-sim-chenmo 隔离启动，COBEING_SIM_PORT 可覆盖端口）
+- sim core 启动验证：`Global gateway mounted: true`；gateway 初始化日志确认
+- 陈默 morning 场景（18766 端口）：S1/S2/S3 全过（管家读日程/写购物清单/写日程 md 真实 LLM 链路经 gateway）；TODOboard 语义断言失败 = 已知复用数据边界（PROGRESS 已记载），非本次回归
+- 注意：18765 端口有用户自启动的 start-core.ts（data/ 数据根），未触碰
+
+修改文件列表：
+- Modify: `packages/core/src/gateway/llm-gateway.ts`（全局化改造）、`packages/core/src/runtime.ts`（挂载）、17 个 LLM 调用点、`docs/项目信息/` 5 篇、README.md、GOAL.md、STRUCTURE.md、PROGRESS、PROGRESS-LITE
+- Add: `packages/core/src/gateway/llm-gateway.test.ts`（10 测试）、`scripts/start-core-sim.ts`、`docs/superpowers/specs/2026-08-09-research-followup.md`
+
+## 2026-08-09
+
+### 变更：用户对第一性原理报告的 12 条决策落地（删除投票 + experience-reflect + 决策记录）
+
+变更原因：用户对 2026-08-08 第一性原理报告逐条裁决（12 条改进措施），其中第 7/9 条为执行指令（"完全删掉投票——此前声称删除但未真删""experience-reflect 完全删除"），其余为决策记录。
+
+**一、投票功能完全删除（第 7 条）**
+- 删除 `packages/core/src/vote/`（store.ts / tools.ts / types.ts 三文件）
+- `agent.ts`：删 import + 投票工具注册块（makeVoteCreateTool/CastTool/ResultTool）
+- `runtime.ts`：删 import + voteStore 字段 + 实例化 + `__cobeing.voteStore` / `__cobeingVoteStore` 全局别名（含 `__cobeing` 命名空间初始化对象的 voteStore 占位）
+- `index.ts`：删 VoteStore 与投票工具导出
+- `runtime.test.ts` / `runtime-globals.test.ts`：删 `__cobeingVoteStore` 断言与 voteStore 用例
+- `gui-v2/src/components/tutorial/TutorialOverlay.tsx`：删教程「分歧可通过投票解决」步骤（重新编号）
+
+**二、experience-reflect 旧工具完全删除（第 9 条）**
+- 删除 `packages/core/src/tools/experience-reflect.ts`（2026-06-03 已标注冗余待合并，本次落实）
+- `agent.ts`：删 import + 注册块（经验总结工具注册）
+- 注：新系统 `MemoryStore.reflectFromHistory` 后台反思链路不受影响
+
+**三、验证**
+- `pnpm build` 全包通过；`pnpm test` 66 files / 588 tests 全绿（589→588 因删 1 个 voteStore 用例）
+- GUI `tsc --noEmit` 通过
+- 真实验证脚本 9/9 通过：源码/dist 无 vote 与 experience-reflect 残留、非测试源码无符号残留、Runtime 正常构造（Provider ready / 10 skills / ObservabilityDB 正常）且全局无 vote 别名
+- dist 残留旧产物已清理（tsc 增量构建不删旧文件）
+
+**四、12 条决策记录**
+- 全文记录于 `docs/项目信息/当前待办.md`「2026-08-08/09 第一性原理报告决策记录」：✅已执行 2 条（投票/experience-reflect）、📌待办 5 条（群主 prompt 强硬约束、群组并发写防护、TODOboard 改进方案、HRR Phase 2 实现、安全分类器工具智能体、ToolAgent 专项）、🔬需调研 2 条（记忆纪律、GUI 入口收敛）
+- 报告 `docs/information/2026-08-08-research-cobeing-first-principles.md` 顶部新增「2026-08-09 用户决策修订」标注被否决/修正的 4 条建议
+- 文档同步：项目现状.md（投票小节改为已移除）、架构说明.md（演进方向/僵尸变量说明）、使用说明.md（使用边界）、核心技术.md（第 4 条状态机建议标注已放弃——代码自 2026-06-09 即无状态机，原为过期文档）、产品战略.md（对抗性观点）
+
+修改文件列表：
+- Delete: `packages/core/src/vote/{store,tools,types}.ts` + `packages/core/src/tools/experience-reflect.ts`
+- Modify: `packages/core/src/agent/agent.ts`（import+2 注册块）、`packages/core/src/runtime.ts`（import/字段/实例化/全局别名）、`packages/core/src/index.ts`（导出）、`packages/core/src/runtime.test.ts`、`packages/core/src/runtime-globals.test.ts`、`gui-v2/src/components/tutorial/TutorialOverlay.tsx`
+- Docs: 当前待办.md / 项目现状.md / 架构说明.md / 使用说明.md / 核心技术.md / 产品战略.md / 调研报告 / PROGRESS / PROGRESS-LITE
+
+## 2026-08-08（文档变更）
+
+### 调研：CoBeing 全功能第一性原理分析与更优方案报告
+
+变更原因：用户指令「用第一性原理分析我的所有功能，然后思考是否有更好的办法，返回一份报告」。
+
+产出：
+- **报告**：`docs/information/2026-08-08-research-cobeing-first-principles.md`（8 章节 + 方案对比 + P0/P1/P2 建议；29 个外部来源 + 代码/文档一手事实，两路子智能体 30 次 WebSearch + 素材枚举子智能体）
+- **目录**：工作区 CLAUDE.md 目录树新增 `docs/information/`（本次仅文档产出，无代码变更）
+
+核心发现（摘要）：
+- ✅ 已被主流验证的 7 项：管家入口（orchestrator 拓扑）、文件式记忆（Letta 实验 74% vs Mem0 68.5%）、权限白名单控制平面、纯 prompt 协作策略、群组组织感定位、Market 分级（与 Agent Plugins 1.0.0 同构）、防御性工程积累
+- ⚠️ 需修正的 12 项：管家职责靠 prompt 软约束（陈默专项实测 1/3 失守，应结构约束）、群组多 Agent 并发执行（Google 39-70% 退化/HiddenBench 30.1% vs 80.7%）、TODO 六套并行账本（应单一真相源+原子认领）、HRR 死代码桩（Phase 2 从未实现，全部操作 throw）、「协作协议固化为状态机」方向建议应撤销、记忆纪律缺口（无 TTL/过滤/整合/provenance）、投票过度设计（个人场景组织隐喻）、ToolAgent 无统一注册、experience-reflect 冗余（2026-06-03 遗留）、Docker 沙箱重负担、GUI 六入口平级 vs 管家唯一入口张力、LLMGateway 名实不符
+- 结论：自研编排理性（Anthropic 官方立场）；多 Agent 从执行架构降级为产品叙事与路由配置；P0 五项低成本改进（删 HRR 桩/管家工具结构约束/清理冗余/投票降级/预算熔断）
+
+待办衔接：报告 P0/P1/P2 建议与 `当前待办.md` 已有条目形成闭环（管家工具分级、Group→Butler 事件桥、资源审批队列、ToolAgent 统一注册均已在待办中，本报告提供外部证据升格/确认优先级）。
+
+## 2026-08-08
+
+### 修复：陈默验证发现的 3 项核心问题（OOM 根因 + 扫描上限 + path-guard 增强）
+
+变更原因：
+用户对验证结果提出三个设计性质疑（为什么会 grep 到大目录 / 为什么用拦截 / 为什么不能靠指引），随后指令"修复问题"。经代码取证确认根因后修复。
+
+**一、根因（代码取证）**
+1. **OOM 直接根因**：`conversation-loop.ts:480` 工具执行时 `workingDir ?? process.cwd()`——workingDir 意外为 undefined 时**静默兜底到项目根**，grep 无 path 参数时从项目根全盘扫描（含 600MB 备份目录 + node_modules），4GB 堆耗尽崩溃
+2. **触发链**：wake-system 唤醒群组成员时 `getGroup?.()?.effectiveWorkspace` 为 undefined → agent.run → getGroupLoop → ConversationLoop workingDir 缺失 → 兜底 cwd（崩溃日志证据：grep 结果路径无 `../` 前缀 = 项目根相对路径）
+3. **path-guard 失效**：DATA_DIR_SEGMENTS 无 data-sim-chenmo/备份目录段；且 workingDir 错误时从项目根视角看备份路径"合法"
+
+**二、修复（3 层防线，66 files / 589 tests 全绿）**
+- **修复 1 fail-fast**：`conversation-loop.ts` — workingDir 缺失时**拒绝执行工具**并写入明确错误（"会话工作目录未配置"），绝不静默兜底 process.cwd()；新增 `conversation-loop.test.ts`（2 测试：缺失拒绝 + 正常透传）
+- **修复 2 传值保护**：`wake-system.ts` — 两处（主唤醒 + 重试分支）`getGroup?.()?.effectiveWorkspace` 改为 `|| agent.effectiveWorkspace` 兜底，杜绝 undefined 泄漏
+- **修复 3 扫描上限**：`grep.ts`/`glob.ts` — MAX_SCAN_FILES 5000→2000、MAX_SCAN_DEPTH 20→12、grep 增加单文件 2MB 跳过（大文件不读入内存）；超限返回"已截断"明确提示（不再静默返回部分结果）
+- **修复 4 path-guard 增强**：`path-guard.ts` — DATA_DIR_SEGMENTS 增加 data-sim-chenmo；新增 BACKUP_SUFFIX_RE（`.bak`/`.bak-时间戳` 段名拦截）；测试 +4
+
+**三、真实验证（阶段 4）**
+- workingDir 缺失 → 工具被拒 + 错误日志（实测通过）
+- grep 异常场景（workingDir=项目根）：修复前 21s 逼近 OOM → 修复后 **2.4s + 截断提示 + 无 OOM**（文件数/深度/大小三层上限）
+- 真实 E2E 早晨场景 S1-S3 全绿（修复无回归）；core 连续运行 0 OOM、0 workingDir 兜底
+- 注：E2E TODOboard 语义断言在复用数据下失败为已知边界（后台任务残留，干净数据下通过——第 3 轮已验证）
+
+修改文件列表：
+- Modify: `packages/core/src/conversation/conversation-loop.ts` — workingDir fail-fast
+- Add: `packages/core/src/conversation/conversation-loop.test.ts` — 2 聚焦测试
+- Modify: `packages/core/src/group/wake-system.ts` — 2 处 workingDir 兜底
+- Modify: `packages/core/src/tools/grep.ts` — 扫描上限（文件数/深度/大小）+ 截断提示
+- Modify: `packages/core/src/tools/glob.ts` — 扫描上限 + 截断提示
+- Modify: `packages/core/src/tools/path-guard.ts` — data-sim-chenmo 段 + .bak 段名拦截
+- Modify: `packages/core/src/tools/path-guard.test.ts` — +4 测试（模拟目录/备份目录/正常文件名）
+
+### 专项：陈默模拟用户真实验证（path-guard 工具链 + 管家派发纪律 + dataRoot 传递，3 轮迭代后全绿）
+
+变更原因：
+用户指令"继续陈默专项的验证"。工作区存在未提交的「陈默模拟用户专项」变更：新增 path-guard.ts（路径误用防护，5 个文件工具接入）、管家人格 JOB.md 增加"工作类任务一律派发 + 用户个人事务走本地 md"纪律、dataRoot 传递链修复（agent-tools 用 `__cobeingDataRoot`）、conversation-loop 网络错误识别扩展。本轮按 real-world-verify 门禁做全链路真实验证。
+
+**一、验证结果（3 轮迭代）**
+1. 环境：`pnpm -r run build` 7 包全绿；`pnpm test` **65 files / 582 tests 100%**（含 path-guard.test.ts 8 测试）
+2. path-guard 专项（真实工具调用，不经 LLM）：`scripts/verify-path-guard.ts`（新增）— 误用路径 5 工具 × 7 路径 = **35/35 拦截**（data/、coreagents/、agents/ 前缀 + Windows 反斜杠）；正常相对路径 5 工具回归全过（含中文/深目录）；绝对路径/`../` 逃逸 containment 既有防线 2/2 拒绝
+3. 用户视角 E2E（`scripts/real-test-chenmo.ts` 修复后）：陈默一天 19 条活动 → **27 断言 26 通过 + 1 脚本缺陷修复后复验全绿**：
+   - S1-S3 晨间（日程/购物清单 md）+ TODOboard 语义（全局任务不含用户日程）✅
+   - S4a/S4b 设计群组：建群→`butler-dispatch-to-group` 派发→资深设计师产出《客户A_VI改版需求清单.md》✅
+   - S5 配色经验：暖橙偏好精确入资深设计师 EXPERIENCE.md（XX咖啡方案如实报告"未找到"不编造）✅
+   - S8-S10 采买群组：购物顾问产出耳机选购分析 + 比价分析真实 JD/ZOL/Bing 查价产出比价报告；S10 购物偏好**精确入购物顾问** EXPERIENCE.md ✅
+   - S11-S14 创作+Market：内容创作小队建群派发长文任务；管家 market-recommend 推荐记账小助手需确认且**未静默安装** ✅
+   - S15-S17 出行：周末出行小队建群派发杭州 2 日游；体检入日程 md 且 TODOboard 不记录 ✅
+   - S18-S19 收尾：经验入**品牌设计工作室群组经验库**（group-experience-add，管家主动决策团队共享）；睡前读日程 md ✅
+
+**二、发现与修复（4 项）**
+1. **core OOM 崩溃**（`FATAL ERROR: heap out of memory` ~4GB）：第 3 轮中管家 grep 扫描到数据根同级备份目录（data-sim-chenmo.bak-20260808，含上次全量数据）叠加长会话 → 堆耗尽崩溃。处置：备份移入 `docs/archive/` 后重启稳定。**建议产品化**：start-core.ts 提高 `--max-old-space-size` 或管家 grep 加扫描上限
+2. **测试脚本会话锁缺陷**：管家正处理上一请求时返回 `[已停止]`，脚本 waitButler 误当成功回复 → S9-S19 后半场景连发失败/误报。修复：新增 `sendAndWaitButler`（感知占位回复 + 60s 重试 ×3 + 回退），S11-S19 第 3 轮全绿
+3. **S4a 断言过严**：建群请求无任务时管家不派发是合理行为（与 PVZ 测试已知问题同类），断言修正为"建群请求处理完成（派发在任务到来时验证）"
+4. **S10/S18 断言归属不精确**：S10 需精确匹配购物顾问（防命中比价分析查价经验）；S18 需同时支持 Agent 私有记忆与群组经验库两种合理落点
+
+**三、低风险发现项（非本次变更引入）**
+- conversation-loop 网络错误新分支（fetch failed/ENOTFOUND/EAI_AGAIN 等）无专门测试覆盖
+- glob `**` 模式返回重复文件（globWalk 既有行为）
+- bash 沙箱降级本地执行时无 path containment（既有行为，与 path-guard 文件工具防护不同层）
+
+修改文件列表：
+- Add: `CoBeing/packages/core/src/tools/path-guard.ts`（detectDataPathMisuse：数据目录段误用检测）+ `path-guard.test.ts`（8 测试）
+- Modify: `CoBeing/packages/core/src/tools/read-file.ts`/`write-file.ts`/`edit-file.ts` — path-guard 接入（isError 返回）；`glob.ts`/`grep.ts` — 接入（throw）
+- Modify: `CoBeing/packages/core/src/agent/agent.ts` — 工作目录提示词强化（禁 data/ 前缀路径 + 大文件分块）
+- Modify: `CoBeing/packages/core/src/agent/butler.ts` — ButlerAgent 构造新增 runtimeDataRoot 参数
+- Modify: `CoBeing/packages/core/src/agent/butler/tools/agent-tools.ts` — 创建 Agent 用 `__cobeingDataRoot`（与 runtime 一致）
+- Modify: `CoBeing/packages/core/src/runtime.ts` — 传入 this.dataRoot
+- Modify: `CoBeing/packages/core/src/conversation/conversation-loop.ts` — 网络错误识别扩展（fetch failed/ENOTFOUND/ECONNRESET 等 → 重试判定 + 友好提示）
+- Modify: `CoBeing/packages/core/src/templates/butler/personas/*/JOB.md`（4 文件）— "工作类任务一律派发，管家不亲自执行" + "用户个人事务（日程/购物/提醒）走本地 md 不建 TODOboard"
+- Add: `CoBeing/scripts/real-test-chenmo.ts`（陈默 E2E：WS 驱动 + 会话锁感知重试 + 27 断言）
+- Add: `CoBeing/scripts/verify-path-guard.ts`（path-guard 真实工具链路验证）
+- Add: `CoBeing/data-sim-chenmo/`（模拟数据，本轮保留供用户观察）
+
 ## 2026-08-05
+
+### 专项：多轮测试全量验证（5 层：全量单测 + 双构建 + 双冒烟 + 真实 E2E 两轮）+ 测试数据清理恢复纯净
+
+变更原因：
+用户指令"再次跑多种测试，先把你要跑的测试给我看"——先向用户展示测试计划获批后执行。测试计划 5 层：①全量单元测试 ②后端构建 ③GUI 构建 ④WS 冒烟（butler/market）⑤真实 E2E（用户选择纳入，从零重测；E2E 首轮失败后用户批准加跑群组协作版）。
+
+**一、测试执行与结果（全部通过）**
+1. `pnpm test` — **64 files / 574 tests 全绿**（9.8s，此前基线 63/568，新增 1 文件 6 测试）
+2. `pnpm -r run build` — 7 包 tsc 全部成功（shared/channels/providers/qqbot/office/plugin-sdk/core）
+3. gui-v2 `pnpm build`（tsc + vite）— 成功，2422 modules（仅 chunk 体积非阻塞警告）
+4. `smoke-butler.ts` **19/19** + `smoke-market.ts` **25/25**（临时数据目录，不污染真实 data/）
+5. 真实 E2E 两轮：
+   - **首轮（默认请求）**：`Provider chat error (round 1): terminated` 失败——DeepSeek API 偶发断连（PROGRESS 已记录的环境问题，非代码 bug），Round 0 成功证明 key/链路正常；**重试通过**：管家自主决策直接完成（76 工具事件），自校验 JS 语法 + vm 冒烟 + 种植流程逻辑验证，产物 `data/coreagents/butler/workspace/pvz_demo.html`（21KB，sun/plant/zombie/shoot 玩法齐全）——管家合理决策（请求未要求建群组），但脚本 verifyArtifacts 断言假设"必建 Agent/群组"与实际 LLM 决策不符
+   - **群组版（用户批准加跑，请求含"请创建合适的智能体团队和群组来完成"）**：**10/10 断言全绿**（exit 0）——完整链路：管家侦察 → 创建 游戏开发工程师/前端工程师 2 Agent → 创建群组 塔防游戏开发组 → 创建全局 TODO + 管家任务 + 回执广播 6 次 → 派发 → @host 唤醒群主启动 → @工程师 唤醒成员 → 群内协作讨论 → 群组工作区产出 index.html（31KB，UTF-8 关键词：阳光 7/植物 10/僵尸 12/种植 3/canvas 14）+ UI-INTERFACE.md
+
+**二、发现项（非阻塞）**
+- DeepSeek API 偶发 `terminated` 断连（已有记录的环境问题），无超时/重试兜底，重试可过
+- smoke-butler 不加载 .env → onboarding LLM 401 → Creator 模板降级 fallback（已知行为，PROGRESS 记录过）
+- E2E 脚本 `real-test-pvz.ts` verifyArtifacts 强制断言"创建 Agent + 群组 + 群组工作区产物"，与管家合理直做决策不匹配（请求无群组要求时会误判失败）
+- 管家开发中曾遇嵌套路径（workspace/data/coreagents/...）——管家自主发现并清理，最终产物在规范位置
+
+**三、测试数据清理（用户确认"全部删除"，对齐上次清空后纯净状态）**
+- 删除测试 Agent 目录：data/agents/游戏开发工程师、data/agents/前端工程师
+- 删除测试群组目录：data/groups/塔防游戏开发组（含 workspace 产物）
+- 删除 data/observability/、butler workspace 的 pvz_demo.html
+- 删除 docs/log/real-test-pvz-*.jsonl（3 个）+ real-test-pvz-butler-response.md
+- registry.json：删除 2 个测试 Agent + 群组条目（仅剩 butler/host 核心）
+- 重置管家任务状态：butler-tasks.json / global-todos.json / butler-bindings.json → `[]`
+
+修改文件：
+- Modify: `data/registry.json` — 仅剩 host/butler 核心条目
+- Modify: `data/coreagents/butler/butler-tasks.json`、`global-todos.json`、`butler-bindings.json` — 重置 `[]`
+- Delete: `data/agents/游戏开发工程师/`、`data/agents/前端工程师/`、`data/groups/塔防游戏开发组/`、`data/observability/`、`data/coreagents/butler/workspace/pvz_demo.html`、`docs/log/real-test-pvz-*.jsonl`、`docs/log/real-test-pvz-butler-response.md`
+
+### 收尾：测试数据全面清空 + 推送到 GitHub preview 分支
+
+变更原因：
+用户指令"清空测试的内容，然后push到github上的preview"——推送前把 PVZ 测试遗留数据全部清掉，让系统回到纯净核心状态，并将全部开发变更推送到远程 preview 分支。
+
+**一、测试数据清空（data/ 恢复纯净系统核心）**
+- 删除测试 Agent：前端工程师、游戏开发工程师（目录 + registry.json 条目）
+- 删除测试归档：data/archives/（plants-vs-zombies.html + 塔防游戏开发组.zip——本次明确清空，不再保留）
+- 删除观测数据：data/observability/
+- 删除异常顶层目录：data/butler、data/host、data/groups、data/tools（测试脚本错误 CWD 写入的残留）
+- 删除 registry 崩溃备份：registry.json.corrupted.*（5 个）
+- 重置管家任务状态：butler-tasks.json / global-todos.json / butler-bindings.json / TASK_LOG.md
+- 删除 `.tmp-screens/`（666MB Edge 测试截图，GitHub 100MB 文件限制曾阻塞推送）+ .gitignore 忽略
+- 保留：butler/host 系统核心、toolagents、skills、plugins、market 官方资源、config、.env（gitignore 已忽略）
+- 排查插曲：node `rmSync` 对中文路径静默崩溃（exit 127 无输出），改用 bash rm 完成删除
+
+**二、推送到 GitHub preview**
+- 仓库原无 remote，用户提供 `https://github.com/CH3SH-LC/CoBeing.git` 后添加
+- 创建 preview 分支（从 master 基线 9ca2aac 切出）→ 提交全部 153 项变更 → 推送
+- 远程 preview 原为 08-01 项目根布局旧快照（6b706c5，内容与本地基线等价）→ `--force-with-lease` 覆盖为工作区布局（含 CoBeing/、docs/、projects/）
+- 最终：`b2cb380 feat: CoBeing v1.4.0 全面更新 — GUI 美观化、人味分级产品化、Market/管家入口`（2 commits，最大文件 6.3MB 海报图 < 100MB 限制）
+- 远程 main/1.3.x 分支与 tags 未受影响
+
+修改文件：
+- Modify: `data/` — 全面清空测试数据（详见上）
+- Modify: `.gitignore` — 追加 `.tmp-screens/`
+- Modify: `.git/config` — 添加 remote origin
+- Add: `preview` 分支（origin/preview: b2cb380）
 
 ### 清理：遗留测试群组「塔防游戏开发组」归档（真实验证时发现仍在低频自触发工作）
 

@@ -71,3 +71,9 @@ Desktop.ini
 
 # Temporary screenshots (Edge test captures)
 .tmp-screens/
+
+# Test/simulation runtime data (not source)
+CoBeing/data-sim-chenmo/
+CoBeing/data-sim-chenmo.bak-*/
+CoBeing/docs/log/
+docs/archive/data-sim-chenmo.bak-*/
