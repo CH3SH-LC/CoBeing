@@ -39,6 +39,10 @@ export function getGlobalTodoDisplayLines(todo: GlobalTodoInfo): { body: string[
 
   const meta = [
     `\u6307\u6d3e\uff1a${assigneeLabel(todo)}`,
+    // internalBlocker \u5c55\u793a\uff08\u51b3\u7b56 #3 / spec #2 P0\uff09
+    ...(todo.internalBlocker
+      ? [`\u2554 \u5185\u90e8\u963b\u585e: ${todo.internalBlocker.summary}`]
+      : []),
   ].filter(Boolean);
 
   return { body, meta };

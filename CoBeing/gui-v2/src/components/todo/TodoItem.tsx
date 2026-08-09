@@ -24,6 +24,8 @@ export function TodoItemCard({
   const triggerTime = new Date(todo.triggerAt);
   const isOverdue = triggerTime.getTime() < Date.now() && todo.status !== "completed";
   const isDone = todo.status === "completed";
+  const hasNextTrigger = !!todo.nextTriggerAt && !isDone;
+  const isStaleRetrigger = !!todo.triggeredAt && todo.status === "pending" && !!todo.overduePolicy;
 
   return (
     <div
@@ -79,6 +81,22 @@ export function TodoItemCard({
             <>
               <span style={{ color: "var(--color-divider)" }}>·</span>
               <span>{todo.recurrenceHint}</span>
+            </>
+          )}
+          {hasNextTrigger && (
+            <>
+              <span style={{ color: "var(--color-divider)" }}>·</span>
+              <span className={todo.status === "pending" ? "text-accent" : ""}>
+                下次触发: {new Date(todo.nextTriggerAt!).toLocaleString("zh-CN")}
+              </span>
+            </>
+          )}
+          {isStaleRetrigger && (
+            <>
+              <span style={{ color: "var(--color-divider)" }}>·</span>
+              <span className="text-warning">
+                已触发待完成 {todo.reTriggerCount ? `(重唤醒×${todo.reTriggerCount})` : ""}
+              </span>
             </>
           )}
           {todo.targetAgentId && (

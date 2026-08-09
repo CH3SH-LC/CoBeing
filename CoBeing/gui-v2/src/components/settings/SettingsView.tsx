@@ -136,6 +136,8 @@ function GeneralSection() {
   const setCloseBehavior = useSettingsStore((s) => s.setCloseBehavior);
   const notifications = useSettingsStore((s) => s.notifications);
   const setNotifications = useSettingsStore((s) => s.setNotifications);
+  const advancedNav = useSettingsStore((s) => s.advancedNav);
+  const setAdvancedNav = useSettingsStore((s) => s.setAdvancedNav);
 
   return (
     <div>
@@ -157,6 +159,33 @@ function GeneralSection() {
             {closeBehavior === "minimize"
               ? "关闭窗口时程序将继续在后台运行"
               : "关闭窗口时程序将完全退出"}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-surface border border-bdr/40" style={{ padding: 20, boxShadow: "var(--shadow-surface)" }}>
+          <label className="text-sm font-medium text-txt block mb-3">导航</label>
+          <label className="flex items-center justify-between">
+            <span className="text-sm text-txt-sub">完整导航（显示全部入口）</span>
+            <button
+              role="switch"
+              aria-checked={advancedNav}
+              onClick={() => setAdvancedNav(!advancedNav)}
+              className={cn(
+                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                advancedNav ? "bg-accent" : "bg-input border border-bdr"
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-3.5 w-3.5 rounded-full transition-transform",
+                  advancedNav ? "translate-x-4" : "translate-x-0.5"
+                )}
+                style={{ backgroundColor: "var(--color-white)" }}
+              />
+            </button>
+          </label>
+          <p className="text-xs text-txt-muted mt-2">
+            关闭时导航栏仅显示管家与设置，其余入口（智能体/群组/仪表盘/扩展）收进「⋯」菜单。
           </p>
         </div>
 

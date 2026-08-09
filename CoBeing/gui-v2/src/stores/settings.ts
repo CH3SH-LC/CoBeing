@@ -9,6 +9,17 @@ interface NotificationSettings {
   sound: boolean;
 }
 
+/** 进阶导航开关（决策 #11 / spec #6）— 默认折叠，仅常驻管家/设置 */
+const ADVANCED_NAV_KEY = "cobeing_advanced_nav";
+
+function loadAdvancedNav(): boolean {
+  try {
+    return localStorage.getItem(ADVANCED_NAV_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 interface SettingsStore {
   activeView: ViewType;
   connected: boolean;
@@ -18,6 +29,7 @@ interface SettingsStore {
   settingsSection: SettingsSection;
   closeBehavior: CloseBehavior;
   notifications: NotificationSettings;
+  advancedNav: boolean;
 
   setActiveView: (view: ViewType) => void;
   setConnected: (val: boolean) => void;
@@ -28,6 +40,7 @@ interface SettingsStore {
   setSettingsSection: (section: SettingsSection) => void;
   setCloseBehavior: (behavior: CloseBehavior) => void;
   setNotifications: (settings: Partial<NotificationSettings>) => void;
+  setAdvancedNav: (val: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
@@ -39,6 +52,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   settingsSection: "theme",
   closeBehavior: "close",
   notifications: { enabled: true, sound: true },
+  advancedNav: loadAdvancedNav(),
 
   setActiveView: (view) => set({ activeView: view, detailPanelOpen: false }),
   setConnected: (val) => set({ connected: val }),
@@ -50,4 +64,12 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   setCloseBehavior: (behavior) => set({ closeBehavior: behavior }),
   setNotifications: (settings) =>
     set((s) => ({ notifications: { ...s.notifications, ...settings } })),
+  setAdvancedNav: (val) => {
+    try {
+      localStorage.setItem(ADVANCED_NAV_KEY, val ? "1" : "0");
+    } catch {
+      /* localStorage 不可用则仅内存态 */
+    }
+    set({ advancedNav: val });
+  },
 }));

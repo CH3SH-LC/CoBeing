@@ -14,6 +14,16 @@ export interface TodoItemData {
   createdAt: string;
   triggeredAt?: string;
   completedAt?: string;
+  repeat?: {
+    type: "daily" | "weekly" | "interval";
+    timeOfDay?: string;
+    weekday?: number;
+    intervalHours?: number;
+    until?: string;
+  };
+  nextTriggerAt?: string;
+  overduePolicy?: { action: "re-wake" | "escalate-to-host"; cooldownMinutes?: number; maxRetries?: number };
+  reTriggerCount?: number;
   agentId?: string;
   targetAgentId?: string;
   parentId?: string;
