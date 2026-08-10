@@ -42,6 +42,13 @@
   },
   "judgmentModel": "deepseek-chat",
   "groups": [],
-  "mcpServers": {},
+  "mcpServers": {
+    "claude-code": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["packages/mcp-servers/claude-code/dist/index.js"],
+      "env": {}
+    }
+  },
   "skillWhitelist": []
 }

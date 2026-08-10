@@ -7,6 +7,7 @@ export default defineConfig({
     include: [
       "packages/*/src/**/*.test.ts",
       "packages/*/tests/**/*.test.ts",
+      "packages/mcp-servers/*/src/**/*.test.ts", // 2026-08-11: claude-code MCP server 加入，覆盖两级子包
       "gui-v2/src/**/*.test.ts", // GUI 测试并入根命令（2026-08-03：Market 前端任务发现既有配置未覆盖 gui-v2）
       "gui-v2/src/**/*.test.tsx",
     ],
