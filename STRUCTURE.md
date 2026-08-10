@@ -84,7 +84,8 @@ CoBeing/packages/
 ├── plugin-sdk/               # @cobeing/plugin-sdk：manifest、loader、hook、prompt layer、UI extension
 └── mcp-servers/
     ├── qqbot/                # QQ Bot MCP server
-    └── office/               # Office MCP server
+    ├── office/               # Office MCP server
+    └── claude-code/          # Claude Code MCP server — 编码任务委托（2026-08-11）
 ```
 
 ### core/src/todo 子目录

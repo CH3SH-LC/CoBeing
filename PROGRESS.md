@@ -1,5 +1,50 @@
 ﻿# CoBeing 开发进度记录
 
+## 2026-08-11（Claude Code MCP server — 借助 Claude Code 补足编码能力）
+
+变更原因：用户调研确认 Claude Code CLI 默认不开端口（stdio TUI）、但可作 MCP server（`claude mcp serve` + Agent SDK）；决策「方案 B（Agent SDK）+ TypeScript」，让 CoBeing Agent 把编码任务委托给 Claude Code 的**完整 agent 循环**（模型自己推理/读写文件/跑命令/修 bug），补足现有默认 LLM 的端到端编码推理能力。调研结论：作 MCP server 三条路线（headless `claude -p` 子进程 / Agent SDK / 内置 `claude mcp serve`）中选 Agent SDK（真流式、session 续会话、hooks 门禁）；关键约束为 CoBeing MCPClient 单请求 30s 硬超时 → 必须异步轮询；`claude mcp serve` 只暴露工具面（编排仍是 CoBeing 自己的 LLM），不真正补足推理，故弃用。
+
+### 新增 `packages/mcp-servers/claude-code/`（@cobeing/claude-code-mcp-server v0.1.0）
+- **异步轮询架构**（CoBeing MCPClient 单请求 30s 硬超时约束）：5 工具 `claude_code_start / status / result / cancel / list`；start 秒级返回 `task_id`，LLM 反复调 status/result 轮询直至终态（result 内部最多等 ~25s）
+- **TaskManager**（`task-manager.ts`）：`running/completed/failed/cancelled` 状态机 + **working_dir fail-fast**（必填 + 绝对路径 + 必须存在，缺失即拒绝，绝不静默兜底 cwd，对齐 workingdir 纪律）+ AbortController 取消 + onOutput 流式累积（上限 20k 字符）+ `session_id` 续会话 + 默认预算 $2 / 50 轮（env 可覆写）
+- **SDK 封装**（`sdk.ts`）：`@anthropic-ai/claude-agent-sdk` query() → `stream_event` 文本增量转 onOutput，`result` 消息按 subtype 判别成败；bypassPermissions 需显式 `allowDangerouslySkipPermissions`；**env 兜底 USERPROFILE/HOME**（StdioTransport 白名单 env 缺省，Windows 认证靠 %USERPROFILE%\.claude）；signal→abortController 桥接取消
+- **MCP server**（`mcp-server.ts`）：复制 office/qqbot 手写精简 stdio JSON-RPC（保持代码库一致性，不引入 @modelcontextprotocol/sdk）
+- **stdout 纯净修复**（`index.ts`）：MCP stdio 协议要求 stdout 只承载 JSON-RPC；`@cobeing/shared` createLogger 的 info/debug 原走 console.log（stdout）→ 污染协议通道（CoBeing StdioTransport 逐行按 JSON 解析，产生 Failed to parse 告警）。模块顶层把 console.log/debug 重定向 stderr，协议响应 process.stdout.write 不受影响
+- **配置接线**：`config/default.json` mcpServers 加 `claude-code`（stdio: node packages/mcp-servers/claude-code/dist/index.js，connectAllMCPServers 已 try/catch，连不上不崩启动）；`vitest.config.ts` include 加 `packages/mcp-servers/*/src/**/*.test.ts`（原 glob 未覆盖两级子包）
+
+### 验证
+- **TDD**：task-manager 24 测试全绿（状态机 / fail-fast / 取消 / 轮询快路径与超时 / 并发独立 / 默认值透传）
+- **全量回归**：`pnpm build` 8 包通过；`pnpm test` 71 files / 665 tests 全绿
+- **真实验证**（用 CoBeing 真实 MCPClient + 真实 Claude Code 全链路）：
+  - 握手 / 5 工具列出 / 空 list / 未知 task_id 拒绝：全过
+  - fail-fast：缺 working_dir / 目录不存在 / 相对路径 / 缺 prompt / 非法 permission_mode：全拒
+  - **真实编码任务**：Claude Code 修复 add.js bug（return a*b → a+b）、创建 test-add.js、跑断言通过（TDD 红→绿→边界验证），成本 $0.6976
+  - 取消运行中任务 → cancelled；取消已结束/未知任务 → 合理错误
+  - **session 延续**：任务 2 resume 任务 1 会话，记得上下文（标识码 ALPHA-9）并成功追加文件（文件系统证据）
+  - stdout 纯净：Failed to parse 告警 0（修复后）
+- 两个 harness 断言 ❌ 均为**测试脚本查错路径**（agent 把文件写到 HOME 而非 working_dir），机制本身经文件系统证据确认正常
+
+### 已知边界（文档化）
+- **bypassPermissions 下 working_dir 是会话根目录而非写 jail**——Claude Code 可选择写绝对路径（如 %USERPROFILE%）；委托方与用户承担该风险，`使用说明.md` 已注明
+
+### 修改文件
+- 新增 `CoBeing/packages/mcp-servers/claude-code/`：package.json / tsconfig.json / src/{index,mcp-server,task-manager,sdk,tools,types}.ts / task-manager.test.ts
+- `CoBeing/config/default.json`（mcpServers.claude-code）
+- `CoBeing/vitest.config.ts`（include 两级子包）
+- `STRUCTURE.md`（mcp-servers 树加 claude-code）
+- `docs/项目信息/项目现状.md`、`docs/项目信息/使用说明.md`（MCP 段）
+
+### 补充（同日）：mcp-register 附带 instructions 使用指南
+
+变更原因：用户询问「给智能体分配 claude-code MCP 时，被分配智能体能否获得使用方式」——查证确认工具 description 会进 LLM 上下文（agent.ts:409 listDefinitions → loop.ts:297 tools），Agent 能靠描述自悟；但 mcp-register 只返回工具名列表，MCP 协议标准的 `instructions` 字段被 CoBeing client 解析未用（client.ts 仅类型标注）。决策「方案 B：接通 instructions 字段」。
+
+- **MCPClient**（client.ts）：保存 initialize 返回的 `instructions`（`get instructions()`）
+- **MCPManager**（manager.ts）：新增 `getInstructions(serverId)` 供 mcp-register 使用
+- **mcp-register**（mcp-tools.ts）：注册成功后，若 server 有 instructions，返回内容附【使用指南】段
+- **claude-code server**（mcp-server.ts + index.ts）：initialize 握手返回 `instructions`（Agent 面向的使用协议文本：start→轮询 result→session 延续→预算建议→写 jail 边界提醒）
+- 新增 mcp-tools.test.ts 5 测试（有/无 instructions、未知 server、Agent 不在注册表、discover 回归）
+- 验证：TDD 5/5 绿；全量回归 72 files / 670 tests 全绿；真实验证 5/5（真实 MCPManager 连真实 server → getInstructions 取到 434 字指南 → 真实 mcp-register 返回【使用指南】+ 5 工具 → discover 正常 → stdout 纯净）
+
 ## 2026-08-09（目标：完成所有待办 — 10 批次全部落地，641 tests 全绿）
 
 变更原因：用户设定目标「完成所有待办」，按 spec 优先级逐批实现决策表与当前待办全部待排期项。每批 TDD + build + 全量测试；核心链路真实验证（冒烟 19/19 + 25/25 + verify-extensions 8/8）。
