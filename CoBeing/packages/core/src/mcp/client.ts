@@ -34,6 +34,7 @@ export class MCPClient {
   private pending = new Map<number, PendingRequest>();
   private capabilities: MCPServerCapabilities = {};
   private serverInfo: { name: string; version: string } = { name: "", version: "" };
+  private _instructions?: string;
   private _connected = false;
 
   constructor(
@@ -51,6 +52,8 @@ export class MCPClient {
 
   get connected(): boolean { return this._connected; }
   get serverName(): string { return this.serverInfo.name; }
+  /** server 握手返回的使用指南（若有），供 Agent 注册工具时获取使用方式 */
+  get instructions(): string | undefined { return this._instructions; }
 
   /** 连接到 MCP 服务器，完成初始化握手 */
   async connect(): Promise<void> {
@@ -74,6 +77,7 @@ export class MCPClient {
     log.info("[%s] Connected to %s v%s", this.id, initResult.serverInfo.name, initResult.serverInfo.version);
     this.capabilities = initResult.capabilities ?? {};
     this.serverInfo = initResult.serverInfo;
+    this._instructions = initResult.instructions;
 
     // 发送 initialized 通知
     await this.notify("notifications/initialized");

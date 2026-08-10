@@ -100,6 +100,11 @@ export class MCPManager {
     return this.tools.filter(t => t.name.startsWith(`mcp:${serverId}:`));
   }
 
+  /** 获取指定服务器的 instructions 使用指南（注册工具时提供给 Agent） */
+  getInstructions(serverId: string): string | undefined {
+    return this.clients.get(serverId)?.instructions;
+  }
+
   /** 获取所有桥接的 Tool 对象 */
   getTools(): Tool[] {
     return [...this.tools];

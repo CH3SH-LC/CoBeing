@@ -116,11 +116,17 @@ export function makeMCPRegisterTool(mcpManager: MCPManager): Tool {
         (agent as any).rebuildLoop();
       }
 
+      // server 的 instructions 使用指南（若有），让 Agent 获得「怎么用」而非只拿到工具名
+      const instructions = mcpManager.getInstructions(serverId);
+
       return {
         toolCallId: "",
         content: [
           `已注册 MCP 服务器 "${serverId}" 的 ${tools.length} 个工具到当前会话:`,
           ...toolNames.map(n => `  - ${n}`),
+          ...(instructions
+            ? ["", "【使用指南】", instructions]
+            : []),
         ].join("\n"),
       };
     },
