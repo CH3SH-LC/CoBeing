@@ -27,25 +27,16 @@ import { AgentPaths, AgentFiles } from "./paths.js";
 import { DockerSandbox } from "../tools/sandbox/docker-sandbox.js";
 import { MemoryWriter } from "../memory/writer.js";
 import { MemoryReader } from "../memory/reader.js";
-import { ExperienceWriter } from "../memory/experience.js";
 import { MemoryStore } from "../memory/memory-store.js";
-import { makeMemoryTool } from "../memory/memory-tool.js";
 import { AgentEventBus } from "./event-bus.js";
-import { makeTodoAddTool, makeTodoListTool, makeTodoCompleteTool, makeTodoRemoveTool, makeTodoReviewTool, makeTodoBatchCompleteTool, makeTodoBatchRemoveTool, makeTodoBatchUpdateTool } from "../todo/tools.js";
-import { currentTimeTool } from "../todo/time-tool.js";
-import { buildSystemPromptFromFiles, buildCacheablePrompt, GROUP_MECHANICS_NOTICE } from "../conversation/prompt-builder.js";
-import { makeGroupMemorySearchTool } from "../tools/group-memory-search.js";
+import { registerAgentTools } from "./agent-tools.js";
+import { buildCacheablePrompt, GROUP_MECHANICS_NOTICE } from "../conversation/prompt-builder.js";
 import type { ObservabilityDB } from "../observability/observability-db.js";
-import { makeSummarizePhaseTool } from "../tools/summarize-phase.js";
-import { makeAgentCloneTool } from "../tools/agent-clone.js";
 import { WakeSession } from "./wake-session.js";
 import { makeGroupMembersTool, makeTalkCreateTool, makeTalkSendTool, makeTalkReadTool, makeTalkCloseTool, makeGroupSendTool, makeGroupUpdateProgressTool, makeGroupExperienceAddTool, makeGroupExperienceSummarizeTool } from "../tools/group-tools.js";
 import { runMemoryAgent } from "./tool-agent/memory.js";
+import { buildReviewPrompt, parseReviewResult } from "./review-prompt.js";
 import { createLogger } from "@cobeing/shared";
-import { makeAgentGetCapabilityTool, makeAgentUpdateCapabilityTool } from "../tools/agent-capability.js";
-import { makeAgentTaskAcceptTool, makeAgentTaskReportTool, makeAgentTaskCompleteTool } from "../tools/agent-task.js";
-import { makeAgentReflectExperienceTool, makeAgentProposeJobUpdateTool, makeAgentProposeCharacterUpdateTool, makeAgentProposeConfigUpdateTool } from "../tools/agent-growth.js";
-import { makeAgentRequestResourceTool } from "../tools/agent-resource.js";
 
 /** run() 的选项 — 支持群组隔离 */
 export interface RunOptions {
@@ -220,7 +211,6 @@ export class Agent {
   readonly files: AgentFiles;
   readonly memoryStore: MemoryStore;
   private memoryWriter: MemoryWriter;
-  private experienceWriter: ExperienceWriter;
 
   // 每个用户/会话独立的对话循环 (with lastAccessTime for idle cleanup)
   private sessionLoops = new Map<string, { loop: ConversationLoop; lastAccessTime: number }>();
@@ -237,6 +227,8 @@ export class Agent {
     this.paths = AgentPaths.forAgent(config.id, dataRoot);
     this.files = new AgentFiles(this.paths);
     this.paths.ensureDirs();
+    // 确保 EXPERIENCE.md 存在（Agent 文件体系要求；原 ExperienceWriter 构造副作用）
+    this.files.ensureExperienceFile();
 
     // 从文件系统加载增强信息
     const character = this.files.readCharacter();
@@ -263,7 +255,6 @@ export class Agent {
 
     // 兼容旧接口
     this.memoryWriter = new MemoryWriter(this.paths.memoryDir);
-    this.experienceWriter = new ExperienceWriter(this.paths.experiencePath, this.provider);
 
     // 初始化工具系统
     this.toolRegistry = new ToolRegistry();
@@ -277,10 +268,7 @@ export class Agent {
       // 非内置工具名不报 warning — 子类（如 ButlerAgent）会在构造时注册额外工具
     }
 
-    // 注册 memory 工具
-    this.toolRegistry.register(makeMemoryTool(this.memoryStore));
-
-    // 注册 TODO 工具
+    // 注册 memory / TODO / 群组记忆 / 阶段总结 / 克隆 / 增强 等内置工具（实现见 agent-tools.ts）
     const todoDataRoot = path.dirname(path.dirname(this.paths.directory));
     // 群组 TODO 存储/扫描器经全局 __cobeingGroupManager 解析
     // （历史 bug：store getter 传 undefined 导致群组成员的 todo-list 等工具
@@ -293,48 +281,22 @@ export class Agent {
       const groupManager = (globalThis as any).__cobeingGroupManager;
       return groupManager?.getScanner?.(groupId);
     };
-    this.toolRegistry.register(makeTodoAddTool(todoDataRoot, getGroupTodoStore));
-    this.toolRegistry.register(makeTodoListTool(todoDataRoot, getGroupTodoStore));
-    this.toolRegistry.register(makeTodoCompleteTool(todoDataRoot, getGroupTodoStore, getGroupTodoScanner));
-    this.toolRegistry.register(makeTodoRemoveTool(todoDataRoot, getGroupTodoStore));
-    this.toolRegistry.register(makeTodoReviewTool(todoDataRoot, getGroupTodoStore, getGroupTodoScanner));
-    // 批量操作工具
-    this.toolRegistry.register(makeTodoBatchCompleteTool(todoDataRoot, getGroupTodoStore, getGroupTodoScanner));
-    this.toolRegistry.register(makeTodoBatchRemoveTool(todoDataRoot, getGroupTodoStore));
-    this.toolRegistry.register(makeTodoBatchUpdateTool(todoDataRoot, getGroupTodoStore));
-    this.toolRegistry.register(currentTimeTool);
-
-    // 群组记忆搜索工具
-    this.toolRegistry.register(makeGroupMemorySearchTool(
-      (groupId, agentId) => {
+    registerAgentTools({
+      paths: this.paths,
+      files: this.files,
+      memoryStore: this.memoryStore,
+      provider: this.provider,
+      model: mergedConfig.model,
+      getGroupTodoStore,
+      getGroupTodoScanner,
+      getGroupAgentMemory: (groupId, agentId) => {
         const groupManager = (globalThis as any).__cobeingGroupManager;
         return groupManager?.get(groupId)?.getAgentMemory(agentId);
-      }
-    ));
-
-    // 阶段总结工具（群组上下文中使用）
-    this.toolRegistry.register(makeSummarizePhaseTool());
-
-    // agent-clone 工具（创建克隆体并行工作）
-    this.toolRegistry.register(makeAgentCloneTool(
-      (providerId) => providerId
-        ? this._allProviders.get(providerId)
-        : this.provider,
-      (_agentId) => this.config.model,
-      (_agentId) => this.name,
-    ));
-
-    // 注册 Agent 增强工具（10 个）
-    this.toolRegistry.register(makeAgentGetCapabilityTool(this.files));
-    this.toolRegistry.register(makeAgentUpdateCapabilityTool(this.files, this.provider, mergedConfig.model));
-    this.toolRegistry.register(makeAgentTaskAcceptTool(this.files));
-    this.toolRegistry.register(makeAgentTaskReportTool(this.files));
-    this.toolRegistry.register(makeAgentTaskCompleteTool(this.files, this.provider, mergedConfig.model));
-    this.toolRegistry.register(makeAgentReflectExperienceTool(this.files));
-    this.toolRegistry.register(makeAgentProposeJobUpdateTool(this.files, this.provider, mergedConfig.model));
-    this.toolRegistry.register(makeAgentProposeCharacterUpdateTool(this.files, this.provider, mergedConfig.model));
-    this.toolRegistry.register(makeAgentProposeConfigUpdateTool(this.files, this.provider, mergedConfig.model));
-    this.toolRegistry.register(makeAgentRequestResourceTool());
+      },
+      getProvider: (providerId) => this._allProviders.get(providerId),
+      getCloneModel: () => this.config.model,
+      getCloneName: () => this.name,
+    }, this.toolRegistry);
 
     const permission = new PermissionEnforcer(
       mergedConfig.permissions ?? { mode: "workspace-readwrite" },
@@ -412,6 +374,7 @@ export class Agent {
       sessionId: sessionId ?? "default",
       workingDir: this.effectiveWorkspace,
       maxToolRounds: this.config.maxToolRounds,
+      maxTotalTokens: this.config.maxTotalTokens,
       fallbackProviders: this.buildFallbackList(),
       observabilityDB: this.observabilityDB,
       promptBuilder: systemPrompt
@@ -453,6 +416,7 @@ export class Agent {
       sessionId: `group:${groupId}`,
       workingDir: workingDir ?? this.effectiveWorkspace,
       maxToolRounds: this.config.maxToolRounds,
+      maxTotalTokens: this.config.maxTotalTokens,
       fallbackProviders: this.buildFallbackList(),
       promptBuilder: () => {
         // 组装群组 volatile：GUIDE.md 规则优先，再拼接协作上下文
@@ -1040,7 +1004,7 @@ export class Agent {
    * 用于 Review Agent 审核其他 Agent 的群组消息
    */
   async reviewOnce(input: ReviewInput): Promise<ReviewResult> {
-    const prompt = this.buildReviewPrompt(input)
+    const prompt = buildReviewPrompt(input)
     try {
       const response = await chatCompleteWithGateway<string>(this.provider, {
         model: this.config.model,
@@ -1048,54 +1012,7 @@ export class Agent {
         maxTokens: 512,
         temperature: 0.1,
       })
-      return this.parseReviewResult(response)
-    } catch {
-      return { pass: true, reason: '' }
-    }
-  }
-
-  private buildReviewPrompt(input: ReviewInput): string {
-    return `# 审核任务
-
-你正在审核一条即将发布到群组的消息。
-
-## 审核标准
-1. 该 Agent 是否确实进行了实质性工作（调用了工具、产生了具体输出）？
-2. 工作方法是否符合任务要求？
-3. 该 Agent 是否在偷懒（仅声明意图而未展示实际工作成果）？
-
-## 该 Agent 的职责（JOB.md）
-${input.agentJobMd}
-
-## 本轮唤醒的工作轨迹
-${input.agentTrace.thinking.map(t => `[思考]: ${t}`).join('\n')}
-${input.agentTrace.toolCalls.map(tc => `[工具:${tc.tool}] 参数:${JSON.stringify(tc.args)} → 结果:${tc.result.slice(0, 500)}`).join('\n')}
-
-## 待发送的群组消息
-${input.agentTrace.finalMessage}
-
-## 群组最近的讨论
-${input.groupRecentMessages.join('\n')}
-
-## 针对该 Agent 的 @mention
-${input.agentMentions.join('\n')}
-
-## 群组任务
-${input.groupTaskMd}
-
-## 群组计划
-${input.groupPlanMd}
-
-## 进度
-${input.groupProgressMd}
-
-请严格按以下 JSON 格式回复（不要包含其他内容）：
-{"pass": true/false, "reason": "如果不通过，请简要说明原因（50字以内）"}`
-  }
-
-  private parseReviewResult(text: string): ReviewResult {
-    try {
-      return JSON.parse(text.trim())
+      return parseReviewResult(response)
     } catch {
       return { pass: true, reason: '' }
     }

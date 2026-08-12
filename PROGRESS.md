@@ -1,5 +1,27 @@
 ﻿# CoBeing 开发进度记录
 
+## 2026-08-11（全项目重构 — 分层分批：代码质量 + 架构收敛）
+
+变更原因：用户设定目标「重构整个项目」（/goal），确认方向为「两者都做，分层分批」——先代码质量重构（大文件拆分 + 遗留清理），再架构收敛（第一性原理报告建议）。全部 TDD + 全量回归，680 tests 全绿。
+
+### 层1：代码质量重构
+- **runtime.ts 1734 → 864 行**：拆出 4 个 helper 模块（`runtime/plugin-loader.ts`、`providers.ts`、`market.ts`、`channels.ts`）+ `runtime/core-agents.ts`（CoreAgentsLifecycle 类 + restoreAgents/registerPrebuiltAgents 纯函数）；runtime 方法保留为薄转发（测试经 `(runtime as any)` 访问不受影响）；清理未使用 import（decrypt/PROVIDER_CATALOGS/OpenAICompatProvider/ButlerRegistry/makeGroupPlanTool 等 12 个）
+- **agent.ts 1127 → 1036 行**：构造函数工具注册块（~120 行）提取到 `agent/agent-tools.ts`（registerAgentTools 纯函数 + 显式 ctx）；review 逻辑（~50 行）提取到 `agent/review-prompt.ts`；清理未使用 import
+- **wake-system.ts 860 → 768 行**：executeWake 三层上下文构建（~110 行）提取到 `group/wake-context.ts`（buildWakeContext 纯函数）
+- **死代码清理**：删除 sqlite-adapter 的 `hrr_vector` 占位列（4 处：类型/insert/schema/SELECT，从未读取）；删除 agent.ts 死字段 `experienceWriter`（构造实例化但零调用）→ 改由 `AgentFiles.ensureExperienceFile()` 显式创建 EXPERIENCE.md（保留原行为，修复 integration 测试）；简化 experience.ts `loadPromptTemplate`（移除永不命中的 CWD 路径 prompts/experience-reflect.md）；删除 `CoBeing/data/prompts/` 旧残留目录 + `data/registry.json.corrupted.*` 损坏备份
+- **旧式全局变量（__cobeingHookBus 等）保留**：是既有兼容层，40+ 处生产代码依赖，runtime-globals.test.ts 守护一致性；收敛为统一访问器是独立架构工作，归入后续
+
+### 层2：架构收敛（第一性原理报告建议）
+- **预算熔断（报告 P0#5，决策 #5）**：ConversationLoop 新增 `maxTotalTokens`（AgentConfig/config schema/butler 全链路透传，默认 Infinity）；run() 循环内 + 每轮后双重 token 预算检查，超限返回「[预算超限]」提示；**不可逆工具审计**——bash/write-file/edit-file/rm-file/web-fetch 执行时 emit `tool:irreversible` 事件（+2 测试）
+- **TODO 单一真相源（报告 P1#7）**：核验 Global TODO = 唯一账本已落地（08-09 决策 #3 + Butler 闭环）；补齐两个缺口——① **追加式状态变更事件日志**：ButlerTask 新增 `eventLog: ButlerTaskEvent[]`（create/transition/update 均追加，transition 记录 from/to，update 记录变更字段）（+5 测试）；② **原子认领**：agent-task-accept 校验 globalTodoId 已被他人认领且 running 时拒绝（防并发覆盖 responsibleAgentId）（+2 测试）
+- **群组单一推进者（报告 P1#6）**：核验并发写防护 CAS 已落地（08-09 决策 #2：write/edit-file baseVersion 校验）；补「单一推进者」纪律到 GROUP_MECHANICS_NOTICE（写文件并发纪律：先 read-file 取版本、baseVersion 提交、拒绝时重新读取、分工避免共写）+ 保留群组并发执行能力（不牺牲产品特色的调度串行化）（+1 测试）
+- **Group→Butler 事件桥前端接线（报告 P1#8 / P0 Butler 闭环）**：后端 host-report-event 已广播 `butler_escalation`；新增前端 `butler_escalation` handler——upsert 对应 ButlerTask 为 waiting_user + emit 活动通知（severity 分级）+ 派发 `ws-butler-escalation` 窗口事件（GUI tsc 通过）
+
+### 验证
+- `pnpm test` **72 files / 680 tests 全绿**（670 → +10：预算熔断 2 + 事件日志 5 + 原子认领 2 + 单一推进者纪律 1）
+- `pnpm build` 全 workspace 通过；gui `tsc --noEmit` 通过
+- 修改文件：runtime.ts + runtime/{plugin-loader,providers,market,channels,core-agents}.ts（新增）、agent/{agent,agent-tools,review-prompt}.ts + agent-tools/review-prompt（新增）、group/{wake-system,wake-context}.ts + wake-context（新增）、memory/{sqlite-adapter,experience}.ts、agent/paths.ts、conversation/{conversation-loop,prompt-builder}.ts、butler/{butler-task-store}.ts、tools/agent-task.ts、shared/{types,butler-bridge}.ts、config/{schema,config-loader}.ts、gui-v2/hooks/ws-handlers/butler-task-handlers.ts、STRUCTURE.md
+
 ## 2026-08-11（Claude Code MCP server — 借助 Claude Code 补足编码能力）
 
 变更原因：用户调研确认 Claude Code CLI 默认不开端口（stdio TUI）、但可作 MCP server（`claude mcp serve` + Agent SDK）；决策「方案 B（Agent SDK）+ TypeScript」，让 CoBeing Agent 把编码任务委托给 Claude Code 的**完整 agent 循环**（模型自己推理/读写文件/跑命令/修 bug），补足现有默认 LLM 的端到端编码推理能力。调研结论：作 MCP server 三条路线（headless `claude -p` 子进程 / Agent SDK / 内置 `claude mcp serve`）中选 Agent SDK（真流式、session 续会话、hooks 门禁）；关键约束为 CoBeing MCPClient 单请求 30s 硬超时 → 必须异步轮询；`claude mcp serve` 只暴露工具面（编排仍是 CoBeing 自己的 LLM），不真正补足推理，故弃用。

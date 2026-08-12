@@ -211,7 +211,28 @@ CoBeing/packages/core/src/api/
 
 ```text
 CoBeing/packages/core/src/runtime/
-└── sandbox-helper.ts         # ensureSandboxConfig 纯函数
+├── sandbox-helper.ts         # ensureSandboxConfig 纯函数
+├── plugin-loader.ts          # 插件加载域：loadAllPlugins/bootstrapRegistry（从 runtime.ts 拆分，2026-08-11）
+├── providers.ts              # Provider 构建域：buildProviders/rebuildProvider/resolveProviderModels（2026-08-11）
+├── market.ts                 # Market 服务域：initMarketServices/registerMarketAgent/createMarketGroup（2026-08-11）
+├── channels.ts               # Channel 生命周期域：startChannels/setupChannelOnMessage/stopChannels（2026-08-11）
+└── core-agents.ts            # 核心 Agent 创建域：ensureButlerDir/ensureHostDir/createButler/registerPrebuiltAgents/restoreAgents（2026-08-11）
+```
+
+### core/src/agent 子目录（辅助模块，2026-08-11 拆分）
+
+```text
+CoBeing/packages/core/src/agent/
+├── agent-tools.ts            # registerAgentTools：构造时注册 memory/TODO/群组记忆/增强等内置工具（从 agent.ts 拆分）
+├── review-prompt.ts          # buildReviewPrompt/parseReviewResult：群组消息审核 prompt（从 agent.ts 拆分）
+└── wake-context.ts           # （位于 group/，见下）
+```
+
+### core/src/group 子目录（wake 上下文模块，2026-08-11 拆分）
+
+```text
+CoBeing/packages/core/src/group/
+├── wake-context.ts           # buildWakeContext：群组唤醒三层上下文构建（从 wake-system.ts 拆分）
 ```
 
 ### core/src/templates/butler 子目录（管家模板体系，2026-08-04）

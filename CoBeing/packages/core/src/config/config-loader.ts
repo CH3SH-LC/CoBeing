@@ -17,6 +17,8 @@ const DEFAULT_CONFIG: AppConfig = {
     promptsDir: "./data/prompts",
     maxToolRounds: Infinity,
     butlerMaxToolRounds: Infinity,
+    maxTotalTokens: Infinity,
+    butlerMaxTotalTokens: Infinity,
   },
   agents: ["butler", "host"],
   providers: {

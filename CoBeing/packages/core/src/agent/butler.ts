@@ -201,6 +201,7 @@ export class ButlerAgent extends Agent {
       sessionId: "butler",
       workingDir: this.effectiveWorkspace,
       maxToolRounds: appConfig?.core?.butlerMaxToolRounds ?? config.maxToolRounds,
+      maxTotalTokens: (appConfig?.core as any)?.butlerMaxTotalTokens ?? config.maxTotalTokens,
       // 管家走文件 prompt：AGENTS/CHARACTER/JOB/EXPERIENCE/MEMORY 每次 run() 实时组装，
       // 人格切换（butler_set_persona）与 style 更新（butler_update_style）即时生效。
       promptBuilder: () => this.buildButlerPrompt(),

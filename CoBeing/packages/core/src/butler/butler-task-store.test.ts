@@ -228,4 +228,46 @@ describe("ButlerTaskStore", () => {
       expect(loaded?.acceptance).toBe("Done");
     });
   });
+
+  describe("追加式状态变更事件日志（决策：TODO 单一真相源）", () => {
+    it("create 写入 create 事件", () => {
+      const task = store.create({ globalTodoId: "gt-ev", title: "T", goal: "", targetType: "agent", targetId: "a1", status: "routing" });
+      expect(task.eventLog?.length).toBe(1);
+      expect(task.eventLog?.[0].type).toBe("create");
+      expect(task.eventLog?.[0].to).toBe("routing");
+    });
+
+    it("transition 追加 transition 事件（含 from/to）", () => {
+      const task = store.create({ globalTodoId: "gt-ev2", title: "T2", goal: "", targetType: "agent", targetId: "a1", status: "routing" });
+      const trans = store.transition(task.id, "dispatched");
+      expect(trans?.eventLog?.length).toBe(2);
+      expect(trans?.eventLog?.[1].type).toBe("transition");
+      expect(trans?.eventLog?.[1].from).toBe("routing");
+      expect(trans?.eventLog?.[1].to).toBe("dispatched");
+    });
+
+    it("非法 transition 不追加事件", () => {
+      const task = store.create({ globalTodoId: "gt-ev3", title: "T3", goal: "", targetType: "agent", targetId: "a1", status: "cancelled" });
+      const result = store.transition(task.id, "running"); // cancelled 是终态
+      expect(result).toBeUndefined();
+      const loaded = store.get(task.id);
+      expect(loaded?.eventLog?.length).toBe(1); // 只有 create
+    });
+
+    it("update 追加 update 事件（记录变更字段）", () => {
+      const task = store.create({ globalTodoId: "gt-ev4", title: "T4", goal: "", targetType: "agent", targetId: "a1", status: "routing" });
+      const updated = store.update(task.id, { latestSummary: "progress 50%" });
+      expect(updated?.eventLog?.length).toBe(2);
+      expect(updated?.eventLog?.[1].type).toBe("update");
+      expect(updated?.eventLog?.[1].fields).toContain("latestSummary");
+    });
+
+    it("事件日志持久化（store 重建后仍存在）", () => {
+      const t = store.create({ globalTodoId: "gt-ev5", title: "T5", goal: "", targetType: "agent", targetId: "a1", status: "routing" });
+      store.transition(t.id, "dispatched");
+      const s2 = new ButlerTaskStore(tmpDir);
+      const loaded = s2.get(t.id);
+      expect(loaded?.eventLog?.length).toBe(2);
+    });
+  });
 });

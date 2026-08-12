@@ -132,6 +132,7 @@ export interface AgentConfig {
   skillsDir?: string;
   skills?: string[];         // 要装载的技能名称列表（按名称匹配 skills/ 目录下的技能）
   maxToolRounds?: number;    // 单次对话最大工具调用轮数
+  maxTotalTokens?: number;   // 单次 run() 的 token 硬上限（input+output 累计），超限中断（预算熔断）
   isReviewer?: boolean;      // 标记为审核 Agent（跳过 @mention 唤醒等逻辑）
 }
 

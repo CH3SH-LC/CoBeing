@@ -108,9 +108,9 @@ export class ExperienceWriter {
     }
   }
 
-  /** 加载 prompt 模板 */
+  /** 使用内置 prompt 模板（旧 CWD 相对路径 prompts/experience-reflect.md 永不命中，已简化） */
   private loadPromptTemplate(): string {
-    const defaultTemplate = `分析以下任务执行过程，提取关键经验。
+    return `分析以下任务执行过程，提取关键经验。
 
 任务: {{task}}
 
@@ -120,14 +120,6 @@ export class ExperienceWriter {
 请严格按以下格式输出（不要输出其他内容）:
 问题: <遇到的核心问题或挑战，一句话>
 解决: <最终的解决方案，一句话>`;
-
-    try {
-      const filePath = path.resolve("prompts/experience-reflect.md");
-      if (fs.existsSync(filePath)) {
-        return fs.readFileSync(filePath, "utf-8");
-      }
-    } catch { /* fallback */ }
-    return defaultTemplate;
   }
 
   /** 搜索相关经验（简单关键词匹配） */

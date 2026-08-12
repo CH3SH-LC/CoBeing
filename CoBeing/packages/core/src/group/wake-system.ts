@@ -11,9 +11,9 @@ import type { GroupContextV2, GroupMessageV2 } from "./group-context-v2.js";
 import type { Agent } from "../agent/agent.js";
 import type { CurrentMd } from "./current-md.js";
 import type { GroupAgentMemory } from "./agent-memory.js";
-import path from "node:path";
 import { createLogger, DEFAULT_PROVIDER, DEFAULT_JUDGMENT_MODEL } from "@cobeing/shared";
 import { runJudgmentAgent } from "../agent/tool-agent/judgment.js";
+import { buildWakeContext } from "./wake-context.js";
 
 const log = createLogger("wake-system");
 
@@ -539,109 +539,17 @@ export class WakeSystem {
       // 标记 Agent 为处理中
       this.ctx.setAgentStatus(entry.targetAgentId, "processing");
 
-      // 3. Build three-layer context
-      // Layer 1: Abstract (group workspace files)
-      let abstractContext = "";
-      if (this.getGroup) {
-        const group = this.getGroup();
-        if (group) {
-          const { buildGroupCollaborationContext } = await import("../conversation/prompt-builder.js");
-          // 重新获取最新数据，确保上下文不过期
-          const members = group.getMemberProfiles();
-          const workspace = group.workspace.getSummary();
-          const experienceSummary = group.workspace.readExperienceSummary();
-          const activeStatuses = group.getActiveStatuses();
+      // 3. 构建三层上下文（实现见 wake-context.ts）：协作上下文 + 压缩历史 + 近期消息 + 触发消息
+      let enrichedContext = await buildWakeContext({
+        groupId: this.ctx.groupId,
+        targetAgentId: entry.targetAgentId,
+        ownerId: this.ownerId,
+        getGroup: this.getGroup!,
+        ctx: this.ctx,
+        triggerContents: entry.triggerContents,
+      });
 
-          let todos: import("../conversation/prompt-builder.js").GroupTodoSummary[] = [];
-          const groupManager = (globalThis as any).__cobeingGroupManager;
-          if (groupManager) {
-            const scanner = groupManager.getScanner?.(this.ctx.groupId);
-            if (scanner) {
-              const store = scanner.getStore();
-              const pendingTodos = store.list("pending");
-              todos = pendingTodos.map((t: any) => ({
-                id: t.id,
-                title: t.title,
-                status: t.status,
-                assignee: t.targetAgentId,
-              }));
-            }
-          }
-
-          abstractContext = buildGroupCollaborationContext(
-            entry.targetAgentId,
-            members,
-            {
-              task: workspace.task,
-              plan: workspace.plan,
-              progress: workspace.progress,
-              experienceSummary,
-              interface: workspace.interface,
-            },
-            todos,
-            this.ownerId,
-            this.ctx.groupId,
-            activeStatuses,
-          );
-        }
-      }
-
-      // Layer 2: Compressed history
-      let compressedContext = "";
-      if (this.getGroup) {
-        const group = this.getGroup();
-        if (group) {
-          const memoryDir = path.join(
-            (globalThis as any).__cobeingDataRoot ?? "data",
-            "groups", this.ctx.groupId, "memory",
-          );
-          const { CompressedHistory } = await import("./compressed-history.js");
-          const ch = new CompressedHistory(entry.targetAgentId, memoryDir);
-          compressedContext = ch.read();
-        }
-      }
-
-      // Layer 3: Uncompressed recent messages from GroupDB
-      let recentContext = "";
-      if (this.getGroup) {
-        const group = this.getGroup();
-        if (group) {
-          const compressedUntil = group.groupDb.getCompressionMark(entry.targetAgentId);
-          const recentMessages = group.groupDb.getMessagesForAgent(
-            entry.targetAgentId,
-            { after: compressedUntil, limit: 60 },
-          );
-          if (recentMessages.length > 0) {
-            recentContext = recentMessages.map(msg => {
-              const speaker = msg.from_agent_id;
-              if (msg.tag === "main") {
-                return `[${speaker}]: ${msg.content}`;
-              }
-              const talk = this.ctx.getTalk(msg.tag);
-              const memberStr = talk ? talk.members.join(", ") : "?";
-              return `[Talk: ${msg.tag} 成员: ${memberStr}] [${speaker}]: ${msg.content}`;
-            }).join("\n\n");
-          }
-        }
-      }
-
-      // Combine: abstract + compressed + recent + trigger
-      const parts: string[] = [];
-      if (abstractContext) parts.push(`# 群组协作上下文\n\n${abstractContext}`);
-      if (compressedContext) parts.push(`# 历史摘要\n\n${compressedContext}`);
-      if (recentContext) parts.push(`# 近期对话\n\n${recentContext}`);
-
-      let enrichedContext = parts.join("\n\n---\n\n");
-
-      // Append trigger messages
-      if (entry.triggerContents.length > 0) {
-        const triggerContext = entry.triggerContents
-          .map((content, i) => `\n\n[触发消息 ${i + 1}]:\n${content}`)
-          .join("");
-        enrichedContext = `${enrichedContext}${triggerContext}`;
-      }
-
-      // Owner filter context
+      // 群主过滤上下文（注入后清空，避免重复注入）
       if (entry.targetAgentId === this.ownerId && this.lastFilterContext) {
         enrichedContext = `${enrichedContext}\n\n${this.lastFilterContext}`;
         this.lastFilterContext = undefined;

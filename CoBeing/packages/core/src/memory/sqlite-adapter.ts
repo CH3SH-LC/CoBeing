@@ -32,7 +32,6 @@ export interface EntryRow {
   helpful_count: number;
   unhelpful_count: number;
   last_accessed_at: number | null;
-  hrr_vector: Buffer | null;
   snippet?: string;
   // Scoring fields (only populated by searchEntries)
   fts_score?: number;
@@ -217,7 +216,6 @@ export class SqliteAdapter {
       helpful_count: 0,
       unhelpful_count: 0,
       last_accessed_at: null,
-      hrr_vector: null,
     };
   }
 
@@ -331,7 +329,6 @@ export class SqliteAdapter {
       ["helpful_count", "INTEGER DEFAULT 0"],
       ["unhelpful_count", "INTEGER DEFAULT 0"],
       ["last_accessed_at", "INTEGER"],
-      ["hrr_vector", "BLOB"],
     ];
 
     const existing = this.db.prepare("PRAGMA table_info(entries)").all() as Array<{ name: string }>;
@@ -359,7 +356,7 @@ export class SqliteAdapter {
       ),
       deleteEntry: this.db.prepare("DELETE FROM entries WHERE id = ?"),
       getEntries: this.db.prepare(
-        "SELECT id, target, content, created_at, updated_at, trust, half_life_days, helpful_count, unhelpful_count, last_accessed_at, hrr_vector FROM entries WHERE target = ? ORDER BY created_at ASC"
+        "SELECT id, target, content, created_at, updated_at, trust, half_life_days, helpful_count, unhelpful_count, last_accessed_at FROM entries WHERE target = ? ORDER BY created_at ASC"
       ),
       getCharCount: this.db.prepare(
         "SELECT COALESCE(SUM(LENGTH(content)), 0) as total FROM entries WHERE target = ?"

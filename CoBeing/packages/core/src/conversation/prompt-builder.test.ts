@@ -169,6 +169,11 @@ describe("GROUP_MECHANICS_NOTICE", () => {
     expect(GROUP_MECHANICS_NOTICE).toContain("group-send");
     expect(GROUP_MECHANICS_NOTICE).toContain("@mention");
   });
+
+  it("contains concurrent-write discipline (决策 #2/#6: 单一推进者纪律)", () => {
+    expect(GROUP_MECHANICS_NOTICE).toContain("baseVersion");
+    expect(GROUP_MECHANICS_NOTICE).toContain("文件已被其他成员修改");
+  });
 });
 
 describe("buildCacheablePrompt", () => {

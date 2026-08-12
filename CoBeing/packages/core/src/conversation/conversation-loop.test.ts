@@ -69,3 +69,42 @@ describe("ConversationLoop workingDir fail-fast", () => {
     expect(getProvider().__secondRoundSeenBlocked()).toBe(false);
   });
 });
+
+describe("ConversationLoop 预算熔断（决策 #5）", () => {
+  function usageProvider(usagePerRound: { inputTokens: number; outputTokens: number }): LLMProvider {
+    return {
+      id: "usage-stub",
+      name: "usage-stub",
+      chat: async function* () {
+        yield { type: "usage", usage: usagePerRound };
+        yield { type: "content", content: "hi" };
+      },
+      listModels: async () => [],
+    } as unknown as LLMProvider;
+  }
+
+  it("超过 maxTotalTokens 时中断并返回预算超限提示", async () => {
+    const loop = new ConversationLoop({
+      agentConfig: { name: "t", role: "", systemPrompt: "test", model: "m" },
+      provider: usageProvider({ inputTokens: 3000, outputTokens: 3000 }),
+      sessionId: "budget1",
+      workingDir: "/tmp/ws",
+      maxTotalTokens: 5000, // 第一轮 6000 > 5000 → 中断
+    });
+    const resp = await loop.run("hello");
+    expect(resp.content).toContain("[预算超限]");
+  });
+
+  it("未超限时正常返回最终回复", async () => {
+    const loop = new ConversationLoop({
+      agentConfig: { name: "t", role: "", systemPrompt: "test", model: "m" },
+      provider: usageProvider({ inputTokens: 3000, outputTokens: 3000 }),
+      sessionId: "budget2",
+      workingDir: "/tmp/ws",
+      maxTotalTokens: 20000,
+    });
+    const resp = await loop.run("hello");
+    expect(resp.content).toBe("hi");
+    expect(resp.usage.inputTokens).toBe(3000);
+  });
+});

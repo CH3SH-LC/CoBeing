@@ -144,6 +144,27 @@ export function makeAgentTaskAcceptTool(files: AgentFiles): Tool {
     },
     async execute(params, context: ToolContext): Promise<ToolResult> {
       const now = new Date().toISOString();
+
+      // 原子认领（决策：TODO 单一真相源 — 补原子认领）：
+      // 若指定了 globalTodoId，检查该全局任务是否已被其他 Agent 认领。
+      // 已认领且负责人不是当前 Agent → 拒绝，避免并发覆盖 responsibleAgentId。
+      const globalTodoId = params.globalTodoId as string | undefined;
+      if (globalTodoId) {
+        const { globalTodoStore } = runtimeStores();
+        const globalTodo = globalTodoStore?.get?.(globalTodoId);
+        if (globalTodo) {
+          const agentId = context.agentId;
+          const claimedBy = globalTodo.responsibleAgentId;
+          if (claimedBy && claimedBy !== agentId && globalTodo.status === "running") {
+            return {
+              toolCallId: "",
+              isError: true,
+              content: `⚠️ 该任务已被 **${claimedBy}** 认领并正在执行中。请勿重复认领同一任务；如需协助，可联系负责人或请求分派新的子任务。`,
+            };
+          }
+        }
+      }
+
       const item: AgentTaskInboxItem = {
         id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         title: params.title as string,
@@ -152,7 +173,7 @@ export function makeAgentTaskAcceptTool(files: AgentFiles): Tool {
         constraints: params.constraints as string[] | undefined,
         sourceType: params.sourceType as "user" | "butler" | "group" | "system",
         sourceId: params.sourceId as string,
-        globalTodoId: params.globalTodoId as string | undefined,
+        globalTodoId,
         status: "running",
         createdAt: now,
         updatedAt: now,

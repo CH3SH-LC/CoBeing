@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@cobeing/shared";
-import type { ButlerTask, ButlerTaskStatus } from "@cobeing/shared";
+import type { ButlerTask, ButlerTaskStatus, ButlerTaskEvent } from "@cobeing/shared";
 
 const log = createLogger("butler-task-store");
 
@@ -33,6 +33,7 @@ export class ButlerTaskStore {
       id: randomUUID(),
       createdAt: now,
       updatedAt: now,
+      eventLog: [{ at: now, type: "create", to: input.status }],
     };
     const tasks = this.readAll();
     tasks.push(task);
@@ -45,17 +46,20 @@ export class ButlerTaskStore {
     return this.readAll().find(t => t.id === id);
   }
 
-  /** 更新任务字段 */
+  /** 更新任务字段（追加 update 事件日志，记录变更字段） */
   update(id: string, patch: Partial<Omit<ButlerTask, "id" | "createdAt">>): ButlerTask | undefined {
     const tasks = this.readAll();
     const idx = tasks.findIndex(t => t.id === id);
     if (idx < 0) return undefined;
-    tasks[idx] = { ...tasks[idx], ...patch, updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const changedFields = Object.keys(patch);
+    tasks[idx] = { ...tasks[idx], ...patch, updatedAt: now };
+    tasks[idx].eventLog = [...(tasks[idx].eventLog ?? []), { at: now, type: "update", fields: changedFields }];
     this.writeAll(tasks);
     return tasks[idx];
   }
 
-  /** 状态迁移（含校验） */
+  /** 状态迁移（含校验，追加 transition 事件日志） */
   transition(id: string, to: ButlerTaskStatus): ButlerTask | undefined {
     const task = this.get(id);
     if (!task) return undefined;
@@ -66,7 +70,15 @@ export class ButlerTaskStore {
       return undefined;
     }
 
-    return this.update(id, { status: to });
+    const tasks = this.readAll();
+    const idx = tasks.findIndex(t => t.id === id);
+    if (idx < 0) return undefined;
+    const now = new Date().toISOString();
+    const from = task.status;
+    tasks[idx] = { ...tasks[idx], status: to, updatedAt: now };
+    tasks[idx].eventLog = [...(tasks[idx].eventLog ?? []), { at: now, type: "transition", from, to }];
+    this.writeAll(tasks);
+    return tasks[idx];
   }
 
   /** 删除任务 */

@@ -69,6 +69,16 @@ export interface MarketResourceRef {
   status: "suggested" | "approved" | "installed" | "rejected";
 }
 
+/** 追加式状态变更事件（决策：TODO 单一真相源 — 状态变更追加式事件日志） */
+export interface ButlerTaskEvent {
+  at: string;
+  type: "create" | "transition" | "update";
+  from?: ButlerTaskStatus;
+  to?: ButlerTaskStatus;
+  /** update 时的字段名列表（不含 at/type/fields） */
+  fields?: string[];
+}
+
 export interface ButlerTask {
   id: string;
   globalTodoId: string;
@@ -86,6 +96,8 @@ export interface ButlerTask {
   pendingQuestion?: ButlerUserQuestion;
   createdAt: string;
   updatedAt: string;
+  /** 追加式状态变更事件日志（create 后始终存在，transition/update 追加） */
+  eventLog?: ButlerTaskEvent[];
 }
 
 // ========== Butler Task Receipt / Broadcast Payload ==========

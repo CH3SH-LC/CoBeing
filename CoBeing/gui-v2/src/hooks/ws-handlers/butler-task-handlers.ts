@@ -105,5 +105,47 @@ export function buildButlerTaskHandlers(_ctx: WsHandlerContext): Record<string, 
         pushSystemMessage(`派发失败：${reason}`);
       }
     },
+
+    /**
+     * Group → Butler 结构化事件桥（host-report-event → butler_escalation）:
+     * 群组上报 blocked / needs_user_decision / completed / failed 等事件时，
+     * 将对应管家任务置为 waiting_user 并更新摘要，提醒用户在管家入口处理。
+     */
+    butler_escalation: (msg) => {
+      const p = msg.payload as ButlerEscalationEventPayload | undefined;
+      if (!p?.butlerTaskId) return;
+
+      // 群组需要用户决策/被阻塞 → 管家任务标记为等待用户
+      useButlerTasksStore.getState().upsertTask({
+        id: p.butlerTaskId,
+        title: p.summary?.slice(0, 40) || "群组事件",
+        assigneeType: "group",
+        assigneeId: p.groupId,
+        assigneeName: "群组",
+        status: "waiting_user",
+        lastEvent: p.summary,
+        nextAction: p.suggestedNextStep,
+        updatedAt: Date.now(),
+      });
+
+      const sevLabel = { info: "提示", warning: "注意", critical: "紧急" }[p.severity] ?? "提示";
+      emitActivity("🧩", `[${sevLabel}] 群组需要你处理：${p.summary}`, p.severity === "critical" ? "error" : "warn", "todo", p.fromAgentId, p.groupId);
+
+      // 派发事件给管家视图（GlobalTodoPanel 可据此刷新）
+      window.dispatchEvent(new CustomEvent<ButlerEscalationEventPayload>("ws-butler-escalation", { detail: p }));
+    },
   };
+}
+
+/** butler_escalation 事件 payload(与 packages/shared 的 ButlerEscalationEvent 对齐) */
+interface ButlerEscalationEventPayload {
+  id: string;
+  type: string;
+  butlerTaskId: string;
+  groupId: string;
+  fromAgentId: string;
+  severity: "info" | "warning" | "critical";
+  summary: string;
+  suggestedNextStep?: string;
+  createdAt: string;
 }

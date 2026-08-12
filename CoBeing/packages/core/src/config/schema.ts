@@ -26,6 +26,10 @@ export interface AppConfig {
     maxToolRounds?: number;
     /** 管家单次对话最大工具调用轮数 */
     butlerMaxToolRounds?: number;
+    /** 单次 run() 的 token 硬上限（input+output 累计，预算熔断），默认 Infinity */
+    maxTotalTokens?: number;
+    /** 管家单次 run() 的 token 硬上限，默认 Infinity */
+    butlerMaxTotalTokens?: number;
     /** 群组记忆系统配置 */
     groupMemory?: {
       /** current.md 最大消息条数，默认 100 */

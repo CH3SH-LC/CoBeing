@@ -74,6 +74,8 @@ export interface ConversationLoopConfig {
   sessionId?: string;
   workingDir?: string;
   maxToolRounds?: number;
+  /** 单次 run() 的 token 硬上限（input+output 累计），超限中断返回提示。默认 Infinity（无上限） */
+  maxTotalTokens?: number;
   maxContextMessages?: number;
   /** 每次 run() 时调用，实时构建 system prompt（优先于 buildSystemPrompt） */
   promptBuilder?: () => string;
@@ -222,10 +224,19 @@ export class ConversationLoop {
         });
 
     const maxRounds = this.config.maxToolRounds ?? Infinity;
+    const maxTotalTokens = this.config.maxTotalTokens ?? Infinity;
     let totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
     let accumulatedContent = "";  // 跨轮累积，确保 agent_response 携带完整文本
 
     for (let round = 0; round < maxRounds; round++) {
+      // 预算熔断（决策 #5）：token 硬上限，防止无限轮耗尽预算
+      const spentTokens = totalUsage.inputTokens + totalUsage.outputTokens;
+      if (spentTokens >= maxTotalTokens) {
+        log.warn("Budget exceeded: %d tokens >= limit %d (round %d) — stopping",
+          spentTokens, maxTotalTokens, round);
+        if (this.wakeSession) this.wakeSession.finalMessage = accumulatedContent || `[预算超限] 本次会话已达 ${spentTokens} tokens 上限`;
+        return { content: accumulatedContent || `[预算超限] 本次会话已达 ${spentTokens} tokens 上限`, usage: totalUsage };
+      }
       // 检查是否被外部停止
       if (abortSignal?.aborted) {
         return { content: accumulatedContent || "[已停止]", usage: totalUsage };
@@ -376,6 +387,16 @@ export class ConversationLoop {
       }
       events?.onUsage?.({ ...totalUsage });
 
+      // 预算熔断（决策 #5）：本轮 LLM 调用后检查，超限立即中断（即使本轮无工具调用直接返回）
+      const spentAfterRound = totalUsage.inputTokens + totalUsage.outputTokens;
+      if (spentAfterRound >= maxTotalTokens) {
+        log.warn("Budget exceeded after round %d: %d tokens >= limit %d — stopping",
+          round, spentAfterRound, maxTotalTokens);
+        const content = accumulatedContent || `[预算超限] 本次会话已达 ${spentAfterRound} tokens 上限`;
+        if (this.wakeSession) this.wakeSession.finalMessage = content;
+        return { content, usage: totalUsage };
+      }
+
       // Observability: log LLM call (per-round token delta)
       if (this.observabilityDB) {
         const roundInput = totalUsage.inputTokens - prevTotalInput;
@@ -511,6 +532,20 @@ export class ConversationLoop {
           // Record tool call in wake session for group review
           let callArgs: Record<string, unknown> = {};
           try { callArgs = JSON.parse(tc.function.arguments || "{}"); } catch { /* ignore parse errors */ }
+          // 不可逆工具审计（决策 #5）：高风险不可逆工具（bash/write-file/edit-file）显式标记
+          const IRREVERSIBLE_TOOLS = new Set(["bash", "write-file", "edit-file", "rm-file", "web-fetch"]);
+          if (IRREVERSIBLE_TOOLS.has(tc.function.name)) {
+            const hookBus = (globalThis as any).__cobeingHookBus;
+            if (hookBus) {
+              hookBus.emit("tool:irreversible", {
+                tool: tc.function.name,
+                agentId: this.config.agentId ?? "unknown",
+                sessionId: this.config.sessionId ?? "unknown",
+                args: callArgs,
+                timestamp: Date.now(),
+              }).catch(() => {});
+            }
+          }
           this.wakeSession?.recordToolCall(tc.function.name, callArgs, result.content);
         }
         // 继续下一轮 LLM 调用

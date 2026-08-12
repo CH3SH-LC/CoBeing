@@ -108,4 +108,63 @@ describe("agent task tools", () => {
     expect(globalTodoStore.get(globalTodo.id)?.lastEvent?.type).toBe("completed");
     expect(butlerTaskStore.get(butlerTask.id)?.status).toBe("completed");
   });
+
+  it("原子认领：同一全局任务已被他人认领且 running 时拒绝重复认领", async () => {
+    const globalTodo = globalTodoStore.add({
+      title: "Claimed task",
+      description: "Already running by agent-b",
+      status: "running",
+      assigneeType: "agent",
+      assigneeId: "agent-b",
+      responsibleAgentId: "agent-b",
+      createdBy: "butler",
+      automationPolicy: { autoDispatch: true, autoMonitor: true, autoEscalate: true, autoArchive: true, autoContinue: true },
+      progressSummary: "",
+      nextAction: "",
+      executionRefs: [],
+    } as any);
+
+    const acceptTool = makeAgentTaskAcceptTool(files);
+    // 另一个 Agent (agent-a) 尝试认领 → 拒绝
+    const res = await acceptTool.execute({
+      title: "Duplicate",
+      goal: "Should be rejected",
+      sourceType: "butler",
+      sourceId: "butler",
+      globalTodoId: globalTodo.id,
+    }, { agentId: "agent-a" });
+
+    expect(res.isError).toBe(true);
+    expect(String(res.content)).toContain("已被");
+    // 未被覆盖：responsibleAgentId 保持 agent-b
+    expect(globalTodoStore.get(globalTodo.id)?.responsibleAgentId).toBe("agent-b");
+  });
+
+  it("原子认领：同一 Agent 重复认领自己的任务不拒绝", async () => {
+    const globalTodo = globalTodoStore.add({
+      title: "Self claim",
+      description: "agent-a owns it",
+      status: "running",
+      assigneeType: "agent",
+      assigneeId: "agent-a",
+      responsibleAgentId: "agent-a",
+      createdBy: "butler",
+      automationPolicy: { autoDispatch: true, autoMonitor: true, autoEscalate: true, autoArchive: true, autoContinue: true },
+      progressSummary: "",
+      nextAction: "",
+      executionRefs: [],
+    } as any);
+
+    const acceptTool = makeAgentTaskAcceptTool(files);
+    const res = await acceptTool.execute({
+      title: "Self",
+      goal: "OK for same agent",
+      sourceType: "butler",
+      sourceId: "butler",
+      globalTodoId: globalTodo.id,
+    }, { agentId: "agent-a" });
+
+    expect(res.isError).toBeUndefined();
+    expect(String(res.content)).toContain("✅");
+  });
 });

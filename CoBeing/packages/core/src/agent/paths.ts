@@ -174,6 +174,13 @@ export class AgentFiles {
     fs.writeFileSync(this.paths.configPath, JSON.stringify(config, null, 2), "utf-8");
   }
 
+  /** 确保 EXPERIENCE.md 存在（不存在则创建初始文件，与原 ExperienceWriter 构造副作用一致） */
+  ensureExperienceFile(): void {
+    if (!fs.existsSync(this.paths.experiencePath)) {
+      fs.writeFileSync(this.paths.experiencePath, "# EXPERIENCE.md\n\n> Agent 在工程过程中积累的经验\n", "utf-8");
+    }
+  }
+
   /** 读取 EXPERIENCE.md */
   readExperience(): string {
     return this.readFile(this.paths.experiencePath);
