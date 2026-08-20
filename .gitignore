@@ -77,4 +77,28 @@ Desktop.ini
 CoBeing/data-sim-chenmo/
 CoBeing/data-sim-chenmo.bak-*/
 CoBeing/docs/log/
+
+# ── Workspace docs & assets: NOT part of the public repo (code only) ──
+# Root-level workspace documents
+/CLAUDE.md
+/GOAL.md
+/PROGRESS.md
+/PROGRESS-LITE.md
+/PROGRESS-VERSION.md
+/README.md
+/STRUCTURE.md
+
+# Workspace doc/asset directories
+/docs/
+/releases/
+/resourses/
+/roadshow/
+
+# Project-internal documents & task artifacts
+CoBeing/CLAUDE.md
+CoBeing/gui-v2/README.md
+CoBeing/.task-manifest/
+
+# CoBeing v2 rewrite project (separate, not part of v1 releases)
+/CoBeing-v2/
 docs/archive/data-sim-chenmo.bak-*/

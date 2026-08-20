@@ -1,6 +1,0 @@
-{
-    "tag_name": "v1.2.0",
-    "name": "CoBeing v1.2.0",
-    "body": "## CoBeing v1.2.0\n\n### New Features\n- Master Registry - unified Agent/Group registry\n- Group lifecycle management (active -> completed -> archived)\n- Voting & consensus mechanism\n- Task dependency management (dependsOn chains)\n- Agent external workspace binding\n- Observability dashboard\n- Provider auto-fallback\n- Theme system redesign (6 themes)\n- TODO kanban board + batch operations\n- Meta-skills system\n- MiMo Provider\n\n### Changes\n- Providers: 11 -> 7 (DeepSeek/Zhipu/Qwen/MiniMax/Volcengine/Moonshot/MiMo)\n- Channel: QQBot only\n- Removed forced .env configuration on first launch\n- Tutorial redesigned with proper spacing\n\n### Prerequisites\n- Node.js >= 22, pnpm >= 10\n- Extract, run `pnpm install`, double-click `start.bat`",
-    "prerelease": false
-}
