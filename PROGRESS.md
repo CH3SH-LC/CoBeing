@@ -1,4 +1,117 @@
-﻿# CoBeing 开发进度记录
+# CoBeing 开发进度记录
+
+## 2026-08-18（决策：CoBeing 为底座吸收 dsh 工程机制）
+
+变更原因：用户要求对「CoBeing 上改造出 dsh 工作能力 vs dsh 上改造出 CoBeing」给出方向判断并落成文档；判断已获用户确认。
+
+### 变更内容
+- **决策结论**：在 CoBeing 基础上改造出 dsh 的工作能力；不采用 dsh 为底座。
+- 依据：①产品层（群组协作/管家入口/TODOboard/Market/GUI）是 dsh 没有的资产，搬到 dsh 等于重造；②工程机制（可重建日志/调度器/工具契约/缓存稳定）是可移植设计模式，不依赖 Cordis；③dsh 为 developer preview 持续破坏性变更，不适合当底座，适合当设计参考；④方向 A 渐进可控（P0 三条）。
+- **新增** `docs/调研/架构方向决策-CoBeing底座吸收dsh工程机制.md`：两方案对比表、判断依据、P0/P1/P2/长期路线图、诚实代价（持续还债、不必追平、不搬代码只搬设计）、后续行动项（P0-1 请求日志建议最先开工）。
+- 同步：`STRUCTURE.md`（调研行）、`PROGRESS-LITE.md`。
+
+### 验证
+- 纯决策/文档变更，未运行 build/test（不声称测试通过）。
+
+## 2026-08-18（调研：dsh 编码能力工程诊断 vs CoBeing）
+
+变更原因：用户追问核心工程问题——「为什么 dsh 能写出高质量代码而 CoBeing 不能」；要求调研 dsh 极简模式之外的内容（标准模式）并给出工程级答案，而非停留在想法/设计调研层面。
+
+### 变更内容
+- **源码级对比**：dsh `agent-loop/src/agent.ts`（turn/step 状态机、请求=日志纯函数、header 变化才追加、错误结构化）、`tool-calls.ts`（调度器：并行池/屏障/模型序提交/abort 合成结果）、standard preset（plan mode/compaction/delegation/fs 全家桶）vs CoBeing `conversation-loop.ts`（for 循环、内存 history、串行工具、截断自愈）。
+- **诊断结论**：dsh 编码强 = 可重建日志 × 调度器式工具执行 × 模型契约式工具 × 前缀稳定缓存；CoBeing 三个结构性差距（🔴）：历史不可重建（熵增）、工具串行且中断截断历史、工具契约未工程化（bash 非持久等）。
+- **新增** `docs/调研/dsh编码能力工程诊断-CoBeing差距.md`：standard 全景、六机制代码证据、逐项对比表、P0/P1/P2 落地建议（P0：请求日志/调度器/持久 shell）。
+- 同步：`STRUCTURE.md`（调研行）、`PROGRESS-LITE.md`。
+
+### 验证
+- 纯调研/文档变更，未运行 build/test（不声称测试通过）。
+
+## 2026-08-18（学习：安装 DeepSeek Harness 源码 + 极简模式学习笔记）
+
+变更原因：用户要求学习 DeepSeek Harness（开源 agent harness）为什么能非常好地进行代码任务，重点学习「极简模式」（确认后明确为 minimal agent preset）。
+
+### 变更内容
+- **安装源码**：`git clone https://github.com/deepseek-ai/deepseek-harness` → `projects/deepseek-harness`（官方 master @ 99f6f02fec v0.1.0-rc.7，7466 文件，工作区干净）。注：schannel 凭据错误，改用 `-c http.sslBackend=openssl` 克隆成功。
+- **定位概念**：仓库中「极简模式」= `minimal` agent preset（Web 建会话可选）：固定系统提示 `You are a helpful software engineer assistant.`（persona `complete: true` + `includeRuntimeContext: false`）+ 仅持久 bash + str_replace_editor 两个工具 + 无上下文压缩。
+- **学习笔记**：新增 `docs/调研/deepseek-harness-极简模式学习笔记.md`——模型面/宿主面分离、8 条"为什么代码任务好"的机制证据（决策面最小化、上下文纯净、KV 缓存前缀稳定、请求可重建、持久 shell、精确编辑协议、loop 可靠性语义、headless 组合）、对自研框架的借鉴清单、仓库内参考资料路径。
+- 同步：根 `CLAUDE.md`（projects 树加 deepseek-harness）、`STRUCTURE.md`（docs 调研行补笔记名）、`PROGRESS-LITE.md`。
+
+### 验证
+- 纯文档/学习变更（未改源码），未运行 build/test（不声称测试通过）；克隆仓库工作区干净已验证。
+
+## 2026-08-12（文档：开发库重构 — 进度.md → 功能清单.md）
+
+变更原因：用户反馈——开发库应重点维护**功能清单**（哪些功能做了），进度日志属于 `PROGRESS.md`，不在开发库维护。
+
+### 变更内容
+- 删除 `docs/开发库/进度.md`（滚动进度视图，职责回归 PROGRESS.md）。
+- 新增 `docs/开发库/功能清单.md`（开发库核心）：12 能力域 × 98 项功能清单（✅86 / 🚧4 / 📌8），含总览统计表与维护规则；明确「进度日志不在本文件维护」。
+- 重写 `docs/开发库/README.md`（定位改为「功能清单 + 计划 + 想法」）；更新 `计划.md` / `想法.md`（引用改指 `功能清单.md`）。
+- 同步索引：根 `CLAUDE.md`、`CoBeing/CLAUDE.md`（开发库注释改为「功能清单/计划/想法」）、`STRUCTURE.md`（`进度.md` → `功能清单.md`）、`README.md`、`PROGRESS-LITE.md`。
+
+### 验证
+- 纯文档变更，未运行 build/test（不声称测试通过）。
+
+## 2026-08-12（文档：建立 docs/开发库 — 独立开发追踪库）
+
+变更原因：用户要求在 `docs/` 内建一个**单独的文档库**追踪开发进度，涵盖「已经做了什么 / 有什么开发计划 / 有什么想法」；方案已与用户确认（CoBeing 专用库 `docs/开发库/`，独立于现有 PROGRESS 与 项目信息）。
+
+### 变更内容
+- 新增 `docs/开发库/`（4 个文件，互相链接 + 回链到权威文档）：
+  - `README.md` — 库定位、与 PROGRESS/项目信息的分工、更新约定、入口链接。
+  - `进度.md` — 「做了什么」：当前状态快照（v1.4.0 / 76·739 tests / git 未提交 / 发布包 v1.3.1）+ 滚动进展（08-12 起，回链 PROGRESS.md 详细条目）+ 维护说明。
+  - `计划.md` — 「开发计划」：近期进行中（提交 08-12 工作 / 产出 v1.4.0 发布包 / 管家人格回归 / 首启验证）+ P0/P1/P2 待办（派生自 `当前待办.md`）+ 方向性计划（短/中/长期）。
+  - `想法.md` — 「想法点子」：产品想法（管家入口、对话式首启、超级个体场景）+ 技术边界待补（Market 完整化、真实软件接入、管家硬约束、群组并发）+ 已放弃备忘（投票已删 / 协议固化已弃）+ 用户可追加区。
+- 同步索引：根 `CLAUDE.md` 目录树、`CoBeing/CLAUDE.md` 文档树、`STRUCTURE.md`（docs 树新增 `开发库/` 4 文件）、`README.md` 文档索引、`PROGRESS-LITE.md`。
+
+### 设计原则
+- 本库是「索引 + 摘要」的轻量视图，**权威事实不重复维护**：涉及细节引向 `PROGRESS.md` / `当前待办.md` 等原始来源，本库只把「做了什么 / 计划 / 想法」集中在一起便于持续浏览与记录。
+- 内容基于已核实事实（版本、测试数、git 状态、待办），无幻觉。
+
+### 验证
+- 纯文档变更，未运行 build/test（不声称测试通过）。
+
+## 2026-08-12（文档：最新版总览整理）
+
+变更原因：用户要求读取整个项目并整理最新版；确认产出为 `docs/项目信息/最新版总览.md`（v1.4.0 全项目盘点，含 08-12 尚未 git 提交的真实软件接入工作）。
+
+### 变更内容
+- 新增 `docs/项目信息/最新版总览.md`：版本信息总表（1.4.0 / 76 files 739 tests / git 状态 / 发布包状态）、v1.3.1 → v1.4.0 里程碑时间线、11 个能力域盘点（运行时/Agent/Butler/Group/TODOboard/记忆/工具权限安全/扩展/Market/GUI/治理质量）、真实软件接入 v1 详情、已知边界与未完成项、文档索引。
+- 同步索引：根 `CLAUDE.md` 目录树、`CoBeing/CLAUDE.md` 文档树、`STRUCTURE.md`（docs 树 + 最后更新 2026-08-12）、`README.md` 文档索引、`PROGRESS-LITE.md`。
+
+### 验证
+- 纯文档变更，未运行 build/test（不声称测试通过）。
+
+## 2026-08-12（真实软件接入 v1 — 浏览器 MCP + QQ 接线补完）
+
+变更原因：用户确定 CoBeing 下一步方向「从抽象工具扩展到真实工作」；调研（`docs/调研/真实软件接入CoBeing调研.md`）后决策先做两个 P0：①浏览器 MCP（真实网页操作入口）②QQ 补完（管理QQ群，已有工具层但从未接线进 runtime）。用户提供 QQ 开放平台凭据（appId 1905411647），批准含登录态持久化的浏览器能力边界，同意下载 playwright chromium。
+
+### 新增 `packages/mcp-servers/browser/`（@cobeing/browser-mcp-server v1.4.0）
+- **BrowserEngine**（`browser-engine.ts`）：Playwright chromium 封装——lazy launch（首次调用才启动，headless 默认 true）、**登录态持久化**（storageState 存 `data/mcp/browser-state.json`：launch 时若存在则加载，close/saveLoginState 保存）、URL 仅 http/https（拒绝 javascript:/file:/data:）、操作级超时（BROWSER_TIMEOUT_MS 默认 30000）、playwright 缺失动态 import 降级（明确安装提示不崩溃）、download 文件名清洗防路径穿越
+- **9 工具**（`tools.ts`）：browser_navigate / get_text / screenshot / search(必应/百度) / click / fill / download / save_login_state / status + BROWSER_INSTRUCTIONS（登录态信任边界：复用已登录会话仅限用户授权站点）
+- **MCPServer**（`mcp-server.ts`）：复用 claude-code 模板（instructions 支持 + stdioLogger 纪律）
+- **TDD**：51 测试全绿（vi.mock("playwright") 全 mock，不碰真实浏览器）；子任务 B 已含真实浏览器冒烟（chromium 151.0.7922.34：navigate/fill/click/screenshot/登录态往返全通过）
+
+### QQ 接线补完
+- **StdioTransport env 继承修复**（`packages/core/src/mcp/transport.ts`）：procEnv 从 PATH/SystemRoot/TEMP/TMP 白名单改为 `{ ...process.env, ...this.env }`（config env 覆盖）——MCP server 子进程才能读到 `.env` 里的凭据（此前的限制导致 claude-code/qqbot 均拿不到 ANTHROPIC_API_KEY/QQ_BOT_*）
+- **registerConfigChannels**（`packages/core/src/runtime/channels.ts`）：从 config.channels 构造并注册内建 Channel（当前 QQBot）——enabled 过滤（防 disabled 被阶段 2 误启动）、幂等、enc: 值 decrypt、缺省回退 QQ_BOT_APP_ID/QQ_BOT_APP_SECRET env；startChannels 开头接线
+- **config/default.json**：mcpServers 加 `qqbot`（22 tools）与 `browser`（9 tools）；channels 加 `qqbot`（enabled + enc: 加密凭据 + bindTo butler）
+- **凭据安全**：明文只在 `.env`（gitignored）；config 内为 SecretStore `enc:` 加密值（机器特征派生密钥）
+- **QQ 鉴权修复**（`packages/mcp-servers/qqbot/src/qq-client.ts`）：原用已废弃的 `Bot ${appId}.${token}` 鉴权（网关连接 11243 Token错误）→ 改为官方 v2 流程：getAppAccessToken 换取 access_token（自动刷新、提前 60s）+ `Authorization: QQBot <token>` + IDENTIFY 同步修复
+- **qqbot stdout 纯净修复**（`qqbot/src/index.ts`）：补 stdioLogger 重定向纪律（与 claude-code 一致），消除 MCP 协议通道 Failed to parse 告警
+
+### 真实验证（阶段 4，全部实测）
+- **环境**：`pnpm start:core` 启动成功——3 MCP server 连接（claude-code 5 / qqbot 22 / browser 9 tools）、`Registered config channel: qqbot`、**QQ 网关真实连接 Ready（bot=cobeing测试）**、WS 18765
+- **浏览器 6/6 全过**：navigate example.com（标题 Example Domain）/ get_text 真实文本 / javascript: URL 正确拒绝 / 截图落盘 / 登录态保存 / 重启后 state 加载往返
+- **QQ 链路**：qq_bot_status 在线模式 ✓、qq_connect_gateway 网关已连接 ✓（修复后）
+- **回归**：claude-code MCP 5 tools 正常（env 继承改动无副作用）
+- **遗留（平台侧）**：`qq_get_groups` 返回 11001「不支持的调用」（err_code 40011002）——用正确鉴权直接 curl 复现，确认是 QQ 开放平台应用未开通群接口权限（代码无需改动，用户需在 q.qq.com 开通）
+- **测试污染修复**：browser-engine status 测试断言依赖真实 data/mcp/ 文件状态 → mock existsSync 隔离
+
+### 验证
+- `pnpm test` **76 files / 739 tests 全绿**（680 → +59：qq-wiring 8 + browser 51）
+- `pnpm build` 全 workspace 通过（含新 browser 包）
+- 修改文件：packages/mcp-servers/browser/（新增 6 文件）、packages/core/src/mcp/transport.ts、packages/core/src/runtime/channels.ts、packages/core/src/mcp/transport.test.ts、packages/core/src/runtime/channels.test.ts、packages/mcp-servers/qqbot/src/{index,qq-client}.ts、config/default.json、CoBeing/.env（gitignored）、STRUCTURE.md
 
 ## 2026-08-11（全项目重构 — 分层分批：代码质量 + 架构收敛）
 

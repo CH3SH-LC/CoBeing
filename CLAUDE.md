@@ -38,7 +38,9 @@ D:\agent-codes\
 │   │   ├── 架构说明.md    #   后端/前端/Agent/Group/扩展架构
 │   │   ├── 使用说明.md    #   当前用户与进阶用户使用路径
 │   │   ├── 当前待办.md    #   当前仍有效的待办
-│   │   └── 非Market未实现项审查.md #   大版本更新非 Market 未实现项代码审查
+│   │   ├── 非Market未实现项审查.md #   大版本更新非 Market 未实现项代码审查
+│   │   └── 最新版总览.md  #   v1.4.0 全项目最新版盘点（2026-08-12）
+│   ├── 开发库/            #   CoBeing 开发追踪库（功能清单/计划/想法，2026-08-12）
 │   ├── information/       #   调研报告（第一性原理分析等）
 │   ├── superpowers/       #   实现计划与设计规格
 │   ├── GOALS/             #   项目目标文档
@@ -52,7 +54,8 @@ D:\agent-codes\
 │   ├── claw-code/         #   Rust CLI agent 框架
 │   ├── openclaw/          #   多渠道 AI 网关
 │   ├── hermes/            #   Hermes agent
-│   └── sillytavern/       #   SillyTavern 文档
+│   ├── sillytavern/       #   SillyTavern 文档
+│   └── deepseek-harness/  #   DeepSeek Harness 官方源码（学习极简模式，2026-08-18）
 │
 ├── releases/              # 发布产物归档
 │   ├── CoBeing-github/    #   GitHub 发布版（独立 git）

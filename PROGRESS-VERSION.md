@@ -4,9 +4,9 @@
 
 ---
 
-## v1.4.0 (2026-06-03 ~ 2026-08-04)
+## v1.4.0 (2026-06-03 ~ 2026-08-12)
 
-> 整理 v1.3.1 之后（2026-06-01 ~ 2026-08-04）的全部开发工作，按里程碑组织。代码版本号自 2026-06-03 起统一为 1.4.0；本条目为发布记录整理，尚未产出发布包（releases/ 最新仍为 v1.3.1）。
+> 整理 v1.3.1 之后（2026-06-01 ~ 2026-08-12）的全部开发工作，按里程碑组织。代码版本号自 2026-06-03 起统一为 1.4.0。已发布：GitHub Release **v1.4.0**（tag `v1.4.0`，2026-08-12，基于 preview 分支；`releases/` 本地发布包仍为 v1.3.1 未重新打包，以 GitHub 仓库为准）。
 
 ### 插件系统全能力（2026-06-01 ~ 06-03）
 - **插件系统扩展为全能力矩阵**：Provider 去硬编码（原生仅保留 DeepSeek，其余 6 家全部改为插件）；新增 HookBus（12 事件，notify/intercept/transform 三语义）、PromptLayerRegistry、UIExtensionRegistry；Agent/Group/Tool/Message 全生命周期钩子埋点；plugin-sdk types/loader 大幅扩展；registry.json 驱动插件加载；models.json 模型自描述

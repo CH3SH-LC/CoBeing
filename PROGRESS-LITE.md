@@ -3,6 +3,13 @@
 > 标签：[New Feature] 新功能 / [Debug] 修复 / [Change] 变更
 > 详细记录见 PROGRESS.md
 
+- [Change] 架构方向决策落文档：CoBeing 为底座吸收 dsh 工程机制（产品层不可替代/工程机制可移植/dsh 不适合当底座），产出 docs/调研/架构方向决策-CoBeing底座吸收dsh工程机制.md + P0/P1/P2 路线图（2026-08-18，纯文档变更）
+- [Change] dsh 编码能力工程诊断：源码级对比（agent-loop/tool-calls/standard preset vs CoBeing conversation-loop），结论=dsh 强在可重建日志×调度器执行×工具契约×缓存稳定，CoBeing 三大结构性差距（历史不可重建/串行工具/契约不工程化），产出 docs/调研/dsh编码能力工程诊断-CoBeing差距.md + P0/P1/P2 落地建议（2026-08-18，纯文档变更）
+- [Change] 安装 DeepSeek Harness 官方源码到 projects/deepseek-harness（openssl 后端克隆），学习笔记 docs/调研/deepseek-harness-极简模式学习笔记.md（极简模式 = minimal preset：1 句系统提示 + 持久 bash/str_replace_editor 双工具 + 无压缩；8 条机制证据 + 借鉴清单），同步 CLAUDE/STRUCTURE 索引（2026-08-18，纯文档变更）
+- [Change] 开发库重构：删除进度.md（进度归 PROGRESS），新增功能清单.md（12 域 98 项 ✅86/🚧4/📌8），README/计划/想法/索引同步（2026-08-12，纯文档变更）
+- [Change] 新增 docs/开发库/：CoBeing 独立开发追踪库（README 索引 + 进度/计划/想法 三块，互相链接，独立于 PROGRESS/项目信息），同步 CLAUDE/STRUCTURE/README 索引（2026-08-12，纯文档变更）
+- [Change] 新增 docs/项目信息/最新版总览.md：v1.4.0 全项目盘点（版本信息/里程碑时间线/11 能力域/真实软件接入 v1/已知边界），同步 CLAUDE/STRUCTURE/README 索引（2026-08-12，纯文档变更）
+- [New Feature] 真实软件接入 v1（2026-08-12，739 tests 全绿）：①**浏览器 MCP**（新增 @cobeing/browser-mcp-server）：Playwright 驱动 9 工具（navigate/get_text/screenshot/search/click/fill/download/save_login_state/status），登录态持久化（storageState 存 data/mcp/browser-state.json），URL 仅 http/https + 超时防护 + playwright 缺失降级；真实导航 example.com/截图/登录态往返全验证 ②**QQ 接线补完**：StdioTransport env 继承修复（子进程读 .env 凭据）+ registerConfigChannels（config→QQBotChannel 构造注册，enabled 过滤/幂等/enc 解密）+ config 合入（qqbot MCP 22 tools + channel bindTo butler + browser 9 tools）；QQ 网关真实连接 Ready（bot=cobeing测试）③**QQ 鉴权修复**：qq-client 废弃的 `Bot appId.token` → 官方 v2 access_token 换取 + `QQBot <token>`（11243 修复）+ qqbot stdout 纯净修复 ④遗留：qq_get_groups 11001 为 QQ 开放平台应用未开通群接口权限（平台侧，代码已正确）
 - [New Feature] Claude Code MCP server（2026-08-11）：新增 @cobeing/claude-code-mcp-server，用 Agent SDK 把编码任务委托给 Claude Code 完整 agent 循环补足编码能力；异步轮询 5 工具（start/status/result/cancel/list）+ working_dir fail-fast + 会话延续 + stdout 纯净修复；真实编码任务/取消/延续全验证 + 665 tests 全绿
 - [New Feature] mcp-register 附带 instructions 使用指南（2026-08-11）：接通 MCP 协议 `instructions` 字段——client 保存、manager 暴露 getInstructions、mcp-register 返回附【使用指南】；claude-code server initialize 返回 Agent 使用协议文本；Agent 注册即获「怎么用」，不再只拿工具名列表（+5 测试，670 tests 全绿，真实验证 5/5）
 

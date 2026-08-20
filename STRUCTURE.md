@@ -1,6 +1,6 @@
 # CoBeing 项目结构
 
-> 最后更新：2026-08-09  
+> 最后更新：2026-08-12  
 > 本文件记录当前工作区和 CoBeing 代码结构。新增、删除、重命名项目文件或目录时必须同步更新。
 
 ---
@@ -83,9 +83,10 @@ CoBeing/packages/
 ├── channels/                 # @cobeing/channels：Channel 接口、QQ Bot channel
 ├── plugin-sdk/               # @cobeing/plugin-sdk：manifest、loader、hook、prompt layer、UI extension
 └── mcp-servers/
-    ├── qqbot/                # QQ Bot MCP server
+    ├── qqbot/                # QQ Bot MCP server（2026-08-12 接入 runtime：access_token 鉴权修复）
     ├── office/               # Office MCP server
-    └── claude-code/          # Claude Code MCP server — 编码任务委托（2026-08-11）
+    ├── claude-code/          # Claude Code MCP server — 编码任务委托（2026-08-11）
+    └── browser/              # Browser MCP server — Playwright 浏览器自动化（2026-08-12 新增）
 ```
 
 ### core/src/todo 子目录
@@ -375,9 +376,15 @@ docs/
 │   ├── 架构说明.md           # 后端、前端、Agent、Group、扩展架构
 │   ├── 使用说明.md           # 当前用户/进阶用户使用路径
 │   ├── 当前待办.md           # 当前仍有效的待办
-│   └── 非Market未实现项审查.md # 大版本更新非 Market 未实现项代码审查
+│   ├── 非Market未实现项审查.md # 大版本更新非 Market 未实现项代码审查
+│   └── 最新版总览.md         # v1.4.0 全项目最新版盘点（2026-08-12）
+├── 开发库/                    # CoBeing 独立开发追踪库（2026-08-12）
+│   ├── README.md             # 库索引与更新约定
+│   ├── 功能清单.md           # 哪些功能做了（核心）
+│   ├── 计划.md               # 开发计划
+│   └── 想法.md               # 想法点子
 ├── information/               # 调研报告（2026-08-08-research-cobeing-first-principles.md 第一性原理分析）
-├── 调研/                     # 竞品调研与技术调查（含 真人说话模拟调研.md：人味表达规范 26 条草案，2026-08-05）
+├── 调研/                     # 竞品调研与技术调查（含 真人说话模拟调研.md：人味表达规范 26 条草案，2026-08-05；deepseek-harness-极简模式学习笔记.md、dsh编码能力工程诊断-CoBeing差距.md、架构方向决策-CoBeing底座吸收dsh工程机制.md，2026-08-18）
 ├── superpowers/              # 实现计划、规格、审计计划
 │   ├── plans/                # 分阶段实施计划
 │   └── specs/                # 设计规格与方案文档
