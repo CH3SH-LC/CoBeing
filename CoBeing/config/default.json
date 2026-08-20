@@ -31,7 +31,18 @@
       "baseURL": "https://api.deepseek.com"
     }
   },
-  "channels": {},
+  "channels": {
+    "qqbot": {
+      "enabled": true,
+      "type": "qqbot",
+      "qqbotAppId": "enc:4RWn8qcsGDH9jefV0v+6/lo0zWr5cj0OHW89JFn0x6+t3mHmCMc=",
+      "qqbotAppSecret": "enc:8f9cDUuAQ5MmyGc3L3ML82VN4RKfajrhjj3okJ5xEKHYaWwAH89LnSM8pfw=",
+      "bindTo": {
+        "type": "agent",
+        "agentId": "butler"
+      }
+    }
+  },
   "gui": {
     "enabled": true,
     "wsPort": 18765
@@ -47,6 +58,18 @@
       "transport": "stdio",
       "command": "node",
       "args": ["packages/mcp-servers/claude-code/dist/index.js"],
+      "env": {}
+    },
+    "qqbot": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["packages/mcp-servers/qqbot/dist/index.js"],
+      "env": {}
+    },
+    "browser": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["packages/mcp-servers/browser/dist/index.js"],
       "env": {}
     }
   },

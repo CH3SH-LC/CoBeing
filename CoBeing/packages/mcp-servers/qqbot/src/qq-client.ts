@@ -77,6 +77,9 @@ export class QQClient {
   private ws: WebSocket | null = null;
   private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _wsConnected = false;
+  // access_token 换取（QQ 官方 v2 要求先经 getAppAccessToken 换取，再用 QQBot <token> 鉴权）
+  private accessToken = "";
+  private tokenExpiresAt = 0;
 
   constructor(config: QQConfig) {
     this.config = config;
@@ -372,6 +375,8 @@ export class QQClient {
   async connectGateway(wsBase?: string): Promise<void> {
     if (this._sandbox || this._wsConnected) return;
 
+    await this.ensureAccessToken();
+
     const base = wsBase || this.config.wsBase;
     let wsUrl = base;
     if (!wsUrl) {
@@ -457,11 +462,11 @@ export class QQClient {
       // Hello — 开始心跳
       const heartbeatInterval = data?.heartbeat_interval || 30000;
       this.startHeartbeat(heartbeatInterval);
-      // 发送 Identify
+      // 发送 Identify（官方 v2：token 为 "QQBot <access_token>"）
       this.ws?.send(JSON.stringify({
         op: 2,
         d: {
-          token: `Bot ${this.config.appId}.${this.config.token}`,
+          token: `QQBot ${this.accessToken}`,
           intents: 1 << 30, // 全部事件
           shard: [0, 1],
         },
@@ -497,7 +502,7 @@ export class QQClient {
       log.warn("Invalid session, re-identifying...");
       this.ws?.send(JSON.stringify({
         op: 2,
-        d: { token: `Bot ${this.config.appId}.${this.config.token}`, intents: 1 << 30, shard: [0, 1] },
+        d: { token: `QQBot ${this.accessToken}`, intents: 1 << 30, shard: [0, 1] },
       }));
     }
   }
@@ -575,6 +580,7 @@ export class QQClient {
   private async get(path: string): Promise<unknown> {
     const url = `${this.config.apiBase}${path}`;
     log.info("GET %s", url);
+    await this.ensureAccessToken();
     const res = await fetch(url, { method: "GET", headers: this.headers() });
     return this.handleResponse(res);
   }
@@ -582,6 +588,7 @@ export class QQClient {
   private async post(path: string, body: unknown): Promise<any> {
     const url = `${this.config.apiBase}${path}`;
     log.info("POST %s", url);
+    await this.ensureAccessToken();
     const res = await fetch(url, {
       method: "POST",
       headers: this.headers(),
@@ -593,6 +600,7 @@ export class QQClient {
   private async patch(path: string, body: unknown): Promise<any> {
     const url = `${this.config.apiBase}${path}`;
     log.info("PATCH %s", url);
+    await this.ensureAccessToken();
     const res = await fetch(url, {
       method: "PATCH",
       headers: this.headers(),
@@ -604,14 +612,38 @@ export class QQClient {
   private async delete(path: string): Promise<unknown> {
     const url = `${this.config.apiBase}${path}`;
     log.info("DELETE %s", url);
+    await this.ensureAccessToken();
     const res = await fetch(url, { method: "DELETE", headers: this.headers() });
     if (res.status === 204) return {};
     return this.handleResponse(res);
   }
 
+  /** 换取 QQ Bot access_token（官方 v2 鉴权：getAppAccessToken → Authorization: QQBot <token>） */
+  private async ensureAccessToken(): Promise<void> {
+    if (this.accessToken && Date.now() < this.tokenExpiresAt) return;
+    if (this._sandbox) return;
+
+    const res = await fetch("https://bots.qq.com/app/getAppAccessToken", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        appId: this.config.appId,
+        clientSecret: this.config.token,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to get app access token: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { access_token: string; expires_in: number };
+    this.accessToken = data.access_token;
+    // 提前 60 秒刷新
+    this.tokenExpiresAt = Date.now() + (data.expires_in - 60) * 1000;
+    log.info("QQ Bot access token refreshed, expires in %ds", data.expires_in);
+  }
+
   private headers(): Record<string, string> {
     return {
-      Authorization: `Bot ${this.config.appId}.${this.config.token}`,
+      Authorization: `QQBot ${this.accessToken}`,
       "Content-Type": "application/json",
       "X-Union-Appid": this.config.appId,
     };

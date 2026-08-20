@@ -5,12 +5,13 @@
  * 统一 inbound 消息管线（截断 + 路由 + 群组审核管道）、
  * 静态绑定加载与 stop 清理。
  */
-import { getChannel, getAllChannels } from "@cobeing/channels";
+import { getChannel, getAllChannels, registerChannel, QQBotChannel } from "@cobeing/channels";
 import type { ChannelAdapter } from "@cobeing/channels";
 import type { LLMProvider } from "@cobeing/providers";
 import { DEFAULT_PROVIDER, DEFAULT_JUDGMENT_MODEL, createLogger } from "@cobeing/shared";
 import type { AppConfig } from "../config/schema.js";
 import type { ChannelBindTo } from "../config/schema.js";
+import { decrypt } from "../config/secret-store.js";
 import type { GroupManager } from "../group/manager.js";
 import type { ChannelRouter } from "../group/router.js";
 import type { AgentRegistry } from "../agent/registry.js";
@@ -116,9 +117,51 @@ export function setupChannelOnMessage(deps: ChannelDeps, channelId: string): voi
   });
 }
 
+/**
+ * 从 config.channels 构造并注册内建 Channel（当前为 QQBot）
+ *
+ * 规则：
+ * - enabled 为真且 type === 'qqbot' 才注册（不注册 disabled 条目，避免 startChannels
+ *   阶段 2 把被禁用的 channel 当作插件 channel 启动）；
+ * - 幂等：已注册（getChannel(id) 存在）则跳过；
+ * - 凭据：enc: 前缀值先 decrypt；缺失时回退 process.env.QQ_BOT_APP_ID /
+ *   QQ_BOT_APP_SECRET（解密在回退后统一处理，兼容明文直传）。
+ *
+ * 必须在 startChannels() 之前调用（startChannels 开头已接线）。
+ */
+export function registerConfigChannels(config: AppConfig): void {
+  for (const [id, cfg] of Object.entries(config.channels)) {
+    if (!cfg || !cfg.enabled) continue;
+    if (cfg.type !== "qqbot") continue;
+    if (getChannel(id)) continue; // 幂等：已注册跳过
+
+    const resolveSecret = (value: string | undefined, envName: string): string => {
+      const raw = value ?? process.env[envName] ?? "";
+      return decrypt(raw);
+    };
+
+    const appId = resolveSecret(cfg.qqbotAppId, "QQ_BOT_APP_ID");
+    const appSecret = resolveSecret(cfg.qqbotAppSecret, "QQ_BOT_APP_SECRET");
+    if (!appId || !appSecret) {
+      log.warn("Channel '%s' registered with missing credentials (config or %s/%s env)", id, "QQ_BOT_APP_ID", "QQ_BOT_APP_SECRET");
+    }
+
+    const channel = new QQBotChannel({
+      appId,
+      appSecret,
+      intents: cfg.qqbotIntents,
+    });
+    registerChannel(channel);
+    log.info("Registered config channel: %s (type=%s)", id, cfg.type);
+  }
+}
+
 /** 启动所有 Channel（配置驱动 + 插件注册） */
 export async function startChannels(deps: ChannelDeps): Promise<void> {
   const { config, router, registry, wsServer, groupManager, channels } = deps;
+
+  // 从 config.channels 构造并注册内建 Channel（QQBot）——须在阶段 1 取 channel 之前完成
+  registerConfigChannels(config);
 
   // Resolve bindTo from registry entry config (plugin channels)
   const getPluginBindTo = (channelId: string): ChannelBindTo | undefined => {

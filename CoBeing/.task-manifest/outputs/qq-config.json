@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "qqbot": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["packages/mcp-servers/qqbot/dist/index.js"],
+      "env": {}
+    }
+  },
+  "channels": {
+    "qqbot": {
+      "enabled": true,
+      "type": "qqbot",
+      "qqbotAppId": "__ENCRYPT_ME__",
+      "qqbotAppSecret": "__ENCRYPT_ME__",
+      "bindTo": { "type": "agent", "agentId": "butler" }
+    }
+  }
+}

@@ -15,6 +15,26 @@ import { MCPServer } from "./mcp-server.js";
 import { QQClient } from "./qq-client.js";
 import { makeTools } from "./tools.js";
 
+// ================================================================
+//  MCP stdio 协议约束：stdout 必须纯净（只承载 JSON-RPC 协议消息）。
+//  @cobeing/shared 的 createLogger 把 info/debug 写到 console.log（stdout），
+//  会污染协议通道（CoBeing 传输层会把每行 stdout 当 JSON 解析并告警）。
+//  在模块顶层把 console.log 重定向到 stderr；process.stdout.write（协议响应）
+//  不受影响。warn/error 本就走 stderr。
+// ================================================================
+const stdioLogger = (...args: unknown[]): void => {
+  const line = args
+    .map((a) => (typeof a === "string" ? a : a instanceof Error ? a.stack ?? a.message : JSON.stringify(a)))
+    .join(" ");
+  process.stderr.write(line + "\n");
+};
+// 仅在未设置过时覆盖（幂等）
+if (!(console as any).__qqbotMcpStderrRedirect) {
+  console.log = stdioLogger as unknown as typeof console.log;
+  console.debug = stdioLogger as unknown as typeof console.debug;
+  (console as any).__qqbotMcpStderrRedirect = true;
+}
+
 const log = createLogger("qqbot-mcp");
 
 function getConfig() {

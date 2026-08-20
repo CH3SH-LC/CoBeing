@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "browser": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["packages/mcp-servers/browser/dist/index.js"],
+      "env": {}
+    }
+  }
+}

@@ -55,12 +55,11 @@ export class StdioTransport implements MCPTransport {
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
 
+      // 子进程环境：继承 process.env（MCP server 才能读到 .env 中的凭据），
+      // this.env（config env）覆盖 process.env（保留覆盖语义）。
+      // Windows 上 PATH/Path 双键场景由 process.env 天然覆盖。
       const procEnv = {
-        PATH: process.env.PATH ?? "",
-        Path: process.env.Path ?? process.env.PATH ?? "",
-        SystemRoot: process.env.SystemRoot ?? "",
-        TEMP: process.env.TEMP ?? "",
-        TMP: process.env.TMP ?? "",
+        ...process.env,
         ...this.env,
       };
       this.proc = spawn(this.command, this.args, {

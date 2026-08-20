@@ -1,0 +1,21 @@
+{
+  "name": "@cobeing/browser-mcp-server",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser MCP Server — Playwright 驱动的浏览器自动化：导航/搜索/提取/截图/点击/填表单/下载/登录态持久化",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@cobeing/shared": "workspace:*",
+    "playwright": "^1.62.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
