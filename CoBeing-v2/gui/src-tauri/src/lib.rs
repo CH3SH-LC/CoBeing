@@ -50,18 +50,38 @@ fn resolve_data_root(root: &Path, app: Option<&tauri::AppHandle>) -> PathBuf {
     root.join("data")
 }
 
+/// Windows verbatim 路径（`\\?\` 前缀）Node.js 无法作为脚本参数解析（lstat 崩），
+/// 剥离前缀为普通路径（本地盘场景；UNC 形式 `\\?\UNC\` 同样剥离为 `\\server\share`）。
+fn portable_path(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        p.to_path_buf()
+    }
+}
+
 /// Build the kernel launch command.
 ///
 /// Dev mode: `node <root>/node_modules/tsx/dist/cli.mjs <root>/packages/bridge/src/cli.ts --data <dataRoot>`
 /// Release mode: `<resources>/kernel/node.exe <resources>/kernel/kernel.mjs --data <dataRoot>`
 /// (packaged by `scripts/build-kernel-dist.mjs`: node.exe = portable runtime, no Node install needed)
+///
+/// Note: on Windows, `resource_dir()` is the install dir itself (NSIS places bundled
+/// resources under `<install>/resources/`), so the kernel lives at
+/// `<resource_dir>/resources/kernel/`. We probe both layouts defensively, and strip
+/// the verbatim `\\?\` prefix (Node cannot execute a `\\?\`-prefixed script path).
 fn build_kernel_command(resources: Option<&Path>, data_root: PathBuf) -> Command {
     if let Some(res) = resources {
-        let node = res.join("kernel").join("node.exe");
-        let cli = res.join("kernel").join("kernel.mjs");
-        let mut cmd = Command::new(node);
-        cmd.arg(&cli).arg("--data").arg(&data_root);
-        return cmd;
+        for candidate in [res.join("resources").join("kernel"), res.join("kernel")] {
+            let node = candidate.join("node.exe");
+            let cli = candidate.join("kernel.mjs");
+            if node.exists() && cli.exists() {
+                let mut cmd = Command::new(portable_path(&node));
+                cmd.arg(portable_path(&cli)).arg("--data").arg(&data_root);
+                return cmd;
+            }
+        }
     }
     let root = resolve_root();
     let tsx = root.join("node_modules/tsx/dist/cli.mjs");
@@ -129,8 +149,24 @@ pub fn run() {
                 app.path().resource_dir().ok()
             };
             let data_root = resolve_data_root(&resolve_root(), Some(app.handle()));
+            let command = build_kernel_command(resources.as_deref(), data_root.clone());
+            // 启动诊断落盘（发布版故障排查）：命令 + spawn 结果
+            let _ = std::fs::create_dir_all(&data_root);
+            let diag = format!(
+                "ts={} resources={:?}\ncommand={}\n",
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0),
+                resources,
+                {
+                    let mut s = format!("{:?}", command.get_program());
+                    for a in command.get_args() {
+                        s.push_str(&format!(" {:?}", a));
+                    }
+                    s
+                },
+            );
+            std::fs::write(data_root.join("kernel-launch.log"), diag).ok();
             let options = KernelBridgeOptions {
-                command: build_kernel_command(resources.as_deref(), data_root),
+                command,
                 request_timeout: std::time::Duration::from_secs(60),
                 on_notify: {
                     let handle = app.handle().clone();
