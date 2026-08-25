@@ -1,0 +1,66 @@
+/* CoBeing v2 — 主题 token（樱花薄荷糖果色，遵循用户前端 UI 偏好） */
+
+:root {
+  /* 基底：浅樱粉 → 薄荷渐变（比卡片深一档） */
+  --bg-base: linear-gradient(155deg, #f6dde6 0%, #e2f0e7 55%, #dde7f2 100%);
+
+  /* Surface 层级（底 → 顶） */
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-solid: #fffdfe;
+  --elevated: rgba(255, 255, 255, 0.86);
+  --hover: rgba(255, 255, 255, 0.55);
+  --input: rgba(255, 255, 255, 0.65);
+
+  /* 边框 / 分隔线（柔和） */
+  --border: rgba(170, 140, 155, 0.4);
+  --divider: rgba(150, 125, 140, 0.22);
+
+  /* 文字 */
+  --text: #4a3c44;
+  --text-secondary: #8a7883;
+
+  /* 糖果色语义 */
+  --user-bubble: #ffd9e4;
+  --agent-bubble: #d9f0e3;
+  --tool-bubble: #fdf0d9;
+  --accent: #e891b0;
+  --accent-soft: rgba(232, 145, 176, 0.16);
+  --danger: #e0525f;
+  --danger-soft: rgba(224, 82, 95, 0.12);
+  --success: #4cae7f;
+  --success-soft: rgba(76, 174, 127, 0.14);
+
+  /* 阴影 */
+  --shadow-surface: 0 6px 24px rgba(170, 130, 155, 0.14);
+  --shadow-lg: 0 16px 48px rgba(140, 105, 130, 0.24);
+
+  /* 圆角 */
+  --radius-panel: 16px;
+  --radius-card: 14px;
+  --radius-bubble: 16px;
+  --radius-control: 12px;
+
+  /* 磨砂浮层 */
+  --overlay-blur: blur(16px) saturate(1.4);
+  --overlay-bg: color-mix(in srgb, var(--surface-solid) 60%, transparent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg-base);
+  background-attachment: fixed;
+  overscroll-behavior: none;
+}

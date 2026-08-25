@@ -1,0 +1,17 @@
+{
+  "name": "@cobeing/bridge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "cobeing-kernel": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@cobeing/core": "workspace:*",
+    "@cobeing/types": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.0"
+  }
+}

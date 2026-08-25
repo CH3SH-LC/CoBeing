@@ -1,0 +1,33 @@
+{
+  "name": "cobeing-mobile",
+  "private": true,
+  "version": "2.0.0-alpha.0",
+  "type": "module",
+  "description": "CoBeing 手机端（Capacitor 6 + React 19）——远程控制电脑",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "cap": "cap"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/filesystem": "^6.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "jsdom": "^25.0.1",
+    "typescript": "~5.8.3",
+    "vite": "^5.4.19",
+    "vitest": "^2.1.0"
+  }
+}
