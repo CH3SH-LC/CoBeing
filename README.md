@@ -12,8 +12,8 @@ CoBeing 是一个原生多 Agent 协作平台。管家（Butler）负责组织�
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| **Windows 桌面** | `CoBeing v2_2.0.0-alpha.0_x64-setup.exe`（GitHub Release） | 双击安装即用，无需安装 Node.js（内核已内置） |
-| **Android 手机** | `CoBeing-mobile-v2.0.0-alpha-debug.apk`（GitHub Release） | 连接电脑上的内核远程使用 |
+| **Windows 桌面** | `CoBeing v2_2.0.0_x64-setup.exe`（GitHub Release） | 双击安装即用，无需安装 Node.js（内核已内置） |
+| **Android 手机** | `CoBeing-mobile-v2.0.0-debug.apk`（GitHub Release） | 连接电脑上的内核远程使用 |
 
 > Release 页面：https://github.com/CH3SH-LC/CoBeing/releases
 
