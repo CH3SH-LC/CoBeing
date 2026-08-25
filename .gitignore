@@ -1,104 +1,15 @@
-# Dependencies
 node_modules/
-
-# Build outputs
 dist/
-*.tsbuildinfo
-
-# Tauri / Rust build
-**/src-tauri/target/
-**/target/
-**/target/**
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Environment / secrets
-.env
-.env.*
-!.env.example
-
-# Runtime data (contains user configs with API keys)
 data/
-CoBeing/data/
-
-# Claude internal
+.env
+*.tsbuildinfo
+.DS_Store
 .claude/
-
-# Nested git repos (keep their own history)
-CoBeing/.git/
-
-# Projects with their own git repos — avoid nested repo warnings
-projects/Auto-claude-code-research-in-sleep/
-projects/SAI-claw/
-projects/claw-code/
-projects/hermes/
-projects/openclaw/
-projects/sillytavern/
-projects/deepseek-harness/
-
-# Superpowers sessions
-.superpowers/
-
-# Logs
 *.log
-logs/
 
-# Release zips (large binaries)
-releases/*.zip
-releases/*.rar
-releases/CoBeing-github/
-
-# Temp files
-temp/
-temporary/
-tmp/
-
-# Vite cache
-.vite/
-
-# Python
-__pycache__/
-*.pyc
-
-# Misc
-Thumbs.db
-Desktop.ini
-
-# Temporary screenshots (Edge test captures)
-.tmp-screens/
-
-# Test/simulation runtime data (not source)
-CoBeing/data-sim-chenmo/
-CoBeing/data-sim-chenmo.bak-*/
-CoBeing/docs/log/
-
-# ── Workspace docs & assets: NOT part of the public repo (code only) ──
-# Root-level workspace documents
-/CLAUDE.md
-/GOAL.md
-/PROGRESS.md
-/PROGRESS-LITE.md
-/PROGRESS-VERSION.md
-/README.md
-/STRUCTURE.md
-
-# Workspace doc/asset directories
-/docs/
-/releases/
-/resourses/
-/roadshow/
-
-# Project-internal documents & task artifacts
-CoBeing/CLAUDE.md
-CoBeing/gui-v2/README.md
-CoBeing/.task-manifest/
-
-# CoBeing v2 rewrite project (separate, not part of v1 releases)
-/CoBeing-v2/
-docs/archive/data-sim-chenmo.bak-*/
+# CoBeing v2（构建产物与运行时数据）
+CoBeing-v2/gui/src-tauri/resources/kernel/
+CoBeing-v2/**/target/
+CoBeing-v2/mobile/android/.gradle/
+CoBeing-v2/mobile/android/**/build/
+CoBeing-v2/releases/

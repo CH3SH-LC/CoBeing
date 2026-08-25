@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CoBeing</string>
+    <string name="title_activity_main">CoBeing</string>
+    <string name="package_name">com.cobeing.mobile</string>
+    <string name="custom_url_scheme">com.cobeing.mobile</string>
+</resources>

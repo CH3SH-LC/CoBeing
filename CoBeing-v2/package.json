@@ -1,0 +1,19 @@
+{
+  "name": "cobeing-v2",
+  "private": true,
+  "version": "2.0.0-alpha.0",
+  "description": "CoBeing 2.0.0 — 全新架构重写工程（抛弃 v1 硬架构，参考 dsh 工程机制）",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx packages/core/src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

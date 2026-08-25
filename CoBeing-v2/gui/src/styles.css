@@ -1,0 +1,609 @@
+/* CoBeing v2 — 全局布局与组件样式（层次化三卡片：列表 / 标题 / 对话） */
+
+/* ---------- 应用骨架 ---------- */
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--surface-solid);
+  box-shadow: 0 2px 10px rgba(170, 130, 155, 0.12);
+  z-index: 10;
+}
+
+.topbar-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.topbar-nav {
+  display: flex;
+  gap: 6px;
+}
+
+.nav-item {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-item:hover {
+  background: var(--hover);
+}
+
+.nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.kernel-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.status-dot.offline {
+  background: var(--danger);
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+  padding: 20px;
+  display: flex;
+  gap: 20px;
+}
+
+/* ---------- 三卡片通用 ---------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-surface);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+}
+
+.card-list {
+  flex: none;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.card-title {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.card-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.card-title .spacer {
+  flex: 1;
+}
+
+.card-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.card-detail {
+  flex: none;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.card-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---------- 列表 ---------- */
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  border-bottom: 1px solid var(--divider);
+  border-radius: 0;
+}
+
+.list-item:last-child {
+  border-bottom: none;
+}
+
+.list-item:hover {
+  background: var(--hover);
+}
+
+.list-item.active {
+  background: var(--accent-soft);
+}
+
+.list-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-item-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.badge {
+  flex: none;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.badge.success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.badge.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ---------- 对话 ---------- */
+
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.msg-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.msg-row.user {
+  flex-direction: row-reverse;
+}
+
+.avatar {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.msg-bubble {
+  max-width: 100%;
+  padding: 16px 24px;
+  border-radius: var(--radius-bubble);
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.msg-row.user .msg-bubble {
+  background: var(--user-bubble);
+  border-top-right-radius: 6px;
+}
+
+.msg-row.agent .msg-bubble {
+  background: var(--agent-bubble);
+  border-top-left-radius: 6px;
+}
+
+.msg-row.butler .msg-bubble {
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-top-left-radius: 6px;
+}
+
+.msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.msg-tag {
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--tool-bubble);
+  color: var(--text-secondary);
+}
+
+.empty-hint {
+  margin: auto;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 2;
+}
+
+/* ---------- 输入区 ---------- */
+
+.chat-input-wrap {
+  flex: none;
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--divider);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--elevated);
+  border-radius: 0 0 var(--radius-panel) var(--radius-panel);
+}
+
+.mention-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 成员忙碌标记（群组工作状态：成员正在工作） */
+.chip-busy {
+  background: #fff4e0;
+  border-color: var(--warn, #e8a13d);
+  color: #b57a16;
+  animation: chip-pulse 1.6s infinite;
+}
+
+@keyframes chip-pulse {
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.input-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.input-row textarea,
+.input-row input,
+.form input,
+.form select,
+.form textarea {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--text);
+  font-size: 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-control);
+  outline: none;
+  resize: none;
+}
+
+.input-row textarea:focus,
+.input-row input:focus,
+.form input:focus,
+.form select:focus,
+.form textarea:focus {
+  border-color: var(--accent);
+}
+
+.btn {
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 20px;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.btn:hover {
+  filter: brightness(0.96);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.btn.small {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+.btn.text {
+  background: transparent;
+  padding: 6px 10px;
+}
+
+/* ---------- 表单（浮层） ---------- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-field label {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.form-field .hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-row > * {
+  flex: 1;
+}
+
+/* ---------- 浮层（磨砂） ---------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay-bg);
+  backdrop-filter: var(--overlay-blur);
+  -webkit-backdrop-filter: var(--overlay-blur);
+}
+
+.modal {
+  width: 460px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  background: var(--surface-solid);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+}
+
+.modal h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+
+.modal .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+/* ---------- 通知条 ---------- */
+
+.notify-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notify-item {
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 10px 14px;
+  background: var(--tool-bubble);
+  border-radius: var(--radius-card);
+  color: var(--text);
+}
+
+/* ---------- 会话列表（新对话窗口） ---------- */
+
+.conv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.conv-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--tool-bubble);
+  border: 1px solid transparent;
+  border-radius: var(--radius-card);
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.conv-item:hover {
+  border-color: var(--accent);
+}
+
+.conv-item.active {
+  border-color: var(--accent);
+  background: var(--elevated);
+}
+
+.conv-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 确认卡片（ask-user） ---------- */.confirm-card {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: var(--elevated);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.confirm-question {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.confirm-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.confirm-options .btn {
+  text-align: left;
+  justify-content: flex-start;
+}
+
+/* ---------- E2E 自检面板 ---------- */
+
+.e2e-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  width: 340px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--surface-solid);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-lg);
+  padding: 16px 20px;
+  font-size: 13px;
+}
+
+.e2e-panel h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.e2e-step {
+  padding: 4px 0;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.e2e-step .state {
+  flex: none;
+  width: 16px;
+  text-align: center;
+}
+
+.e2e-step.pass .state {
+  color: var(--success);
+}
+
+.e2e-step.fail .state {
+  color: var(--danger);
+}
+
+.e2e-step .detail {
+  color: var(--text-secondary);
+  word-break: break-all;
+}
