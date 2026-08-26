@@ -1,6 +1,6 @@
 [package]
 name = "cobeing-gui"
-version = "2.0.0"
+version = "2.0.1"
 description = "CoBeing v2 — Tauri native desktop GUI"
 authors = ["CoBeing"]
 edition = "2021"
@@ -21,4 +21,5 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+ureq = { version = "3", features = ["json"] }
 

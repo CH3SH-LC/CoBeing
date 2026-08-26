@@ -6,6 +6,9 @@
 /// KernelBridge: pure, testable JSON-RPC 2.0-over-stdio bridge to the kernel subprocess.
 pub mod kernel_bridge;
 
+/// 更新模块：GitHub Releases 检查 / 下载安装包 / 启动安装程序。
+pub mod update;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -196,7 +199,14 @@ pub fn run() {
             app.manage(KernelState(Mutex::new(state)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![rpc_call, get_kernel_status, e2e_report])
+        .invoke_handler(tauri::generate_handler![
+            rpc_call,
+            get_kernel_status,
+            e2e_report,
+            update::check_update,
+            update::download_installer,
+            update::launch_installer
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

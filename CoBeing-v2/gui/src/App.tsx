@@ -5,6 +5,7 @@ import { MainChatView } from './views/MainChatView'
 import { GroupsView } from './views/GroupsView'
 import { AgentsView } from './views/AgentsView'
 import { E2EPanel } from './components/E2EPanel'
+import { UpdateModal } from './components/UpdateModal'
 
 type View = 'chat' | 'groups' | 'agents'
 
@@ -28,6 +29,7 @@ export default function App() {
   const [kernelAlive, setKernelAlive] = useState<boolean | null>(null)
   const [agents, setAgents] = useState<AgentDef[]>([])
   const [update, setUpdate] = useState<KernelUpdate | null>(null)
+  const [updateOpen, setUpdateOpen] = useState(false)
 
   const checkKernel = useCallback(async () => {
     try {
@@ -97,6 +99,9 @@ export default function App() {
             <span className={`status-dot ${kernelAlive === false ? 'offline' : ''}`} />
             {kernelAlive === null ? '内核连接中…' : kernelAlive ? '内核在线' : '内核离线'}
           </div>
+          <button className="nav-item" onClick={() => setUpdateOpen(true)} title="检查更新">
+            ⬇ 更新
+          </button>
         </header>
         <main className="main">
           {view === 'chat' && <MainChatView />}
@@ -104,6 +109,7 @@ export default function App() {
           {view === 'agents' && <AgentsView />}
         </main>
         <E2EPanel />
+        {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} />}
       </div>
     </KernelUpdateCtx.Provider>
   )

@@ -1,5 +1,5 @@
 /**
- * 设置视图：连接配置管理（多配置保存/切换）+ 关于
+ * 设置视图：连接配置管理（多配置保存/切换）+ 关于 + 检查更新
  */
 
 import { useState } from 'react'
@@ -16,6 +16,15 @@ import {
   setActiveProfileId,
   type Profile,
 } from '../store'
+import {
+  checkMobileUpdate,
+  downloadApk,
+  installApk,
+  formatBytes,
+  type MobileUpdateInfo,
+} from '../update'
+
+type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error'
 
 export function SettingsView() {
   const { status, hello, reconnect } = useAppState()
@@ -26,6 +35,39 @@ export function SettingsView() {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [token, setToken] = useState('')
+
+  // 更新状态
+  const [updateInfo, setUpdateInfo] = useState<MobileUpdateInfo | null>(null)
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>('idle')
+  const [updateError, setUpdateError] = useState('')
+
+  const handleCheckUpdate = async () => {
+    setUpdatePhase('checking')
+    setUpdateError('')
+    try {
+      const info = await checkMobileUpdate()
+      setUpdateInfo(info)
+      setUpdatePhase('idle')
+    } catch (e) {
+      setUpdateError(String(e))
+      setUpdatePhase('error')
+    }
+  }
+
+  const handleDownloadInstall = async () => {
+    if (!updateInfo) return
+    setUpdatePhase('downloading')
+    setUpdateError('')
+    try {
+      const cachePath = await downloadApk(updateInfo.asset_url, updateInfo.asset_name)
+      setUpdatePhase('downloaded')
+      await installApk(cachePath)
+      toast.push('已启动系统安装界面，请按提示完成安装', 4000)
+    } catch (e) {
+      setUpdateError(String(e))
+      setUpdatePhase('error')
+    }
+  }
 
   const startEdit = (p: Profile | null) => {
     setEditing(p ?? { id: newProfileId(), name: '', url: '', token: '' })
@@ -148,6 +190,57 @@ export function SettingsView() {
           <div className="sub">协议：cobeing-ws/1 · JSON-RPC 2.0 over WebSocket（全双工）</div>
           <div className="sub">外网互联：cloudflared 隧道（脚本 scripts/remote.ps1）</div>
           <div className="sub">插件扩展：控制面板由电脑内核 manifest 驱动，无需升级 App</div>
+        </div>
+
+        <div className="card">
+          <h3>检查更新</h3>
+          {updateInfo && (
+            <div className="sub">
+              当前版本：v{updateInfo.current_version} · GitHub 最新正式版：{updateInfo.latest_tag}
+            </div>
+          )}
+          {updateInfo?.has_update && (
+            <div className="sub">
+              发现新版本，安装包 {updateInfo.asset_name}（{formatBytes(updateInfo.asset_size)}）
+            </div>
+          )}
+          {updateInfo && !updateInfo.has_update && (
+            <div className="sub">已是最新版本 ✅</div>
+          )}
+          {updatePhase === 'checking' && <div className="sub">正在检查 GitHub 最新版本…</div>}
+          {updatePhase === 'downloading' && <div className="sub">正在下载 APK…</div>}
+          {updatePhase === 'downloaded' && <div className="sub">下载完成，正在启动系统安装…</div>}
+          {updatePhase === 'error' && (
+            <div className="sub" style={{ color: 'var(--danger, #e5484d)' }}>检查/更新失败：{updateError}</div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button
+              className="btn small"
+              disabled={updatePhase === 'checking' || updatePhase === 'downloading' || updatePhase === 'downloaded'}
+              onClick={() => void handleCheckUpdate()}
+            >
+              检查更新
+            </button>
+            {updateInfo?.has_update && updatePhase !== 'downloaded' && (
+              <button
+                className="btn small"
+                disabled={updatePhase === 'checking' || updatePhase === 'downloading'}
+                onClick={() => void handleDownloadInstall()}
+              >
+                下载并安装
+              </button>
+            )}
+            {updatePhase === 'error' && (
+              <button className="btn small secondary" onClick={() => void handleCheckUpdate()}>
+                重试
+              </button>
+            )}
+          </div>
+          {updatePhase === 'downloaded' && (
+            <div className="sub" style={{ marginTop: 8 }}>
+              若未出现安装界面，请在系统设置中允许「CoBeing 安装未知应用」，然后再次点击「下载并安装」。
+            </div>
+          )}
         </div>
       </div>
     </div>
