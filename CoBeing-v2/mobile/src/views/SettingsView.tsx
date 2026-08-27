@@ -186,7 +186,7 @@ export function SettingsView() {
 
         <div className="card">
           <h3>关于</h3>
-          <div className="sub">CoBeing 手机端 v2.0.2（方案 v1）</div>
+          <div className="sub">CoBeing 手机端 v2.0.3（方案 v1）</div>
           <div className="sub">协议：cobeing-ws/1 · JSON-RPC 2.0 over WebSocket（全双工）</div>
           <div className="sub">外网互联：cloudflared 隧道（脚本 scripts/remote.ps1）</div>
           <div className="sub">插件扩展：控制面板由电脑内核 manifest 驱动，无需升级 App</div>

@@ -12,7 +12,7 @@ export interface DeepSeekOptions {
   baseUrl?: string
   /** API Key，默认读 process.env.DEEPSEEK_API_KEY */
   apiKey?: string
-  /** 默认模型，默认 deepseek-chat */
+  /** 默认模型，默认 deepseek-v4-flash */
   model?: string
 }
 
@@ -27,7 +27,7 @@ export class DeepSeekProvider implements LLMProvider {
     const key = opts.apiKey ?? process.env.DEEPSEEK_API_KEY
     if (!key) throw new Error('DeepSeekProvider: DEEPSEEK_API_KEY 未配置')
     this.apiKey = key
-    this.model = opts.model ?? 'deepseek-chat'
+    this.model = opts.model ?? 'deepseek-v4-flash'
   }
 
   async chat(req: ChatRequest): Promise<ChatResponse> {

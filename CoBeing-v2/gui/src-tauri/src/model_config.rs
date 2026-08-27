@@ -1,15 +1,28 @@
-//! 模型配置模块：读写 `<dataRoot>/model-config.json`（API Key / Base URL / 模型名）。
+//! 模型配置模块：读写 `<dataRoot>/model-config.json`（多来源 + 当前使用来源）。
 //!
-//! 优先级：内核启动时**优先读此文件**（cli.ts），回退环境变量 `DEEPSEEK_API_KEY` 等。
-//! 空字段语义：api_key 空 = 未配置（内核回退 env）；base_url 空 = 默认 DeepSeek；model 空 = 默认 deepseek-chat。
+//! 文件结构（v2）：
+//! ```json
+//! {
+//!   "sources": [
+//!     { "id": "...", "name": "DeepSeek 官方", "api_key": "...", "base_url": "...", "model": "deepseek-v4-flash" }
+//!   ],
+//!   "active_source": "<id>"
+//! }
+//! ```
+//! 旧格式（v2.0.2 单来源 {api_key, base_url, model}）读取时自动迁移为单来源（id="default"）。
+//! 优先级：内核启动时**优先读此文件**的 active 来源（cli.ts），回退环境变量 `DEEPSEEK_API_KEY` 等。
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// 模型配置（与前端 JSON 字段一一对应；snake_case 由 Tauri 自动映射 camelCase 参数）
+/// 单个模型来源（与前端 JSON 字段一一对应；snake_case 由 Tauri 自动映射 camelCase 参数）
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ModelConfig {
+pub struct ModelSource {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
     #[serde(default)]
     pub api_key: String,
     #[serde(default)]
@@ -18,10 +31,34 @@ pub struct ModelConfig {
     pub model: String,
 }
 
-impl ModelConfig {
+impl ModelSource {
     /// 是否已配置 API Key（有非空 key）
     pub fn has_api_key(&self) -> bool {
         !self.api_key.trim().is_empty()
+    }
+}
+
+/// 全部模型来源 + 当前使用来源 id（空 = 未激活任何来源）
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ModelConfigs {
+    #[serde(default)]
+    pub sources: Vec<ModelSource>,
+    #[serde(default)]
+    pub active_source: String,
+}
+
+impl ModelConfigs {
+    /// 当前激活的来源（id 匹配；无 → None）
+    pub fn active(&self) -> Option<&ModelSource> {
+        if self.active_source.is_empty() {
+            return None;
+        }
+        self.sources.iter().find(|s| s.id == self.active_source)
+    }
+
+    /// 是否有任何来源
+    pub fn is_empty(&self) -> bool {
+        self.sources.is_empty()
     }
 }
 
@@ -30,17 +67,49 @@ pub fn config_path(data_root: &Path) -> PathBuf {
     data_root.join("model-config.json")
 }
 
-/// 读取配置：文件不存在 / JSON 解析失败 → 返回默认（容错，不阻塞启动）
-pub fn load_config(path: &Path) -> ModelConfig {
+/// 旧格式（单来源：{api_key, base_url, model}）→ 新格式迁移
+fn migrate_legacy(raw: &str) -> Option<ModelConfigs> {
+    #[derive(Deserialize)]
+    struct Legacy {
+        #[serde(default)]
+        api_key: String,
+        #[serde(default)]
+        base_url: String,
+        #[serde(default)]
+        model: String,
+    }
+    let legacy: Legacy = serde_json::from_str(raw).ok()?;
+    // 新格式必有 sources 字段；旧格式无 → 迁移
+    let v: serde_json::Value = serde_json::from_str(raw).ok()?;
+    if v.get("sources").is_some() {
+        return None;
+    }
+    Some(ModelConfigs {
+        sources: vec![ModelSource {
+            id: "default".into(),
+            name: "DeepSeek 官方".into(),
+            api_key: legacy.api_key,
+            base_url: legacy.base_url,
+            model: legacy.model,
+        }],
+        active_source: "default".into(),
+    })
+}
+
+/// 读取配置：文件不存在 / JSON 解析失败 → 默认（容错，不阻塞启动）；旧格式自动迁移
+pub fn load_config(path: &Path) -> ModelConfigs {
     let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
-        Err(_) => return ModelConfig::default(),
+        Err(_) => return ModelConfigs::default(),
     };
+    if let Some(migrated) = migrate_legacy(&raw) {
+        return migrated;
+    }
     serde_json::from_str(&raw).unwrap_or_default()
 }
 
 /// 写入配置：创建父目录 + 原子落盘（先写临时文件再改名，避免半写）
-pub fn save_config(path: &Path, config: &ModelConfig) -> Result<(), String> {
+pub fn save_config(path: &Path, config: &ModelConfigs) -> Result<(), String> {
     let parent = path.parent().ok_or_else(|| "配置路径无父目录".to_string())?;
     std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
     let json = serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {e}"))?;
@@ -50,30 +119,67 @@ pub fn save_config(path: &Path, config: &ModelConfig) -> Result<(), String> {
     Ok(())
 }
 
-/// Tauri 命令：读取当前模型配置（前端设置界面初始化用）
+/// Tauri 命令：读取全部模型来源与当前使用来源（前端设置界面初始化用）
 #[tauri::command]
-pub fn get_model_config(app: tauri::AppHandle) -> ModelConfig {
+pub fn get_model_configs(app: tauri::AppHandle) -> ModelConfigs {
     let root = crate::resolve_root();
     let data_root = crate::resolve_data_root(&root, Some(&app));
     load_config(&config_path(&data_root))
 }
 
-/// Tauri 命令：保存模型配置（前端设置界面保存按钮）
+/// Tauri 命令：保存（新增或更新）一个模型来源；若这是第一个来源则自动设为当前使用
 #[tauri::command]
-pub fn save_model_config(
-    app: tauri::AppHandle,
-    api_key: String,
-    base_url: String,
-    model: String,
-) -> Result<(), String> {
+pub fn save_model_source(app: tauri::AppHandle, source: ModelSource) -> Result<(), String> {
     let root = crate::resolve_root();
     let data_root = crate::resolve_data_root(&root, Some(&app));
-    let config = ModelConfig {
-        api_key: api_key.trim().to_string(),
-        base_url: base_url.trim().to_string(),
-        model: model.trim().to_string(),
-    };
-    save_config(&config_path(&data_root), &config)
+    let path = config_path(&data_root);
+    let mut cfg = load_config(&path);
+    let id = source.id.trim().to_string();
+    if id.is_empty() {
+        return Err("来源 id 不能为空".to_string());
+    }
+    let was_empty = cfg.sources.is_empty();
+    if let Some(existing) = cfg.sources.iter_mut().find(|s| s.id == id) {
+        *existing = source;
+    } else {
+        cfg.sources.push(source);
+    }
+    if was_empty || cfg.active_source.is_empty() {
+        cfg.active_source = id;
+    }
+    save_config(&path, &cfg)
+}
+
+/// Tauri 命令：设置当前使用的模型来源（须已存在）
+#[tauri::command]
+pub fn set_active_model_source(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let root = crate::resolve_root();
+    let data_root = crate::resolve_data_root(&root, Some(&app));
+    let path = config_path(&data_root);
+    let mut cfg = load_config(&path);
+    if !cfg.sources.iter().any(|s| s.id == id) {
+        return Err(format!("模型来源不存在: {id}"));
+    }
+    cfg.active_source = id;
+    save_config(&path, &cfg)
+}
+
+/// Tauri 命令：删除模型来源；若删除的是当前使用来源，则当前使用置空（内核回退环境变量）
+#[tauri::command]
+pub fn delete_model_source(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let root = crate::resolve_root();
+    let data_root = crate::resolve_data_root(&root, Some(&app));
+    let path = config_path(&data_root);
+    let mut cfg = load_config(&path);
+    let before = cfg.sources.len();
+    cfg.sources.retain(|s| s.id != id);
+    if cfg.sources.len() == before {
+        return Err(format!("模型来源不存在: {id}"));
+    }
+    if cfg.active_source == id {
+        cfg.active_source = String::new();
+    }
+    save_config(&path, &cfg)
 }
 
 #[cfg(test)]
@@ -94,60 +200,112 @@ mod tests {
         dir
     }
 
+    fn source(id: &str, key: &str, model: &str) -> ModelSource {
+        ModelSource {
+            id: id.into(),
+            name: format!("来源 {id}"),
+            api_key: key.into(),
+            base_url: String::new(),
+            model: model.into(),
+        }
+    }
+
     #[test]
-    fn save_then_load_roundtrip() {
+    fn save_then_load_roundtrip_multiple_sources() {
         let dir = temp_dir();
         let path = config_path(&dir);
-        let cfg = ModelConfig {
-            api_key: "sk-test-123".into(),
-            base_url: "https://api.deepseek.com".into(),
-            model: "deepseek-chat".into(),
+        let cfg = ModelConfigs {
+            sources: vec![
+                source("a", "sk-a", "deepseek-v4-flash"),
+                source("b", "sk-b", "deepseek-v4-pro"),
+            ],
+            active_source: "b".into(),
         };
         save_config(&path, &cfg).expect("save ok");
         let loaded = load_config(&path);
-        assert_eq!(loaded.api_key, "sk-test-123");
-        assert_eq!(loaded.base_url, "https://api.deepseek.com");
-        assert_eq!(loaded.model, "deepseek-chat");
-        assert!(loaded.has_api_key());
+        assert_eq!(loaded.sources.len(), 2);
+        assert_eq!(loaded.active_source, "b");
+        let active = loaded.active().expect("active");
+        assert_eq!(active.api_key, "sk-b");
+        assert_eq!(active.model, "deepseek-v4-pro");
     }
 
     #[test]
-    fn load_missing_file_returns_default() {
+    fn load_missing_file_returns_empty() {
         let dir = temp_dir();
         let path = config_path(&dir.join("nonexistent-dir"));
         let cfg = load_config(&path);
-        assert_eq!(cfg.api_key, "");
-        assert!(!cfg.has_api_key());
+        assert!(cfg.is_empty());
+        assert!(cfg.active().is_none());
     }
 
     #[test]
-    fn load_corrupt_json_returns_default() {
+    fn load_corrupt_json_returns_empty() {
         let dir = temp_dir();
         let path = config_path(&dir);
         std::fs::write(&path, "{ not valid json !!").expect("write");
         let cfg = load_config(&path);
-        assert_eq!(cfg.api_key, "");
-        assert_eq!(cfg.model, "");
+        assert!(cfg.is_empty());
     }
 
     #[test]
-    fn save_empty_config_clears_api_key() {
+    fn legacy_format_migrates_to_single_source() {
         let dir = temp_dir();
         let path = config_path(&dir);
-        save_config(&path, &ModelConfig::default()).expect("save ok");
-        let loaded = load_config(&path);
-        assert!(!loaded.has_api_key());
-        assert_eq!(loaded.model, "");
+        std::fs::write(
+            &path,
+            r#"{"api_key":"sk-legacy","base_url":"https://api.deepseek.com","model":"deepseek-v4-flash"}"#,
+        )
+        .expect("write");
+        let cfg = load_config(&path);
+        assert_eq!(cfg.sources.len(), 1);
+        assert_eq!(cfg.sources[0].id, "default");
+        assert_eq!(cfg.sources[0].name, "DeepSeek 官方");
+        assert_eq!(cfg.sources[0].api_key, "sk-legacy");
+        assert_eq!(cfg.active_source, "default");
+        assert_eq!(cfg.active().expect("active").model, "deepseek-v4-flash");
     }
 
     #[test]
-    fn save_overwrites_previous() {
+    fn legacy_empty_fields_migrate_but_no_key() {
         let dir = temp_dir();
         let path = config_path(&dir);
-        save_config(&path, &ModelConfig { api_key: "old".into(), ..Default::default() }).expect("save");
-        save_config(&path, &ModelConfig { api_key: "new".into(), model: "m2".into(), ..Default::default() }).expect("save");
+        std::fs::write(&path, r#"{"api_key":"","base_url":"","model":""}"#).expect("write");
+        let cfg = load_config(&path);
+        assert_eq!(cfg.sources.len(), 1);
+        assert!(!cfg.sources[0].has_api_key());
+    }
+
+    #[test]
+    fn save_source_creates_and_activates_first() {
+        let dir = temp_dir();
+        let path = config_path(&dir);
+        let mut cfg = load_config(&path);
+        assert!(cfg.is_empty());
+        // 模拟 save_model_source 逻辑：第一个来源自动激活
+        cfg.sources.push(source("a", "sk-a", "m1"));
+        cfg.active_source = "a".into();
+        save_config(&path, &cfg).expect("save");
         let loaded = load_config(&path);
-        assert_eq!(loaded.api_key, "new");
-        assert_eq!(loaded.model, "m2");
+        assert_eq!(loaded.active_source, "a");
+        assert!(loaded.active().is_some());
+    }
+
+    #[test]
+    fn active_returns_none_when_id_unknown() {
+        let cfg = ModelConfigs {
+            sources: vec![source("a", "sk-a", "m1")],
+            active_source: "zzz".into(),
+        };
+        assert!(cfg.active().is_none());
+    }
+
+    #[test]
+    fn active_returns_none_when_empty_id() {
+        let cfg = ModelConfigs {
+            sources: vec![source("a", "sk-a", "m1")],
+            active_source: String::new(),
+        };
+        assert!(cfg.active().is_none());
     }
 }

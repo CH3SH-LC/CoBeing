@@ -2,18 +2,34 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { runE2E, type E2EStep } from './e2e'
 
 vi.mock('./settings', () => {
-  const state = { api_key: '', base_url: '', model: '' }
+  const state: { sources: Array<{ id: string; name: string; api_key: string; base_url: string; model: string }>; active_source: string } = {
+    sources: [],
+    active_source: '',
+  }
   return {
-    getModelConfig: vi.fn(async () => ({ ...state })),
-    saveModelConfig: vi.fn(async (cfg: { apiKey: string; baseUrl: string; model: string }) => {
-      state.api_key = cfg.apiKey
-      state.base_url = cfg.baseUrl
-      state.model = cfg.model
+    getModelConfigs: vi.fn(async () => ({
+      sources: state.sources.map((s) => ({ ...s })),
+      active_source: state.active_source,
+    })),
+    saveModelSource: vi.fn(async (src: { id: string; name: string; api_key: string; base_url: string; model: string }) => {
+      const exists = state.sources.some((s) => s.id === src.id)
+      if (exists) {
+        state.sources = state.sources.map((s) => (s.id === src.id ? { ...src } : s))
+      } else {
+        state.sources.push({ ...src })
+        if (state.sources.length === 1 || !state.active_source) state.active_source = src.id
+      }
+    }),
+    setActiveModelSource: vi.fn(async (id: string) => {
+      state.active_source = id
+    }),
+    deleteModelSource: vi.fn(async (id: string) => {
+      state.sources = state.sources.filter((s) => s.id !== id)
+      if (state.active_source === id) state.active_source = ''
     }),
     __resetSettings: () => {
-      state.api_key = ''
-      state.base_url = ''
-      state.model = ''
+      state.sources = []
+      state.active_source = ''
     },
   }
 })
@@ -122,8 +138,10 @@ describe('runE2E', () => {
     expect(rpc.archiveGroup).toHaveBeenCalledWith('e2e-smoke')
     expect(rpc.destroyAgent).toHaveBeenCalledWith('e2e-tester')
     expect(rpc.e2eReport).toHaveBeenCalledWith(expect.stringContaining('"ok": true'))
-    expect(settingsModule.getModelConfig).toHaveBeenCalled()
-    expect(settingsModule.saveModelConfig).toHaveBeenCalledTimes(2)
+    expect(settingsModule.getModelConfigs).toHaveBeenCalled()
+    expect(settingsModule.saveModelSource).toHaveBeenCalledTimes(1)
+    expect(settingsModule.setActiveModelSource).toHaveBeenCalledTimes(1)
+    expect(settingsModule.deleteModelSource).toHaveBeenCalledTimes(1)
   })
 
   it('ping 失败立即终止并标记 fail', async () => {

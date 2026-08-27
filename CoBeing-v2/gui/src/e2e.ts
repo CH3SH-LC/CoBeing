@@ -5,7 +5,7 @@
  */
 
 import { rpc } from './rpc'
-import { getModelConfig, saveModelConfig } from './settings'
+import { getModelConfigs, saveModelSource, setActiveModelSource, deleteModelSource } from './settings'
 
 export interface E2EStep {
   name: string
@@ -246,20 +246,22 @@ export async function runE2E(onStep: (index: number, step: E2EStep) => void, opt
     return fail(7, e instanceof Error ? e.message : String(e))
   }
 
-  // 9. 模型配置读写往返（设置界面命令链路：get → save → get 验证 → 清空还原）
+  // 9. 模型配置读写往返（设置界面命令链路：多来源 get → save → setActive → delete → 还原）
   update(8, { state: 'running' })
   try {
-    const before = await getModelConfig()
-    await saveModelConfig({ apiKey: 'sk-e2e-test', baseUrl: 'https://api.deepseek.com', model: 'e2e-model' })
-    const saved = await getModelConfig()
-    if (saved.api_key !== 'sk-e2e-test' || saved.model !== 'e2e-model') {
-      return fail(8, `保存后读取不一致: ${JSON.stringify(saved)}`)
-    }
-    // 还原：恢复原配置（E2E 用隔离数据目录，此处保证不污染）
-    await saveModelConfig({ apiKey: before.api_key, baseUrl: before.base_url, model: before.model })
-    const restored = await getModelConfig()
-    if (restored.api_key !== before.api_key) return fail(8, '还原失败')
-    ok(8, `保存/读取/还原一致（model=${saved.model}）`)
+    // 新增测试来源 → 自动激活 → 切换 active → 删除还原
+    const testId = 'e2e-src'
+    await saveModelSource({ id: testId, name: 'E2E 测试', api_key: 'sk-e2e-test', base_url: '', model: 'deepseek-v4-flash' })
+    let cfg = await getModelConfigs()
+    if (!cfg.sources.some((s) => s.id === testId)) return fail(8, '新增来源未出现')
+    if (cfg.active_source !== testId) return fail(8, `首来源未自动激活: ${cfg.active_source}`)
+    await setActiveModelSource(testId)
+    cfg = await getModelConfigs()
+    if (cfg.active_source !== testId) return fail(8, 'set_active 未生效')
+    await deleteModelSource(testId)
+    cfg = await getModelConfigs()
+    if (cfg.sources.some((s) => s.id === testId)) return fail(8, '删除未生效')
+    ok(8, '新增/激活/切换/删除链路一致')
   } catch (e) {
     return fail(8, e instanceof Error ? e.message : String(e))
   }

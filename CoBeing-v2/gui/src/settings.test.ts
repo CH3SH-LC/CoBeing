@@ -5,37 +5,67 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 import { invoke } from '@tauri-apps/api/core'
-import { getModelConfig, saveModelConfig } from './settings'
+import {
+  getModelConfigs,
+  saveModelSource,
+  setActiveModelSource,
+  deleteModelSource,
+  newSourceId,
+  DEEPSEEK_MODELS,
+} from './settings'
 
 const invokeMock = vi.mocked(invoke)
 
-describe('settings model config', () => {
+describe('settings model configs (多来源)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('getModelConfig 调用 Rust 命令 get_model_config', async () => {
-    invokeMock.mockResolvedValue({ api_key: 'sk-abc', base_url: '', model: 'deepseek-chat' })
-    const cfg = await getModelConfig()
-    expect(invokeMock).toHaveBeenCalledWith('get_model_config')
-    expect(cfg.api_key).toBe('sk-abc')
-    expect(cfg.model).toBe('deepseek-chat')
-  })
-
-  it('saveModelConfig 传 camelCase 参数到 Rust', async () => {
-    invokeMock.mockResolvedValue(undefined)
-    await saveModelConfig({ apiKey: 'sk-abc', baseUrl: 'https://x.com', model: 'deepseek-chat' })
-    expect(invokeMock).toHaveBeenCalledWith('save_model_config', {
-      apiKey: 'sk-abc',
-      baseUrl: 'https://x.com',
-      model: 'deepseek-chat',
+  it('getModelConfigs 调用 Rust 命令 get_model_configs', async () => {
+    invokeMock.mockResolvedValue({
+      sources: [{ id: 'a', name: '官方', api_key: 'sk-1', base_url: '', model: 'deepseek-v4-flash' }],
+      active_source: 'a',
     })
+    const cfg = await getModelConfigs()
+    expect(invokeMock).toHaveBeenCalledWith('get_model_configs')
+    expect(cfg.sources).toHaveLength(1)
+    expect(cfg.active_source).toBe('a')
   })
 
-  it('保存失败时错误向上抛', async () => {
-    invokeMock.mockRejectedValue('写入配置失败: 权限不足')
-    await expect(saveModelConfig({ apiKey: 'k', baseUrl: '', model: '' })).rejects.toBe(
-      '写入配置失败: 权限不足',
-    )
+  it('saveModelSource 传 source 对象到 Rust', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    const src = { id: 'a', name: '官方', api_key: 'sk-1', base_url: '', model: 'deepseek-v4-flash' }
+    await saveModelSource(src)
+    expect(invokeMock).toHaveBeenCalledWith('save_model_source', { source: src })
+  })
+
+  it('setActiveModelSource 传 id', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    await setActiveModelSource('b')
+    expect(invokeMock).toHaveBeenCalledWith('set_active_model_source', { id: 'b' })
+  })
+
+  it('deleteModelSource 传 id', async () => {
+    invokeMock.mockResolvedValue(undefined)
+    await deleteModelSource('a')
+    expect(invokeMock).toHaveBeenCalledWith('delete_model_source', { id: 'a' })
+  })
+
+  it('newSourceId 生成唯一 id', () => {
+    expect(newSourceId()).not.toBe(newSourceId())
+    expect(newSourceId()).toMatch(/^src-/)
+  })
+
+  it('DEEPSEEK_MODELS 含 v4 三模型且默认第一个', () => {
+    expect(DEEPSEEK_MODELS.map((m) => m.id)).toEqual([
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash-vision-exp',
+    ])
+  })
+
+  it('操作失败时错误向上抛', async () => {
+    invokeMock.mockRejectedValue('来源不存在: zzz')
+    await expect(setActiveModelSource('zzz')).rejects.toBe('来源不存在: zzz')
   })
 })

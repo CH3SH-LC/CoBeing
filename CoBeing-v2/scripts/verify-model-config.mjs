@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * 模型配置（model-config.json）真实 E2E 验证：
+ * 模型配置（model-config.json 多来源）真实 E2E 验证：
  *
  *  1. 无配置文件 + 无环境 key → 内核 mock 模式（但丁真实回复）
- *  2. 写入 model-config.json（假 key）→ 内核走 DeepSeek provider → 投影出现
- *     `[工作失败] DeepSeek API error 401`（证明文件配置优先且被内核实际使用）
- *  3. 清空配置文件（api_key=""）→ 回退无 key → mock 模式恢复
+ *  2. 多来源文件，active=坏 key 来源 → 走 DeepSeek provider → 投影出现
+ *     `[工作失败] DeepSeek API error 401`（证明 active 来源生效且优先于环境变量）
+ *  3. active 切到空 key 来源 → 回退无 key → mock 模式
+ *  4. 删除配置文件 → 回退 mock 模式
  *
  * 判定通道：mainWindowSpeak 异步返回，LLM 结果/错误经事件日志落投影
  * （回复 = butler 发言；错误 = `[工作失败] <错误>`），轮询投影观察。
@@ -132,30 +133,67 @@ async function main() {
   ws.close()
   await ctx.child.kill()
 
-  console.log('=== 场景 2：写入 model-config.json（假 key）→ DeepSeek provider 生效 ===')
-  writeFileSync(join(dataDir, 'model-config.json'), JSON.stringify({ api_key: 'sk-invalid-for-test', base_url: 'https://api.deepseek.com', model: 'deepseek-chat' }), 'utf8')
+  console.log('=== 场景 2：多来源 model-config.json（active=坏 key 来源）→ DeepSeek provider 生效 ===')
+  writeFileSync(
+    join(dataDir, 'model-config.json'),
+    JSON.stringify({
+      sources: [
+        { id: 'good', name: '好 Key 来源', api_key: 'sk-should-not-be-used', base_url: '', model: 'deepseek-v4-flash' },
+        { id: 'bad', name: '坏 Key 来源', api_key: 'sk-invalid-for-test', base_url: 'https://api.deepseek.com', model: 'deepseek-v4-flash' },
+      ],
+      active_source: 'bad',
+    }),
+    'utf8',
+  )
   ctx = await startKernel(dataDir)
   ws = await connect(`ws://127.0.0.1:${ctx.port}`)
   await authAndHello(ws, ctx.token)
   await request(ws, 'mainWindowSpeak', { content: '请只回复两个字：收到' })
-  const failedMsg = await pollProjection(ws, (m) => /\[工作失败\]/.test(m.content ?? ''), 60000)
-  check('假 key 触发 DeepSeek 401（文件配置生效）', failedMsg !== null && /DeepSeek API error/.test(failedMsg.content), failedMsg ? `content=${JSON.stringify(failedMsg.content).slice(0, 160)}` : '60s 无失败消息')
+  let failedMsg = await pollProjection(ws, (m) => /\[工作失败\]/.test(m.content ?? ''), 60000)
+  check('active=坏 key 来源 → 触发 DeepSeek 401（active 来源生效）', failedMsg !== null && /DeepSeek API error/.test(failedMsg.content), failedMsg ? `content=${JSON.stringify(failedMsg.content).slice(0, 160)}` : '60s 无失败消息')
   check('错误含 401', failedMsg !== null && /401/.test(failedMsg.content), failedMsg?.content ?? '(无失败消息)')
   ws.close()
   await ctx.child.kill()
 
-  console.log('=== 场景 3：清空配置（api_key=""）→ 回退无 key → mock 模式 ===')
-  writeFileSync(join(dataDir, 'model-config.json'), JSON.stringify({ api_key: '', base_url: '', model: '' }), 'utf8')
+  console.log('=== 场景 3：active 切到无 key 来源 → 回退环境变量（无 env）→ mock 模式 ===')
+  writeFileSync(
+    join(dataDir, 'model-config.json'),
+    JSON.stringify({
+      sources: [
+        { id: 'good', name: '好 Key 来源', api_key: 'sk-should-not-be-used', base_url: '', model: 'deepseek-v4-flash' },
+        { id: 'empty', name: '空 Key 来源', api_key: '', base_url: '', model: 'deepseek-v4-flash' },
+      ],
+      active_source: 'empty',
+    }),
+    'utf8',
+  )
   ctx = await startKernel(dataDir)
   ws = await connect(`ws://127.0.0.1:${ctx.port}`)
   await authAndHello(ws, ctx.token)
   await request(ws, 'mainWindowSpeak', { content: '请只回复两个字：收到' })
   const mockReply2 = await pollProjection(ws, (m) => m.actor === 'butler' || /\[工作失败\]/.test(m.content ?? ''), 60000)
-  check('清空配置后回退 mock 模式（但丁真实回复）', mockReply2 !== null && mockReply2.actor === 'butler', mockReply2 ? `content=${JSON.stringify(mockReply2.content).slice(0, 100)}` : '60s 无消息')
+  check('active=空 Key 来源 → 回退 mock 模式（但丁真实回复）', mockReply2 !== null && mockReply2.actor === 'butler', mockReply2 ? `content=${JSON.stringify(mockReply2.content).slice(0, 100)}` : '60s 无消息')
   ws.close()
   await ctx.child.kill()
 
-  rmSync(dataDir, { recursive: true, force: true })
+  console.log('=== 场景 4：无配置文件 → 回退无 key → mock 模式 ===')
+  rmSync(join(dataDir, 'model-config.json'), { force: true })
+  ctx = await startKernel(dataDir)
+  ws = await connect(`ws://127.0.0.1:${ctx.port}`)
+  await authAndHello(ws, ctx.token)
+  await request(ws, 'mainWindowSpeak', { content: '请只回复两个字：收到' })
+  const mockReply3 = await pollProjection(ws, (m) => m.actor === 'butler' || /\[工作失败\]/.test(m.content ?? ''), 60000)
+  check('无配置回退 mock 模式（但丁真实回复）', mockReply3 !== null && mockReply3.actor === 'butler', mockReply3 ? `content=${JSON.stringify(mockReply3.content).slice(0, 100)}` : '60s 无消息')
+  ws.close()
+  await ctx.child.kill()
+
+  // 清理竞态：内核子进程可能仍在释放句柄，等待后重试
+  await new Promise((r) => setTimeout(r, 500))
+  try {
+    rmSync(dataDir, { recursive: true, force: true })
+  } catch {
+    // 忽略
+  }
   console.log(`\n===== 结果: ${passed}/${passed + failed} 通过 =====`)
   process.exit(failed > 0 ? 1 : 0)
 }
