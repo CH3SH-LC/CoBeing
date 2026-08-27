@@ -4,10 +4,10 @@ import type { AgentDef, NotifyPayload } from './types'
 import { MainChatView } from './views/MainChatView'
 import { GroupsView } from './views/GroupsView'
 import { AgentsView } from './views/AgentsView'
+import { SettingsView } from './views/SettingsView'
 import { E2EPanel } from './components/E2EPanel'
-import { UpdateModal } from './components/UpdateModal'
 
-type View = 'chat' | 'groups' | 'agents'
+type View = 'chat' | 'groups' | 'agents' | 'settings'
 
 /** 内核数据变更信号（实时同步）：视图订阅后按 scope 刷新对应数据，不依赖轮询 */
 export interface KernelUpdate {
@@ -29,7 +29,6 @@ export default function App() {
   const [kernelAlive, setKernelAlive] = useState<boolean | null>(null)
   const [agents, setAgents] = useState<AgentDef[]>([])
   const [update, setUpdate] = useState<KernelUpdate | null>(null)
-  const [updateOpen, setUpdateOpen] = useState(false)
 
   const checkKernel = useCallback(async () => {
     try {
@@ -94,22 +93,22 @@ export default function App() {
             <button className={`nav-item ${view === 'agents' ? 'active' : ''}`} onClick={() => setView('agents')}>
               智能体
             </button>
+            <button className={`nav-item ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
+              设置
+            </button>
           </nav>
           <div className="kernel-status">
             <span className={`status-dot ${kernelAlive === false ? 'offline' : ''}`} />
             {kernelAlive === null ? '内核连接中…' : kernelAlive ? '内核在线' : '内核离线'}
           </div>
-          <button className="nav-item" onClick={() => setUpdateOpen(true)} title="检查更新">
-            ⬇ 更新
-          </button>
         </header>
         <main className="main">
           {view === 'chat' && <MainChatView />}
           {view === 'groups' && <GroupsView agents={agents} />}
           {view === 'agents' && <AgentsView />}
+          {view === 'settings' && <SettingsView />}
         </main>
         <E2EPanel />
-        {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} />}
       </div>
     </KernelUpdateCtx.Provider>
   )

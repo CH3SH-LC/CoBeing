@@ -9,6 +9,9 @@ pub mod kernel_bridge;
 /// 更新模块：GitHub Releases 检查 / 下载安装包 / 启动安装程序。
 pub mod update;
 
+/// 模型配置模块：读写 model-config.json（API Key / Base URL / 模型名）。
+pub mod model_config;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -205,7 +208,9 @@ pub fn run() {
             e2e_report,
             update::check_update,
             update::download_installer,
-            update::launch_installer
+            update::launch_installer,
+            model_config::get_model_config,
+            model_config::save_model_config
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

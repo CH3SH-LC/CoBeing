@@ -19,6 +19,7 @@ import type { NotifyPayload } from '@cobeing/types'
 import { Kernel, DeepSeekProvider } from '@cobeing/core'
 import { BridgeServer, type BridgeTransport } from './server.js'
 import { RemoteServer } from './remote.js'
+import { loadModelConfig } from './model-config.js'
 
 export interface CliOptions {
   dataRoot: string
@@ -86,16 +87,21 @@ async function loadOrCreateToken(dataRoot: string, explicit?: string): Promise<s
 
 export async function main(options: CliOptions = parseArgs(process.argv.slice(2))): Promise<void> {
   const { dataRoot } = options
-  const hasKey = Boolean(process.env.DEEPSEEK_API_KEY)
+  // 模型配置：GUI 设置界面写入的 model-config.json 优先；缺省字段回退环境变量
+  const fileCfg = await loadModelConfig(dataRoot)
+  const apiKey = fileCfg.api_key ?? process.env.DEEPSEEK_API_KEY
+  const hasKey = Boolean(apiKey)
 
   // 远程服务器（kernel 构造后、start 前创建；通知广播闭包引用）
   let remote: RemoteServer | undefined
 
   const kernel = new Kernel(dataRoot, {
-    providers: hasKey ? [new DeepSeekProvider()] : [],
+    providers: hasKey
+      ? [new DeepSeekProvider({ apiKey, baseUrl: fileCfg.base_url, model: fileCfg.model })]
+      : [],
     // 但丁默认 provider/model：真实 key 存在用 deepseek，否则 mock
     butlerProvider: hasKey ? 'deepseek' : 'mock',
-    butlerModel: hasKey ? 'deepseek-chat' : 'mock-model',
+    butlerModel: hasKey ? (fileCfg.model ?? 'deepseek-chat') : 'mock-model',
     remoteRoots: options.remoteRoots,
     notifyUser: (payload: NotifyPayload) => {
       writeLine(JSON.stringify({ jsonrpc: '2.0', method: 'notify', params: payload }))

@@ -1,13 +1,13 @@
 ﻿# CoBeing 手机端 APK 一键打包（方案 v1）
 # 用法：powershell -ExecutionPolicy Bypass -File scripts\build-apk.ps1
-# 产物：releases\CoBeing-mobile-v2.0.1-debug.apk（拷贝到手机直接安装）
+# 产物：releases\CoBeing-mobile-v2.0.2-debug.apk（拷贝到手机直接安装）
 param()
 
 $ErrorActionPreference = 'Stop'
 $rootDir = Split-Path -Parent $PSScriptRoot
 $mobileDir = Join-Path $rootDir 'mobile'
 $outDir = Join-Path $rootDir 'releases'
-$apkName = 'CoBeing-mobile-v2.0.1-debug.apk'
+$apkName = 'CoBeing-mobile-v2.0.2-debug.apk'
 
 # ---------- 1. JDK 探测 ----------
 $javaHome = $env:JAVA_HOME

@@ -1,6 +1,23 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { runE2E, type E2EStep } from './e2e'
 
+vi.mock('./settings', () => {
+  const state = { api_key: '', base_url: '', model: '' }
+  return {
+    getModelConfig: vi.fn(async () => ({ ...state })),
+    saveModelConfig: vi.fn(async (cfg: { apiKey: string; baseUrl: string; model: string }) => {
+      state.api_key = cfg.apiKey
+      state.base_url = cfg.baseUrl
+      state.model = cfg.model
+    }),
+    __resetSettings: () => {
+      state.api_key = ''
+      state.base_url = ''
+      state.model = ''
+    },
+  }
+})
+
 vi.mock('./rpc', () => {
   const state = {
     butlerReplies: [] as string[],
@@ -73,8 +90,12 @@ vi.mock('./rpc', () => {
 
 import { rpc } from './rpc'
 import * as rpcModule from './rpc'
+import * as settingsModule from './settings'
 
-const resetState = () => (rpcModule as unknown as { __resetState(): void }).__resetState()
+const resetState = () => {
+  ;(rpcModule as unknown as { __resetState(): void }).__resetState()
+  ;(settingsModule as unknown as { __resetSettings(): void }).__resetSettings()
+}
 
 describe('runE2E', () => {
   beforeEach(() => {
@@ -82,13 +103,14 @@ describe('runE2E', () => {
     resetState()
   })
 
-  it('全流程通过：8 步全 pass', async () => {
+  it('全流程通过：9 步全 pass', async () => {
     const steps: E2EStep[] = []
     const result = await runE2E((i, s) => {
       steps[i] = s
     })
     expect(result).toBe(true)
     expect(steps.every((s) => s.state === 'pass')).toBe(true)
+    expect(steps).toHaveLength(9)
     expect(rpc.ping).toHaveBeenCalled()
     expect(rpc.confirmAgent).toHaveBeenCalledWith('e2e-tester')
     expect(rpc.newButlerConversation).toHaveBeenCalled()
@@ -100,6 +122,8 @@ describe('runE2E', () => {
     expect(rpc.archiveGroup).toHaveBeenCalledWith('e2e-smoke')
     expect(rpc.destroyAgent).toHaveBeenCalledWith('e2e-tester')
     expect(rpc.e2eReport).toHaveBeenCalledWith(expect.stringContaining('"ok": true'))
+    expect(settingsModule.getModelConfig).toHaveBeenCalled()
+    expect(settingsModule.saveModelConfig).toHaveBeenCalledTimes(2)
   })
 
   it('ping 失败立即终止并标记 fail', async () => {

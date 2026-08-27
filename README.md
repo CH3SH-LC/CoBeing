@@ -12,14 +12,16 @@ CoBeing 是一个原生多 Agent 协作平台。管家（Butler）负责组织�
 
 | 平台 | 安装包 | 说明 |
 |---|---|---|
-| **Windows 桌面** | `CoBeing v2_2.0.0_x64-setup.exe`（GitHub Release） | 双击安装即用，无需安装 Node.js（内核已内置） |
-| **Android 手机** | `CoBeing-mobile-v2.0.0-debug.apk`（GitHub Release） | 连接电脑上的内核远程使用 |
+| **Windows 桌面** | `CoBeing.v2_2.0.2_x64-setup.exe`（GitHub Release） | 双击安装即用，无需安装 Node.js（内核已内置） |
+| **Android 手机** | `CoBeing-mobile-v2.0.2-debug.apk`（GitHub Release） | 连接电脑上的内核远程使用 |
 
 > Release 页面：https://github.com/CH3SH-LC/CoBeing/releases
 
-### 第一步：配置 DeepSeek API Key
+### 第一步：配置模型（DeepSeek API Key）
 
-桌面版内核通过 `DEEPSEEK_API_KEY` 环境变量读取密钥：
+**推荐（v2.0.2 新增）**：打开桌面端 → 顶栏「设置」→ 模型配置 → 填入 API Key（Base URL / 模型名可选，留空即默认）→ 保存配置 → 重启应用生效。
+
+备用方式：通过 `DEEPSEEK_API_KEY` 环境变量配置（文件配置优先于环境变量）：
 
 1. 打开「系统设置 → 高级系统设置 → 环境变量」
 2. 新建用户变量：变量名 `DEEPSEEK_API_KEY`，变量值粘贴你的 DeepSeek API Key（https://platform.deepseek.com/ 获取）
@@ -53,6 +55,7 @@ CoBeing 是一个原生多 Agent 协作平台。管家（Butler）负责组织�
 - **事件日志**：append-only JSONL，重启恢复 working 群组，归档保留历史
 - **工具面**：str-replace-editor（写文件/精确编辑/fs 观察校验）、persistent-bash（真实持久 PowerShell）、glob/grep、todo-list、group-speak
 - **实时同步**：桌面/手机双端 update 广播，无需轮询
+- **设置界面**（v2.0.2）：模型配置（API Key / Base URL / 模型名，应用内保存）+ 检查更新（GitHub 自动更新入口收进设置页）
 
 ---
 
