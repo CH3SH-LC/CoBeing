@@ -13,3 +13,7 @@ CoBeing-v2/**/target/
 CoBeing-v2/mobile/android/.gradle/
 CoBeing-v2/mobile/android/**/build/
 CoBeing-v2/releases/
+
+# 发布资产（GitHub Release 单独上传，绝不进 git 历史——2026-08-27 误提交 30MB exe 教训）
+*.exe
+*.apk
