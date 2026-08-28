@@ -7,7 +7,11 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic=true：Android 9+ 默认禁止明文，WebView 的 ws://（局域网直连）会被
+             系统网络策略静默阻止（UDP 扫描走原生插件不受影响）→ 配对/手动连接全部失败。
+             修复 2026-08-29（v2.0.6）：允许明文流量；公网隧道走 wss（TLS）不受影响。 -->
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
