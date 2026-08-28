@@ -1,11 +1,13 @@
 /**
- * mobile 更新模块测试：版本比较 / release 挑选 / 更新检查
+ * mobile 更新模块测试：版本比较 / release 挑选 / 更新检查 / APK 下载
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   isNewerVersion,
   pickMobileRelease,
   checkMobileUpdate,
+  downloadApk,
+  setDownloadImplForTest,
   APP_VERSION,
   GITHUB_RELEASES_API,
   type GithubRelease,
@@ -107,5 +109,53 @@ describe('checkMobileUpdate', () => {
       json: async () => [rel('v2.0.0-alpha.0', true, [{ name: 'x.apk' }])],
     })
     await expect(checkMobileUpdate()).rejects.toThrow(/未找到/)
+  })
+})
+
+describe('downloadApk（原生下载 + 镜像 fallback，修复 Failed to fetch）', () => {
+  afterEach(() => {
+    setDownloadImplForTest(undefined)
+  })
+
+  it('直连成功：原生下载返回 cache 相对路径', async () => {
+    const calls: string[] = []
+    setDownloadImplForTest({
+      async download(url: string): Promise<void> {
+        calls.push(url)
+      },
+    })
+    const path = await downloadApk('https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.4/x.apk', 'x.apk')
+    expect(path).toBe('updates/x.apk')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toBe('https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.4/x.apk')
+  })
+
+  it('直连失败 → 自动尝试国内加速镜像源', async () => {
+    const calls: string[] = []
+    let failCount = 1
+    setDownloadImplForTest({
+      async download(url: string): Promise<void> {
+        calls.push(url)
+        if (failCount > 0) {
+          failCount--
+          throw new Error('network unreachable')
+        }
+      },
+    })
+    const path = await downloadApk('https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.4/x.apk', 'x.apk')
+    expect(path).toBe('updates/x.apk')
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toContain('ghfast.top')
+    expect(calls[1]).toContain('github.com/CH3SH-LC/CoBeing')
+  })
+
+  it('全部源失败 → 明确错误（含各源原因）', async () => {
+    setDownloadImplForTest({
+      async download(): Promise<void> {
+        throw new Error('timeout')
+      },
+    })
+    await expect(downloadApk('https://github.com/x/y.apk', 'y.apk')).rejects.toThrow(/APK 下载失败.*镜像源均不可达/)
+    await expect(downloadApk('https://github.com/x/y.apk', 'y.apk')).rejects.toThrow(/timeout/)
   })
 })

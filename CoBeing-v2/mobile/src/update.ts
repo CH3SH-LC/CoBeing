@@ -3,6 +3,12 @@
  *
  * 数据源：https://api.github.com/repos/CH3SH-LC/CoBeing/releases
  * 手机端资产命名：CoBeing-mobile-<版本>-debug.apk
+ *
+ * 下载（2026-08-29 修复「Failed to fetch」）：
+ * - 根因：GitHub 资产响应无 CORS 头（release-assets.githubusercontent.com 返回
+ *   access-control-allow-origin: null），WebView fetch 跨域被浏览器拦截。
+ * - 修复：改用 @capacitor/filesystem 原生 downloadFile（Android HttpURLConnection，
+ *   不走 WebView 网络栈，无 CORS 限制）；直连失败自动尝试国内加速镜像源。
  */
 
 import { Capacitor } from '@capacitor/core'
@@ -10,9 +16,41 @@ import { Filesystem, Directory } from '@capacitor/filesystem'
 import { registerPlugin } from '@capacitor/core'
 
 /** 当前 App 版本（与 mobile/package.json version 同步） */
-export const APP_VERSION = '2.0.4'
+export const APP_VERSION = '2.0.5'
 
 export const GITHUB_RELEASES_API = 'https://api.github.com/repos/CH3SH-LC/CoBeing/releases'
+
+/** APK 下载源链：直连 GitHub → 国内加速镜像（逐个尝试，任一成功即止） */
+export const DOWNLOAD_SOURCES: Array<(url: string) => string> = [
+  (url) => url,
+  (url) => `https://ghfast.top/${url}`,
+  (url) => `https://gh-proxy.com/${url}`,
+]
+
+/** 下载执行器（原生 downloadFile 封装；测试注入） */
+export interface DownloadExecutor {
+  download(url: string, path: string): Promise<void>
+}
+
+/** 默认下载实现：Capacitor 原生 downloadFile（Android HttpURLConnection，无 CORS 限制） */
+const defaultDownloadImpl: DownloadExecutor = {
+  async download(url: string, path: string): Promise<void> {
+    // 清理旧文件：避免上次失败残留导致安装旧包
+    try {
+      await Filesystem.deleteFile({ path, directory: Directory.Cache })
+    } catch {
+      // 不存在/已删除
+    }
+    await Filesystem.downloadFile({ url, path, directory: Directory.Cache, recursive: true })
+  },
+}
+
+let downloadImpl: DownloadExecutor = defaultDownloadImpl
+
+/** 测试注入下载实现（undefined 恢复默认原生实现） */
+export function setDownloadImplForTest(impl: DownloadExecutor | undefined): void {
+  downloadImpl = impl ?? defaultDownloadImpl
+}
 
 export interface GithubAsset {
   name: string
@@ -104,20 +142,24 @@ export interface ApkInstallerPlugin {
 
 export const ApkInstaller = registerPlugin<ApkInstallerPlugin>('ApkInstaller')
 
-/** 下载 APK 到应用 cache 目录（APK 较小走 base64 写文件），返回 cache 相对路径 */
+/**
+ * 下载 APK 到应用 cache 目录（原生网络栈 + 镜像 fallback），返回 cache 相对路径。
+ * 说明：GitHub 资产响应无 CORS 头，WebView fetch 会被拦截（Failed to fetch）——
+ * 必须走 Capacitor 原生下载；直连失败自动尝试镜像源。
+ */
 export async function downloadApk(url: string, fileName: string): Promise<string> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`下载失败: HTTP ${res.status}`)
-  const blob = await res.blob()
-  const base64 = await blobToBase64(blob)
   const path = `updates/${fileName}`
-  await Filesystem.writeFile({
-    path,
-    data: base64,
-    directory: Directory.Cache,
-    recursive: true,
-  })
-  return path
+  const errors: string[] = []
+  for (const build of DOWNLOAD_SOURCES) {
+    const target = build(url)
+    try {
+      await downloadImpl.download(target, path)
+      return path
+    } catch (error) {
+      errors.push(`${target.replace(/^https?:\/\//, '').split('/')[0]}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  throw new Error(`APK 下载失败（直连与镜像源均不可达）：${errors.join('；')}。请检查网络后重试`)
 }
 
 /** 触发系统安装（返回是否已启动安装界面；Android 8+ 需用户允许未知来源） */
@@ -127,20 +169,6 @@ export async function installApk(cachePath: string): Promise<boolean> {
   }
   const res = await ApkInstaller.install({ path: cachePath })
   return res.installed
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const result = reader.result as string
-      // data:application/octet-stream;base64,xxxx → 去前缀
-      const idx = result.indexOf(',')
-      resolve(idx >= 0 ? result.slice(idx + 1) : result)
-    }
-    reader.onerror = () => reject(new Error('读取下载内容失败'))
-    reader.readAsDataURL(blob)
-  })
 }
 
 /** 字节数人性化显示 */
