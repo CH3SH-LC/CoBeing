@@ -78,13 +78,19 @@ fn portable_path(p: &Path) -> PathBuf {
 /// `<resource_dir>/resources/kernel/`. We probe both layouts defensively, and strip
 /// the verbatim `\\?\` prefix (Node cannot execute a `\\?\`-prefixed script path).
 fn build_kernel_command(resources: Option<&Path>, data_root: PathBuf) -> Command {
+    // 方案 v2：默认开启远程互联（随机端口 0.0.0.0）+ 局域网发现 + 配对后自动 cloudflared 隧道。
+    // 随机端口避免与 remote.ps1 手动模式（7843）冲突；LAN 地址经 remote/status 暴露给「手机连接」设置页。
+    let remote_args = ["--remote-port", "0", "--remote-host", "0.0.0.0", "--auto-tunnel"];
     if let Some(res) = resources {
         for candidate in [res.join("resources").join("kernel"), res.join("kernel")] {
             let node = candidate.join("node.exe");
             let cli = candidate.join("kernel.mjs");
             if node.exists() && cli.exists() {
                 let mut cmd = Command::new(portable_path(&node));
-                cmd.arg(portable_path(&cli)).arg("--data").arg(&data_root);
+                cmd.arg(portable_path(&cli))
+                    .arg("--data")
+                    .arg(&data_root)
+                    .args(remote_args);
                 return cmd;
             }
         }
@@ -94,7 +100,11 @@ fn build_kernel_command(resources: Option<&Path>, data_root: PathBuf) -> Command
     let cli = root.join("packages/bridge/src/cli.ts");
 
     let mut cmd = Command::new("node");
-    cmd.arg(&tsx).arg(&cli).arg("--data").arg(&data_root);
+    cmd.arg(&tsx)
+        .arg(&cli)
+        .arg("--data")
+        .arg(&data_root)
+        .args(remote_args);
     cmd
 }
 

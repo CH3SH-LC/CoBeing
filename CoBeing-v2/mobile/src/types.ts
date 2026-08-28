@@ -68,6 +68,8 @@ export type NotifyPayload =
   | { type: 'text'; content: string }
   | { type: 'confirm'; id: string; question: string; options: { id: string; label: string }[] }
   | { type: 'update'; scope: UpdateScope; group?: string; kind?: string }
+  | { type: 'pair'; action: 'paired' | 'revoked'; deviceName: string }
+  | { type: 'tunnel'; action: 'update' | 'started' | 'stopped' | 'error'; url?: string; message?: string }
 
 /** 远程服务器 hello（cobeing-ws/1） */
 export interface RemoteHello {

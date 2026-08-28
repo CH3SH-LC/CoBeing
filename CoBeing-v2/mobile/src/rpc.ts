@@ -51,6 +51,9 @@ export class WsRpcClient {
   private ws: WebSocketLike | null = null
   private url = ''
   private token = ''
+  /** 候补地址（方案 v2：局域网 + 公网隧道交替尝试；重连时轮转） */
+  private urls: string[] = []
+  private urlIndex = 0
   private seq = 0
   private pending = new Map<number, PendingRequest>()
   private notifyCbs = new Set<(n: NotifyPayload) => void>()
@@ -80,13 +83,20 @@ export class WsRpcClient {
 
   // ---------- 连接 ----------
 
-  connect(url: string, token: string): void {
+  /**
+   * 连接服务器。
+   * @param alts 候补地址（方案 v2：公网隧道地址；断线重连时与主地址交替尝试，
+   * 使手机在局域网/公网之间自动切换，无需手动改配置）
+   */
+  connect(url: string, token: string, alts: string[] = []): void {
     if (this.ws && (this.status === 'connecting' || this.status === 'connected')) {
       this.close()
     }
     this.closedByUser = false
     this.url = url
     this.token = token
+    this.urls = [url, ...alts.filter((u) => typeof u === 'string' && u && u !== url)]
+    this.urlIndex = 0
     this.retryDelay = RECONNECT_BASE_MS
     this.openSocket()
   }
@@ -105,9 +115,11 @@ export class WsRpcClient {
 
   private openSocket(): void {
     this.setStatus(this.retryDelay > RECONNECT_BASE_MS ? 'reconnecting' : 'connecting', this.hello)
+    // 候补地址轮转：局域网连不上自动试公网隧道，公网失效回局域网（token 同一把）
+    const target = this.urls.length > 0 ? this.urls[this.urlIndex % this.urls.length] : this.url
     let ws: WebSocketLike
     try {
-      ws = new WSImpl(this.url)
+      ws = new WSImpl(target)
     } catch (error) {
       this.scheduleReconnect(`连接失败：${error instanceof Error ? error.message : String(error)}`)
       return
@@ -132,6 +144,8 @@ export class WsRpcClient {
     if (this.closedByUser || this.retryTimer) return
     const delay = this.retryDelay
     this.retryDelay = Math.min(this.retryDelay * 2, RECONNECT_MAX_MS)
+    // 每次重连尝试下一个地址（LAN ↔ 公网交替）
+    if (this.urls.length > 1) this.urlIndex += 1
     this.setStatus('reconnecting', this.hello)
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null

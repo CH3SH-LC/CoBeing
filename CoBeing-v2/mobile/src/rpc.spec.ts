@@ -4,7 +4,15 @@
 
 import { describe, expect, test, vi, beforeEach } from 'vitest'
 import { WsRpcClient, setWsImplForTest, type WebSocketLike, type WsConstructor } from './rpc'
-import { deleteProfile, getActiveProfile, newProfileId, normalizeUrl, saveProfile, setActiveProfileId } from './store'
+import {
+  deleteProfile,
+  getActiveProfile,
+  newProfileId,
+  normalizeUrl,
+  saveProfile,
+  setActiveProfileId,
+  updateActiveTunnelUrl,
+} from './store'
 import type { RemoteHello } from './types'
 
 interface FakeSocket extends WebSocketLike {
@@ -144,6 +152,39 @@ describe('WsRpcClient 连接与鉴权', () => {
     expect(FakeWebSocket.instances.length).toBe(2)
     vi.useRealTimers()
   })
+
+  test('候补地址（方案 v2）：断线重连轮转尝试公网隧道地址', async () => {
+    vi.useFakeTimers()
+    const client = new WsRpcClient()
+    client.connect('ws://lan:7843', 'tok-1', ['wss://tunnel.example.com'])
+    const first = FakeWebSocket.instances[0]
+    expect(first.url).toBe('ws://lan:7843')
+    first.serverOpen()
+    first.serverSend({ jsonrpc: '2.0', id: 0, result: null })
+    first.serverClose()
+    expect(client.status).toBe('reconnecting')
+    await vi.advanceTimersByTimeAsync(1100)
+    // 第二次连接应尝试候补（公网隧道）
+    expect(FakeWebSocket.instances.length).toBe(2)
+    expect(FakeWebSocket.instances[1].url).toBe('wss://tunnel.example.com')
+    client.close()
+    vi.useRealTimers()
+  })
+
+  test('候补地址去重：与主地址相同不重复加入', async () => {
+    vi.useFakeTimers()
+    const client = new WsRpcClient()
+    client.connect('ws://lan:7843', 'tok-1', ['ws://lan:7843', 'wss://tunnel.example.com'])
+    const first = FakeWebSocket.instances[0]
+    first.serverOpen()
+    first.serverSend({ jsonrpc: '2.0', id: 0, result: null })
+    first.serverClose()
+    await vi.advanceTimersByTimeAsync(1100)
+    // 只有两个唯一地址：主地址 → 隧道
+    expect(FakeWebSocket.instances[1].url).toBe('wss://tunnel.example.com')
+    client.close()
+    vi.useRealTimers()
+  })
 })
 
 describe('store 配置持久化', () => {
@@ -157,5 +198,23 @@ describe('store 配置持久化', () => {
     expect(getActiveProfile()).toBeNull()
     expect(normalizeUrl('192.168.1.5:7843')).toBe('ws://192.168.1.5:7843')
     expect(normalizeUrl('https://x.trycloudflare.com')).toBe('wss://x.trycloudflare.com')
+  })
+
+  test('tunnelUrl 持久化往返 + updateActiveTunnelUrl（方案 v2）', () => {
+    localStorage.clear()
+    const p = { id: newProfileId(), name: '家', url: 'ws://192.168.1.5:7843', token: 'abc' }
+    saveProfile(p)
+    setActiveProfileId(p.id)
+    // 电脑推送隧道地址 → 更新并持久化
+    const updated = updateActiveTunnelUrl('https://new-xyz.trycloudflare.com')
+    expect(updated?.tunnelUrl).toBe('https://new-xyz.trycloudflare.com')
+    expect(getActiveProfile()?.tunnelUrl).toBe('https://new-xyz.trycloudflare.com')
+    // 旧配置无 tunnelUrl → undefined 兼容
+    deleteProfile(p.id)
+    const old = { id: newProfileId(), name: '旧', url: 'ws://x:1', token: 't' }
+    saveProfile(old)
+    setActiveProfileId(old.id)
+    expect(getActiveProfile()?.tunnelUrl).toBeUndefined()
+    expect(updateActiveTunnelUrl('https://a.trycloudflare.com')?.tunnelUrl).toBe('https://a.trycloudflare.com')
   })
 })

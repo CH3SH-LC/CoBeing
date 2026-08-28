@@ -9,7 +9,16 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { AgentDef, ConversationInfo, ExperienceEntryDto, GroupMeta, GroupStatus, NotifyPayload, ProjectionDto } from './types'
+import type {
+  AgentDef,
+  ConversationInfo,
+  ExperienceEntryDto,
+  GroupMeta,
+  GroupStatus,
+  NotifyPayload,
+  ProjectionDto,
+  RemoteStatus,
+} from './types'
 
 export interface RpcResult {
   ok: boolean
@@ -130,6 +139,16 @@ export class RpcClient {
   /** E2E 测试设施：自检报告写入数据目录（仅自检模式使用） */
   e2eReport(content: string): Promise<string> {
     return invoke('e2e_report', { content })
+  }
+
+  // ---------- 远程互联（方案 v2：手机连接/自动配对状态） ----------
+  remoteStatus(): Promise<RemoteStatus> {
+    return this.request('remote/status')
+  }
+
+  /** 撤销设备配对（解除后该手机需重新配对） */
+  pairRevoke(deviceId: string): Promise<boolean> {
+    return this.request('pair/revoke', { deviceId })
   }
 }
 

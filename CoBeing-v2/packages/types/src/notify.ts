@@ -8,6 +8,10 @@
  * - type='update'：数据变更信号（实时同步协议）——内核关键变更点（新消息落盘、
  *   回复完成、群组/智能体增删改）广播，客户端收到后立即刷新对应数据，
  *   不依赖轮询。scope 指明变更域，客户端按需刷新（含未挂载视图的挂起标记）。
+ * - type='pair'：配对事件（2.0.4 自动配对）——手机经局域网发现电脑并完成
+ *   pair/request 密钥交换后广播；GUI/其他设备可见「XX 已配对」。
+ * - type='tunnel'：cloudflared 隧道事件——配对成功后自动启动隧道，URL 就绪时
+ *   广播 update（携带 url）；手机端收到后自动更新配置并切换公网连接。
  */
 
 export interface ConfirmOption {
@@ -24,3 +28,5 @@ export type NotifyPayload =
   | { type: 'text'; content: string }
   | { type: 'confirm'; id: string; question: string; options: ConfirmOption[] }
   | { type: 'update'; scope: UpdateScope; group?: string; kind?: string }
+  | { type: 'pair'; action: 'paired' | 'revoked'; deviceName: string }
+  | { type: 'tunnel'; action: 'update' | 'started' | 'stopped' | 'error'; url?: string; message?: string }

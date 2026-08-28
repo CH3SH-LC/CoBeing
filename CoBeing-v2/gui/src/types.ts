@@ -94,6 +94,21 @@ export type NotifyPayload =
   | { type: 'text'; content: string }
   | { type: 'confirm'; id: string; question: string; options: ConfirmOption[] }
   | { type: 'update'; scope: UpdateScope; group?: string; kind?: string }
+  | { type: 'pair'; action: 'paired' | 'revoked'; deviceName: string }
+  | { type: 'tunnel'; action: 'update' | 'started' | 'stopped' | 'error'; url?: string; message?: string }
+
+/** 远程互联状态（桥方法 remote/status；GUI「手机连接」条目） */
+export interface RemoteStatus {
+  enabled: boolean
+  port: number | null
+  host: string | null
+  lanUrl: string | null
+  discoveryPort: number | null
+  tunnelUrl: string | null
+  tunnelRunning: boolean
+  pairs: Array<{ deviceId: string; deviceName: string; pairedAt: number }>
+  token: string | null
+}
 
 /** 内核退出事件（kernel-exited） */
 export interface KernelExited {

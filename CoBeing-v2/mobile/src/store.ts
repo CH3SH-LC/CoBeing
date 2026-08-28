@@ -7,6 +7,8 @@ export interface Profile {
   name: string
   url: string
   token: string
+  /** 公网隧道地址（方案 v2：配对成功后电脑自动推送；断线时作为候补地址自动切换） */
+  tunnelUrl?: string
 }
 
 const KEY = 'cobeing.profiles.v1'
@@ -56,6 +58,15 @@ export function getActiveProfile(): Profile | null {
   const id = getActiveProfileId()
   if (!id) return null
   return loadProfiles().find((p) => p.id === id) ?? null
+}
+
+/** 更新当前配置的 tunnelUrl（电脑推送新隧道地址时调用；已持久化） */
+export function updateActiveTunnelUrl(tunnelUrl: string): Profile | null {
+  const profile = getActiveProfile()
+  if (!profile) return null
+  const updated: Profile = { ...profile, tunnelUrl }
+  saveProfile(updated)
+  return updated
 }
 
 export function newProfileId(): string {

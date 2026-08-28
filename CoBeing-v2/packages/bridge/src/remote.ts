@@ -12,6 +12,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { Kernel } from '@cobeing/core'
 import type { NotifyPayload } from '@cobeing/types'
 import { BridgeServer, type BridgeTransport } from './server.js'
+import type { PairingService } from './pairing.js'
 
 const ERR_UNAUTHORIZED = -32001
 
@@ -21,6 +22,8 @@ export interface RemoteServerOptions {
   token: string
   /** 监听地址（默认 127.0.0.1 仅本机/cloudflared；LAN 模式传 0.0.0.0 供手机直连，token 鉴权兜底） */
   host?: string
+  /** 自动配对服务（方案 v2）：未鉴权阶段允许 pair/request（手机经局域网发现后密钥交换） */
+  pairing?: PairingService
 }
 
 /** 鉴权成功后服务端下发的 hello 载荷 */
@@ -99,7 +102,7 @@ export class RemoteServer {
     let bridge: BridgeServer | undefined
     ws.on('message', (data) => {
       const line = data.toString('utf8')
-      // 首帧（或未鉴权任何帧）：只接受 auth
+      // 首帧（或未鉴权任何帧）：只接受 auth / pair/request
       if (!authed) {
         const request = tryParse(line)
         if (request && request.method === 'auth') {
@@ -127,7 +130,19 @@ export class RemoteServer {
           ws.send(JSON.stringify({ jsonrpc: '2.0', id: request.id ?? null, error: { code: ERR_UNAUTHORIZED, message: 'unauthorized' } }))
           return
         }
-        // 未鉴权非 auth 帧：拒绝
+        // 方案 v2：自动配对（手机确认后发 pair/request → 返回 token + 连接信息）
+        if (request && request.method === 'pair/request' && this.opts.pairing) {
+          try {
+            const result = this.opts.pairing.handlePairRequest(request.params)
+            ws.send(JSON.stringify({ jsonrpc: '2.0', id: request.id ?? null, result }))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            const code = message.startsWith('invalid params:') ? -32602 : -32000
+            ws.send(JSON.stringify({ jsonrpc: '2.0', id: request.id ?? null, error: { code, message } }))
+          }
+          return
+        }
+        // 未鉴权非 auth/pair 帧：拒绝
         ws.send(JSON.stringify({ jsonrpc: '2.0', id: request?.id ?? null, error: { code: ERR_UNAUTHORIZED, message: 'unauthorized' } }))
         return
       }

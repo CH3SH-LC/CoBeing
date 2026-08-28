@@ -12,7 +12,7 @@ import { readdir, readFile, stat, writeFile, unlink, mkdir } from 'node:fs/promi
 import { join, resolve, sep, extname, basename } from 'node:path'
 
 export const REMOTE_SERVER_NAME = 'CoBeing Kernel'
-export const REMOTE_SERVER_VERSION = '2.0.3'
+export const REMOTE_SERVER_VERSION = '2.0.4'
 /** 下载/上传单文件上限（20MB） */
 export const REMOTE_MAX_FILE_BYTES = 20 * 1024 * 1024
 /** 目录列表条目上限 */

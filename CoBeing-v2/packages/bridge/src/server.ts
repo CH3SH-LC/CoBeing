@@ -73,9 +73,17 @@ export class BridgeServer {
   /** 可选的 stop 完成回调（CLI 据此在 stop 方法后退出进程） */
   private onStop?: () => void
 
+  /** 可选的扩展方法提供者（方案 v2：CLI 装配的 remote/status——发现/配对/隧道状态） */
+  private extraHandlers: Record<string, (params: unknown) => unknown | Promise<unknown>> = {}
+
   /** 注册 stop 完成回调（stop 方法执行完成时触发一次） */
   setOnStop(cb: (() => void) | undefined): void {
     this.onStop = cb
+  }
+
+  /** 注册扩展方法（如 remote/status；覆盖内置同名方法） */
+  registerExtra(method: string, handler: (params: unknown) => unknown | Promise<unknown>): void {
+    this.extraHandlers[method] = handler
   }
 
   /** CLI 侧已直接调用 kernel.start()；标记 started，避免后续 start RPC 重复启动 */
@@ -153,6 +161,8 @@ export class BridgeServer {
 
   /** 方法路由：返回处理函数；未知方法返回 undefined（→ -32601） */
   private route(method: string, params: unknown): ((p: unknown) => Promise<unknown> | unknown) | undefined {
+    const extra = this.extraHandlers[method]
+    if (extra) return extra
     switch (method) {
       case 'ping':
         return () => ({ pong: true, ts: Date.now() })

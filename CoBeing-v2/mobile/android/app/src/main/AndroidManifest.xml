@@ -40,4 +40,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- APK 应用内安装（Android 8+ 需用户授权"安装未知应用"） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 局域网自动发现（方案 v2）：UDP 广播扫描需 WiFi 状态 + 多播锁 -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 </manifest>

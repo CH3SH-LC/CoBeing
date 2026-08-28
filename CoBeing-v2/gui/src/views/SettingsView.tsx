@@ -26,8 +26,10 @@ import {
   formatBytes,
   type DesktopUpdateInfo,
 } from '../update'
+import { rpc } from '../rpc'
+import type { RemoteStatus } from '../types'
 
-type Section = 'model' | 'update' | 'about'
+type Section = 'model' | 'update' | 'phone' | 'about'
 
 type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error'
 
@@ -175,6 +177,48 @@ export function SettingsView() {
     void handleCheckUpdate()
   }
 
+  // ---------- 手机连接（方案 v2：自动配对 + 隧道状态） ----------
+  const [remote, setRemote] = useState<RemoteStatus | null>(null)
+  const [remoteError, setRemoteError] = useState('')
+  const [copied, setCopied] = useState('')
+
+  const refreshRemote = useCallback(async () => {
+    try {
+      const status = await rpc.remoteStatus()
+      setRemote(status)
+      setRemoteError('')
+    } catch (e) {
+      setRemoteError(String(e))
+    }
+  }, [])
+
+  useEffect(() => {
+    if (section !== 'phone') return
+    void refreshRemote()
+    const timer = setInterval(() => void refreshRemote(), 5000)
+    return () => clearInterval(timer)
+  }, [section, refreshRemote])
+
+  const copyText = async (label: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(label)
+      setTimeout(() => setCopied(''), 1500)
+    } catch {
+      setRemoteError('复制失败')
+    }
+  }
+
+  const handleRevoke = async (deviceId: string, deviceName: string) => {
+    if (!window.confirm(`撤销 ${deviceName} 的配对？该手机需重新配对才能连接。`)) return
+    try {
+      await rpc.pairRevoke(deviceId)
+      await refreshRemote()
+    } catch (e) {
+      setRemoteError(String(e))
+    }
+  }
+
   return (
     <div className="card" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
       {/* ---------- 左侧条目 ---------- */}
@@ -192,6 +236,7 @@ export function SettingsView() {
         {(
           [
             { key: 'model', label: '模型' },
+            { key: 'phone', label: '手机连接' },
             { key: 'update', label: '检查更新' },
             { key: 'about', label: '关于' },
           ] as { key: Section; label: string }[]
@@ -410,6 +455,93 @@ export function SettingsView() {
           </>
         )}
 
+        {/* ===== 手机连接（方案 v2：自动配对 + 隧道状态） ===== */}
+        {section === 'phone' && (
+          <section>
+            <h3 style={{ margin: '0 0 4px', fontSize: 15 }}>手机连接</h3>
+            <div className="sub" style={{ marginBottom: 12 }}>
+              手机 App 打开后会自动发现本电脑（同一 WiFi），确认配对即可互联；配对成功后自动构建 cloudflared 公网隧道，手机在任意网络下都能连接。
+            </div>
+            {remoteError && (
+              <div className="sub" style={{ color: 'var(--danger, #e5484d)', marginBottom: 8 }}>{remoteError}</div>
+            )}
+            {!remote && !remoteError && <div className="sub">加载中…</div>}
+
+            {remote && !remote.enabled && (
+              <div className="sub" style={{ color: 'var(--warning, #b57a00)' }}>
+                远程互联未启用（内核未以 --remote-port 启动）。重启应用后生效。
+              </div>
+            )}
+
+            {remote?.enabled && (
+              <>
+                <div className="card" style={{ padding: '12px 16px', marginBottom: 10 }}>
+                  <div className="title" style={{ fontSize: 14, fontWeight: 600 }}>局域网地址（手机同一 WiFi 直连）</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                    <code style={{ background: 'var(--bg-soft, rgba(0,0,0,0.04))', padding: '4px 8px', borderRadius: 6 }}>{remote.lanUrl}</code>
+                    <button className="btn small secondary" onClick={() => void copyText('lan', remote.lanUrl ?? '')}>
+                      {copied === 'lan' ? '已复制 ✓' : '复制'}
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                    <span className="sub">Token：</span>
+                    <code style={{ background: 'var(--bg-soft, rgba(0,0,0,0.04))', padding: '4px 8px', borderRadius: 6 }}>
+                      {remote.token ? `${remote.token.slice(0, 6)}…${remote.token.slice(-4)}` : '—'}
+                    </code>
+                    {remote.token && (
+                      <button className="btn small secondary" onClick={() => void copyText('token', remote.token ?? '')}>
+                        {copied === 'token' ? '已复制 ✓' : '复制 Token'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="sub" style={{ marginTop: 8 }}>
+                    发现服务：{remote.discoveryPort ? `UDP :${remote.discoveryPort}（手机扫描可发现本机）` : '未启用'}
+                  </div>
+                  <div className="sub">配对方式：手机 App「设置 → 自动发现电脑」→ 手机确认 → 自动交换密钥并连接。</div>
+                </div>
+
+                <div className="card" style={{ padding: '12px 16px', marginBottom: 10 }}>
+                  <div className="title" style={{ fontSize: 14, fontWeight: 600 }}>
+                    公网隧道（cloudflared）
+                    {remote.tunnelRunning ? <span className="badge success" style={{ marginLeft: 8 }}>运行中</span> : <span className="badge" style={{ marginLeft: 8 }}>未启动</span>}
+                  </div>
+                  {remote.tunnelUrl ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                      <code style={{ background: 'var(--bg-soft, rgba(0,0,0,0.04))', padding: '4px 8px', borderRadius: 6 }}>{remote.tunnelUrl}</code>
+                      <button className="btn small secondary" onClick={() => void copyText('tunnel', remote.tunnelUrl ?? '')}>
+                        {copied === 'tunnel' ? '已复制 ✓' : '复制'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="sub" style={{ marginTop: 6 }}>
+                      手机配对成功后自动启动（需联网下载 cloudflared，首次约 1-2 分钟）。
+                    </div>
+                  )}
+                  <div className="sub" style={{ marginTop: 6 }}>隧道地址每次电脑重启会变化，手机在同一 WiFi 下会自动同步新地址。</div>
+                </div>
+
+                <div className="card" style={{ padding: '12px 16px' }}>
+                  <div className="title" style={{ fontSize: 14, fontWeight: 600 }}>
+                    已配对设备（{remote.pairs.length}）
+                  </div>
+                  {remote.pairs.length === 0 && <div className="sub" style={{ marginTop: 6 }}>暂无配对设备。打开手机 App 扫描即可开始配对。</div>}
+                  {remote.pairs.map((p) => (
+                    <div key={p.deviceId} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                      <div className="grow">
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{p.deviceName}</div>
+                        <div className="sub">{new Date(p.pairedAt).toLocaleString()}</div>
+                      </div>
+                      <button className="btn small danger" onClick={() => void handleRevoke(p.deviceId, p.deviceName)}>
+                        撤销
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
         {/* ===== 检查更新（无独立右侧内容；结果在左侧条目下方展示） ===== */}
         {section === 'update' && (
           <div className="sub">
@@ -421,9 +553,10 @@ export function SettingsView() {
         {section === 'about' && (
           <section>
             <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>关于</h3>
-            <div className="sub">CoBeing 桌面端 v2.0.3</div>
+            <div className="sub">CoBeing 桌面端 v2.0.4</div>
             <div className="sub">架构：Tauri 2 原生桌面 + 内置内核（免装 Node.js）</div>
             <div className="sub">模型：DeepSeek V4 系列（默认 deepseek-v4-flash），可配置多个来源</div>
+            <div className="sub">手机互联：局域网自动发现 + 一键配对 + cloudflared 公网隧道</div>
             <div className="sub">自动更新：GitHub Releases（左侧「检查更新」）</div>
           </section>
         )}

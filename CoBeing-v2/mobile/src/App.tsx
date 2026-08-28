@@ -8,7 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { client, type ConnStatus } from './rpc'
 import type { NotifyPayload, RemoteHello, UpdateScope } from './types'
-import { getActiveProfile } from './store'
+import { getActiveProfile, updateActiveTunnelUrl } from './store'
 import { ToastHost, useToast } from './components/Toast'
 import { StatusBar } from './components/StatusBar'
 import { ChatView } from './views/ChatView'
@@ -75,6 +75,22 @@ export function App() {
         setLastNotify(n)
         return
       }
+      if (n.type === 'tunnel' && n.action === 'update' && n.url) {
+        // 方案 v2：电脑自动构建公网隧道完成 → 保存到当前配置并作为候补地址
+        const updated = updateActiveTunnelUrl(n.url)
+        if (updated) {
+          toast.push('公网连接已就绪，断开局域网也能连接', 3500)
+          // 当前未连接时立即用新地址重连（局域网+公网交替）
+          if (client.status !== 'connected') {
+            client.connect(updated.url, updated.token, updated.tunnelUrl ? [updated.tunnelUrl] : [])
+          }
+        }
+        return
+      }
+      if (n.type === 'pair') {
+        toast.push(n.action === 'paired' ? `${n.deviceName} 已配对` : `${n.deviceName} 已撤销配对`, 3000)
+        return
+      }
       setLastNotify(n)
       // 系统提示 + 震动
       if (n.type === 'text') {
@@ -87,10 +103,10 @@ export function App() {
       }
     })
     const offHello = client.onHello((h) => setHello(h))
-    // 启动时若已有配置则自动连接
+    // 启动时若已有配置则自动连接（公网隧道地址作为候补，断线自动交替）
     const profile = getActiveProfile()
     if (profile) {
-      client.connect(profile.url, profile.token)
+      client.connect(profile.url, profile.token, profile.tunnelUrl ? [profile.tunnelUrl] : [])
     }
     return () => {
       offStatus()
@@ -105,7 +121,7 @@ export function App() {
       toast.push('请先在设置中添加并选择服务器配置', 3000)
       return
     }
-    client.connect(profile.url, profile.token)
+    client.connect(profile.url, profile.token, profile.tunnelUrl ? [profile.tunnelUrl] : [])
   }, [toast])
 
   const state = useMemo<AppState>(
