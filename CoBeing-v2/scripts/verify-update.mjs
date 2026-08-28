@@ -3,11 +3,11 @@
  *  1. 真实调用 GitHub Releases API（电脑端/手机端共用数据源）
  *  2. 电脑端资产挑选逻辑（跳过 prerelease → setup.exe）→ 与 Rust pick_desktop_release 一致
  *  3. 手机端资产挑选逻辑（跳过 prerelease → CoBeing-mobile-*.apk）→ 与 TS pickMobileRelease 一致
- *  4. 版本比较（当前 2.0.3 vs 最新）
+ *  4. 版本比较（当前 2.0.4 vs 最新）
  *  5. HEAD 请求安装包/APK 资产 URL 确认可下载
  */
 const API = 'https://api.github.com/repos/CH3SH-LC/CoBeing/releases?per_page=10'
-const CURRENT = '2.0.3'
+const CURRENT = '2.0.4'
 
 function isNewerVersion(latest, current) {
   const parse = (s) =>
@@ -52,7 +52,7 @@ async function main() {
   })()
   record(
     '电脑端挑选正式版 setup.exe',
-    !!desktopPick && desktopPick.rel.tag_name === 'v2.0.3' && desktopPick.asset.name === 'CoBeing.v2_2.0.3_x64-setup.exe',
+    !!desktopPick && desktopPick.rel.tag_name === 'v2.0.4' && desktopPick.asset.name === 'CoBeing.v2_2.0.4_x64-setup.exe',
     desktopPick ? `${desktopPick.rel.tag_name} → ${desktopPick.asset.name}` : '未找到',
   )
 
@@ -67,13 +67,13 @@ async function main() {
   })()
   record(
     '手机端挑选正式版 APK',
-    !!mobilePick && mobilePick.rel.tag_name === 'v2.0.3' && mobilePick.asset.name === 'CoBeing-mobile-v2.0.3-debug.apk',
+    !!mobilePick && mobilePick.rel.tag_name === 'v2.0.4' && mobilePick.asset.name === 'CoBeing-mobile-v2.0.4-debug.apk',
     mobilePick ? `${mobilePick.rel.tag_name} → ${mobilePick.asset.name}` : '未找到',
   )
 
   // ---- 版本比较 ----
-  const latestTag = desktopPick?.rel.tag_name ?? 'v2.0.3'
-  record('当前 2.0.3 已是最新（无更新提示）', !isNewerVersion(latestTag, CURRENT), `${latestTag} vs ${CURRENT}`)
+  const latestTag = desktopPick?.rel.tag_name ?? 'v2.0.4'
+  record('当前 2.0.4 已是最新（无更新提示）', !isNewerVersion(latestTag, CURRENT), `${latestTag} vs ${CURRENT}`)
   record('模拟旧版本 2.0.0 应提示更新', isNewerVersion(latestTag, '2.0.0'), `${latestTag} vs 2.0.0`)
 
   // ---- 资产可达性（HEAD）----
