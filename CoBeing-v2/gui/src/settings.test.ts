@@ -56,11 +56,12 @@ describe('settings model configs (多来源)', () => {
     expect(newSourceId()).toMatch(/^src-/)
   })
 
-  it('DEEPSEEK_MODELS 含 v4 三模型且默认第一个', () => {
+  it('DEEPSEEK_MODELS 含 v4 系列模型且默认第一个为 flash', () => {
     expect(DEEPSEEK_MODELS.map((m) => m.id)).toEqual([
       'deepseek-v4-flash',
       'deepseek-v4-pro',
       'deepseek-v4-flash-vision-exp',
+      'deepseek-chat',
     ])
   })
 

@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 /**
- * 模型配置（model-config.json 多来源）真实 E2E 验证：
+ * 模型配置（model-config.json 多来源）真实 E2E 验证（2.0.7：取消 mock 静默回退）
  *
- *  1. 无配置文件 + 无环境 key → 内核 mock 模式（但丁真实回复）
- *  2. 多来源文件，active=坏 key 来源 → 走 DeepSeek provider → 投影出现
- *     `[工作失败] DeepSeek API error 401`（证明 active 来源生效且优先于环境变量）
- *  3. active 切到空 key 来源 → 回退无 key → mock 模式
- *  4. 删除配置文件 → 回退 mock 模式
+ *  1. 无配置文件 + 无环境 key → 但丁报错 LLM_CONFIG_MISSING（不再 mock 硬回复）
+ *  2. 多来源文件，active=坏 key 来源 → LLM_API_401 中文错误（active 来源生效）
+ *  3. active 切到空 key 来源 → 启动提示 + 但丁报错 LLM_CONFIG_MISSING（不再 mock）
+ *  4. 删除配置文件 → 同样报错（不再 mock）
+ *  5. 真实 key 配置 → 但丁真实回复（复用安装版配置；极小调用费用）
  *
  * 判定通道：mainWindowSpeak 异步返回，LLM 结果/错误经事件日志落投影
- * （回复 = butler 发言；错误 = `[工作失败] <错误>`），轮询投影观察。
+ * （回复 = butler 发言；错误 = `[工作失败] <LLM_错误>`），轮询投影观察。
  *
  * 用法：node scripts/verify-model-config.mjs
  */
 
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { tmpdir, homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
@@ -57,7 +57,7 @@ function startKernel(dataDir) {
       const t = stderr.match(/token=([^\s]+)/)
       if (m && t) {
         clearTimeout(timer)
-        resolve({ child, port: Number(m[1]), token: t[1] })
+        resolve({ child, port: Number(m[1]), token: t[1], stderr: () => stderr })
       } else {
         setTimeout(poll, 100)
       }
@@ -122,18 +122,28 @@ async function pollProjection(ws, predicate, waitMs = 90000) {
 }
 
 async function main() {
-  const dataDir = mkdtempSync(join(tmpdir(), 'cb-verify-model-config-'))
-  console.log('=== 场景 1：无配置文件 + 无环境 key → mock 模式 ===')
+  let dataDir = mkdtempSync(join(tmpdir(), 'cb-verify-model-config-'))
+  const realConfigDir = join(homedir(), 'AppData', 'Roaming', 'com.cobeing.v2')
+  const realCfgPath = join(realConfigDir, 'model-config.json')
+  const realActive = existsSync(realCfgPath)
+    ? JSON.parse(readFileSync(realCfgPath, 'utf8')).sources?.find((s) => s.id === JSON.parse(readFileSync(realCfgPath, 'utf8')).active_source)
+    : null
+
+  console.log('=== 场景 1：无配置文件 + 无环境 key → 但丁明确报错（不再 mock） ===')
   let ctx = await startKernel(dataDir)
+  check('启动 stderr 含未配置提示', /未配置|未找到/.test(ctx.stderr()), ctx.stderr().slice(0, 150))
   let ws = await connect(`ws://127.0.0.1:${ctx.port}`)
   await authAndHello(ws, ctx.token)
   await request(ws, 'mainWindowSpeak', { content: '请只回复两个字：收到' })
-  const mockReply = await pollProjection(ws, (m) => m.actor === 'butler' || /\[工作失败\]/.test(m.content ?? ''), 60000)
-  check('mock 模式但丁真实回复（非失败）', mockReply !== null && mockReply.actor === 'butler', mockReply ? `content=${JSON.stringify(mockReply.content).slice(0, 100)}` : '60s 无消息')
+  const failed1 = await pollProjection(ws, (m) => /\[工作失败\]/.test(m.content ?? ''), 30000)
+  check('但丁报错 LLM_CONFIG_MISSING（非 mock 硬回复）', failed1 !== null && /LLM_CONFIG_MISSING|未配置模型服务/.test(failed1.content), failed1 ? `content=${JSON.stringify(failed1.content).slice(0, 160)}` : '30s 无错误消息')
+  check('回复不是 "(mock) 收到"', failed1?.content ? !failed1.content.includes('(mock) 收到') : true)
   ws.close()
   await ctx.child.kill()
 
-  console.log('=== 场景 2：多来源 model-config.json（active=坏 key 来源）→ DeepSeek provider 生效 ===')
+  dataDir = mkdtempSync(join(tmpdir(), 'cb-verify-model-config-'))
+
+  console.log('=== 场景 2：多来源 model-config.json（active=坏 key 来源）→ LLM_API_401 ===')
   writeFileSync(
     join(dataDir, 'model-config.json'),
     JSON.stringify({
@@ -146,16 +156,18 @@ async function main() {
     'utf8',
   )
   ctx = await startKernel(dataDir)
+  check('启动 stderr 显示 provider=deepseek', /provider=deepseek/.test(ctx.stderr()), ctx.stderr().slice(0, 150))
   ws = await connect(`ws://127.0.0.1:${ctx.port}`)
   await authAndHello(ws, ctx.token)
   await request(ws, 'mainWindowSpeak', { content: '请只回复两个字：收到' })
-  let failedMsg = await pollProjection(ws, (m) => /\[工作失败\]/.test(m.content ?? ''), 60000)
-  check('active=坏 key 来源 → 触发 DeepSeek 401（active 来源生效）', failedMsg !== null && /DeepSeek API error/.test(failedMsg.content), failedMsg ? `content=${JSON.stringify(failedMsg.content).slice(0, 160)}` : '60s 无失败消息')
-  check('错误含 401', failedMsg !== null && /401/.test(failedMsg.content), failedMsg?.content ?? '(无失败消息)')
+  const failed2 = await pollProjection(ws, (m) => /\[工作失败\]/.test(m.content ?? ''), 60000)
+  check('active=坏 key → LLM_API_401 中文错误', failed2 !== null && /LLM_API_401|API Key 无效/.test(failed2.content), failed2 ? `content=${JSON.stringify(failed2.content).slice(0, 200)}` : '60s 无失败消息')
   ws.close()
   await ctx.child.kill()
 
-  console.log('=== 场景 3：active 切到无 key 来源 → 回退环境变量（无 env）→ mock 模式 ===')
+  dataDir = mkdtempSync(join(tmpdir(), 'cb-verify-model-config-'))
+
+  console.log('=== 场景 3：active 切到空 key 来源 → 启动提示 + 但丁报错（不再 mock） ===')
   writeFileSync(
     join(dataDir, 'model-config.json'),
     JSON.stringify({
@@ -168,24 +180,51 @@ async function main() {
     'utf8',
   )
   ctx = await startKernel(dataDir)
+  check('空 key 来源启动提示缺少 key', /缺少 API Key|未找到/.test(ctx.stderr()), ctx.stderr().slice(0, 150))
   ws = await connect(`ws://127.0.0.1:${ctx.port}`)
   await authAndHello(ws, ctx.token)
   await request(ws, 'mainWindowSpeak', { content: '请只回复两个字：收到' })
-  const mockReply2 = await pollProjection(ws, (m) => m.actor === 'butler' || /\[工作失败\]/.test(m.content ?? ''), 60000)
-  check('active=空 Key 来源 → 回退 mock 模式（但丁真实回复）', mockReply2 !== null && mockReply2.actor === 'butler', mockReply2 ? `content=${JSON.stringify(mockReply2.content).slice(0, 100)}` : '60s 无消息')
+  const failed3 = await pollProjection(ws, (m) => /\[工作失败\]/.test(m.content ?? ''), 30000)
+  check('但丁报错（非 mock 硬回复）', failed3 !== null && /LLM_CONFIG_MISSING|未配置模型服务/.test(failed3.content), failed3 ? `content=${JSON.stringify(failed3.content).slice(0, 160)}` : '30s 无错误消息')
   ws.close()
   await ctx.child.kill()
 
-  console.log('=== 场景 4：无配置文件 → 回退无 key → mock 模式 ===')
+  dataDir = mkdtempSync(join(tmpdir(), 'cb-verify-model-config-'))
+
+  console.log('=== 场景 4：删除配置文件 → 无 key → 但丁报错（不再 mock） ===')
   rmSync(join(dataDir, 'model-config.json'), { force: true })
   ctx = await startKernel(dataDir)
   ws = await connect(`ws://127.0.0.1:${ctx.port}`)
   await authAndHello(ws, ctx.token)
   await request(ws, 'mainWindowSpeak', { content: '请只回复两个字：收到' })
-  const mockReply3 = await pollProjection(ws, (m) => m.actor === 'butler' || /\[工作失败\]/.test(m.content ?? ''), 60000)
-  check('无配置回退 mock 模式（但丁真实回复）', mockReply3 !== null && mockReply3.actor === 'butler', mockReply3 ? `content=${JSON.stringify(mockReply3.content).slice(0, 100)}` : '60s 无消息')
+  const failed4 = await pollProjection(ws, (m) => /\[工作失败\]/.test(m.content ?? ''), 30000)
+  check('无配置但丁报错（非 mock）', failed4 !== null && /LLM_CONFIG_MISSING|未配置模型服务/.test(failed4.content), failed4 ? `content=${JSON.stringify(failed4.content).slice(0, 160)}` : '30s 无错误消息')
   ws.close()
   await ctx.child.kill()
+
+  dataDir = mkdtempSync(join(tmpdir(), 'cb-verify-model-config-'))
+
+  console.log('=== 场景 5：真实 key 配置 → 但丁真实回复（复用安装版配置） ===')
+  if (realActive?.api_key) {
+    writeFileSync(
+      join(dataDir, 'model-config.json'),
+      JSON.stringify({
+        sources: [{ id: 'real', name: '真实来源', api_key: realActive.api_key, base_url: realActive.base_url ?? '', model: realActive.model ?? 'deepseek-v4-flash' }],
+        active_source: 'real',
+      }),
+      'utf8',
+    )
+    ctx = await startKernel(dataDir)
+    ws = await connect(`ws://127.0.0.1:${ctx.port}`)
+    await authAndHello(ws, ctx.token)
+    await request(ws, 'mainWindowSpeak', { content: '请只回复四个字：真实调用' })
+    const realReply = await pollProjection(ws, (m) => m.actor === 'butler' || /\[工作失败\]/.test(m.content ?? ''), 90000)
+    check('真实 key → 但丁真实回复（非 mock/非错误）', realReply !== null && realReply.actor === 'butler' && !/工作失败|LLM_/.test(realReply.content), realReply ? `content=${JSON.stringify(realReply.content).slice(0, 120)}` : '90s 无回复')
+    ws.close()
+    await ctx.child.kill()
+  } else {
+    check('跳过：未找到真实 key 配置', true)
+  }
 
   // 清理竞态：内核子进程可能仍在释放句柄，等待后重试
   await new Promise((r) => setTimeout(r, 500))

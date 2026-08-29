@@ -222,7 +222,8 @@ pub fn run() {
             model_config::get_model_configs,
             model_config::save_model_source,
             model_config::set_active_model_source,
-            model_config::delete_model_source
+            model_config::delete_model_source,
+            model_config::test_model_source
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

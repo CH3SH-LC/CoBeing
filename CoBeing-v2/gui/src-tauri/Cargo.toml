@@ -1,6 +1,6 @@
 [package]
 name = "cobeing-gui"
-version = "2.0.6"
+version = "2.0.7"
 description = "CoBeing v2 — Tauri native desktop GUI"
 authors = ["CoBeing"]
 edition = "2021"

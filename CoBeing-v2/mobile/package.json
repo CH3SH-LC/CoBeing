@@ -1,7 +1,7 @@
 {
   "name": "cobeing-mobile",
   "private": true,
-  "version": "2.0.6",
+  "version": "2.0.7",
   "type": "module",
   "description": "CoBeing 手机端（Capacitor 6 + React 19）——远程控制电脑",
   "scripts": {

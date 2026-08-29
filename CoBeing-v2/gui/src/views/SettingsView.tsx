@@ -13,10 +13,12 @@ import {
   saveModelSource,
   setActiveModelSource,
   deleteModelSource,
+  testModelSource,
   newSourceId,
   DEEPSEEK_MODELS,
   type ModelConfigs,
   type ModelSource,
+  type TestConnectionResult,
 } from '../settings'
 import {
   checkUpdate,
@@ -122,6 +124,23 @@ export function SettingsView() {
       setNotice('来源已删除')
     } catch (e) {
       setError(String(e))
+    }
+  }
+
+  // ---------- 测试连接（2.0.7：真实调用模型 API 验证配置） ----------
+  const [testResults, setTestResults] = useState<Record<string, TestConnectionResult>>({})
+  const [testingId, setTestingId] = useState('')
+
+  const handleTest = async (id: string) => {
+    setTestingId(id)
+    setTestResults((prev) => ({ ...prev, [id]: { ok: false, message: '测试中…' } }))
+    try {
+      const result = await testModelSource(id)
+      setTestResults((prev) => ({ ...prev, [id]: result }))
+    } catch (e) {
+      setTestResults((prev) => ({ ...prev, [id]: { ok: false, message: String(e) } }))
+    } finally {
+      setTestingId('')
     }
   }
 
@@ -368,12 +387,25 @@ export function SettingsView() {
                       <div className="sub">
                         API Key：{s.api_key ? `${s.api_key.slice(0, 4)}…${s.api_key.slice(-4)}` : '（未配置）'}
                       </div>
+                      {testResults[s.id] && (
+                        <div className="sub" style={{ color: testResults[s.id].ok ? 'var(--success, #30a46c)' : 'var(--danger, #e5484d)', marginTop: 4 }}>
+                          {testResults[s.id].ok ? '✅ ' : '❌ '}
+                          {testResults[s.id].message}
+                        </div>
+                      )}
                     </div>
                     {s.id !== activeId && (
                       <button className="btn small" onClick={() => void handleSetActive(s.id)}>
                         设为当前
                       </button>
                     )}
+                    <button
+                      className="btn small secondary"
+                      disabled={testingId === s.id}
+                      onClick={() => void handleTest(s.id)}
+                    >
+                      {testingId === s.id ? '测试中…' : '测试连接'}
+                    </button>
                     <button className="btn small secondary" onClick={() => setEditing({ ...s })}>
                       编辑
                     </button>
@@ -553,7 +585,7 @@ export function SettingsView() {
         {section === 'about' && (
           <section>
             <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>关于</h3>
-            <div className="sub">CoBeing 桌面端 v2.0.6</div>
+            <div className="sub">CoBeing 桌面端 v2.0.7</div>
             <div className="sub">架构：Tauri 2 原生桌面 + 内置内核（免装 Node.js）</div>
             <div className="sub">模型：DeepSeek V4 系列（默认 deepseek-v4-flash），可配置多个来源</div>
             <div className="sub">手机互联：局域网自动发现 + 一键配对 + cloudflared 公网隧道</div>

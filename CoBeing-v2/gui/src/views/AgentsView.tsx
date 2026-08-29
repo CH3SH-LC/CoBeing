@@ -14,8 +14,9 @@ export function AgentsView() {
   const [form, setForm] = useState({
     name: '',
     role: '',
-    provider: 'mock',
-    model: 'mock-model',
+    // 2.0.7：默认真实模型（deepseek）——mock 仅是显式测试选项，不再作为默认
+    provider: 'deepseek',
+    model: 'deepseek-v4-flash',
     maxTokens: '8192',
     basePrompt: '',
   })
@@ -63,7 +64,7 @@ export function AgentsView() {
         maxTokens: Number(form.maxTokens) || undefined,
         createdAt: Date.now(),
       })
-      setForm({ name: '', role: '', provider: 'mock', model: 'mock-model', maxTokens: '8192', basePrompt: '' })
+      setForm({ name: '', role: '', provider: 'deepseek', model: 'deepseek-v4-flash', maxTokens: '8192', basePrompt: '' })
       await refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -152,7 +153,13 @@ export function AgentsView() {
                 <div className="list-item-title">{a.name}</div>
                 <div className="list-item-sub">{a.role}</div>
               </div>
-              <span className="badge">{a.provider ?? 'mock'}</span>
+              {a.provider === 'mock' ? (
+                <span className="badge" style={{ background: 'var(--warning-soft, rgba(181,122,0,0.18))', color: 'var(--warning, #b57a00)' }}>
+                  mock ⚠（未真实调用）
+                </span>
+              ) : (
+                <span className="badge">{a.provider ?? '未配置'}</span>
+              )}
             </div>
           ))}
         </div>
@@ -282,19 +289,29 @@ export function AgentsView() {
               <div className="form-field">
                 <label>provider</label>
                 <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
-                  <option value="mock">mock（默认，无需 key）</option>
-                  <option value="deepseek">deepseek（真实调用）</option>
+                  <option value="deepseek">deepseek（推荐，真实模型调用）</option>
+                  <option value="mock">mock（仅测试：固定硬回复，不真实工作）</option>
                 </select>
               </div>
               <div className="form-field">
                 <label>model</label>
-                <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="deepseek-v4-flash（推理）或 deepseek-chat（工具调用更稳）" />
               </div>
               <div className="form-field">
                 <label>maxTokens</label>
                 <input value={form.maxTokens} onChange={(e) => setForm({ ...form, maxTokens: e.target.value })} />
               </div>
             </div>
+            {form.provider === 'mock' && (
+              <div className="sub" style={{ color: 'var(--warning, #b57a00)' }}>
+                ⚠ mock 模式返回固定硬回复，智能体不会真实工作。仅用于界面测试，正式任务请使用 deepseek。
+              </div>
+            )}
+            {form.provider === 'deepseek' && form.model === 'deepseek-v4-flash' && (
+              <div className="sub">
+                💡 deepseek-v4-flash 为推理模型（先思考后回答）；工具调用任务若遇空回复，建议改用 deepseek-chat。
+              </div>
+            )}
             <div className="form-field">
               <label>定义（basePrompt，可选）</label>
               <textarea rows={3} value={form.basePrompt} onChange={(e) => setForm({ ...form, basePrompt: e.target.value })} placeholder="智能体的完整职责定义（注入系统提示[定义]段）" />

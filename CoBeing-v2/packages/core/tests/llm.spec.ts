@@ -38,7 +38,7 @@ describe('DeepSeekProvider', () => {
     expect(init?.headers).toMatchObject({ Authorization: 'Bearer test-key' })
   })
 
-  it('401 抛错且含状态与 body 摘要', async () => {
+  it('401 抛 LLMError 且含中文引导与状态', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -51,14 +51,70 @@ describe('DeepSeekProvider', () => {
     )
 
     const provider = new DeepSeekProvider({ apiKey: 'bad-key' })
-    await expect(
-      provider.chat({ provider: 'deepseek', model: 'deepseek-chat', messages: [] }),
-    ).rejects.toThrow('DeepSeek API error 401')
+    const error = await provider
+      .chat({ provider: 'deepseek', model: 'deepseek-chat', messages: [] })
+      .then(() => null, (e) => e)
+    expect(error).toBeInstanceOf(Error)
+    expect(error?.message).toContain('API Key 无效或已过期')
+    expect(error?.message).toContain('401')
+    expect(error?.code).toBe('LLM_API_401')
   })
 
-  it('无 apiKey 时抛错并回退读取环境变量', async () => {
+  it('402/429/5xx 分类为对应 LLMError', async () => {
+    const cases: Array<{ status: number; code: string }> = [
+      { status: 402, code: 'LLM_API_402' },
+      { status: 429, code: 'LLM_API_429' },
+      { status: 500, code: 'LLM_API_5XX' },
+    ]
+    for (const c of cases) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: 'x' } }), { status: c.status })),
+      )
+      const provider = new DeepSeekProvider({ apiKey: 'k' })
+      const error = await provider.chat({ provider: 'deepseek', model: 'm', messages: [] }).then(() => null, (e) => e)
+      expect(error?.code).toBe(c.code)
+    }
+  })
+
+  it('网络错误（fetch reject）分类为 LLM_NETWORK', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    const provider = new DeepSeekProvider({ apiKey: 'k' })
+    const error = await provider.chat({ provider: 'deepseek', model: 'm', messages: [] }).then(() => null, (e) => e)
+    expect(error?.code).toBe('LLM_NETWORK')
+    expect(error?.message).toContain('无法连接模型服务')
+  })
+
+  it('空 content（推理模型 reasoning_content）→ LLM_EMPTY_RESPONSE 且提示换模型', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ choices: [{ message: { content: '', reasoning_content: 'thinking...' }, finish_reason: 'length' }] }),
+          { status: 200 },
+        ),
+      ),
+    )
+    const provider = new DeepSeekProvider({ apiKey: 'k' })
+    const error = (await provider
+      .chat({ provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
+      .then(() => null, (e) => e)) as { code?: string; message?: string } | null
+    expect(error?.code).toBe('LLM_EMPTY_RESPONSE')
+    expect(error?.message).toContain('推理模型')
+  })
+
+  it('无 apiKey 时抛 LLM_CONFIG_MISSING 中文引导', async () => {
     delete process.env.DEEPSEEK_API_KEY
-    expect(() => new DeepSeekProvider()).toThrow('DeepSeekProvider: DEEPSEEK_API_KEY 未配置')
+    const error = (() => {
+      try {
+        new DeepSeekProvider()
+        return null
+      } catch (e) {
+        return e as { code?: string; message?: string }
+      }
+    })()
+    expect(error?.code).toBe('LLM_CONFIG_MISSING')
+    expect(error?.message).toContain('未配置 API Key')
   })
 
   it('signal 透传至 fetch 的 options.signal', async () => {

@@ -41,9 +41,15 @@ export interface KernelOptions {
   providers?: LLMProvider[]
   /** 用户通知回调（GUI 占位：任务栏闪烁 + 一声滴；ask-user 确认请求经此推送结构化 payload） */
   notifyUser?: (payload: NotifyPayload) => void
-  /** 但丁默认 provider/model（缺省 mock，DeepSeek 接入后传 deepseek/deepseek-chat） */
+  /** 但丁默认 provider/model（缺省 mock——测试/开发；生产装配由 cli.ts 显式传 deepseek 或 undefined） */
   butlerProvider?: string
   butlerModel?: string
+  /** 工作智能体默认模型 provider（2.0.7：def.provider 缺失时继承；生产 = 'deepseek' 或 undefined） */
+  defaultProvider?: string
+  /** 工作智能体默认模型名（def.model 缺失时继承；缺省 deepseek-v4-flash） */
+  defaultModel?: string
+  /** 允许模型路由回退 mock（2.0.7：默认 true 兼容测试；生产装配显式 false——取消 mock 静默回退） */
+  allowMockFallback?: boolean
   /** MockProvider 响应器（开发/测试；缺省固定回复） */
   mockResponder?: (req: ChatRequest) => string
   /** 主窗口管家归档阈值 token 数（D7：缺省 100_000；0 禁用自动归档） */
@@ -104,8 +110,12 @@ export class Kernel {
   private butlerGuard: PathGuard
   private butlerInstance!: AgentInstance
   private reuseSuggestions: ReuseSuggestion[] = []
-  private butlerProvider: string
-  private butlerModel: string
+  private butlerProvider: string | undefined
+  private butlerModel: string | undefined
+  /** 2.0.7：工作智能体默认模型路由（def.provider 缺失时继承） */
+  private defaultProvider?: string
+  private defaultModel: string
+  private allowMockFallback: boolean
   private butlerArchiveThresholdTokens: number
   private butlerConversations: ButlerConversationMeta[] = []
   private conversationsFile: string
@@ -140,8 +150,13 @@ export class Kernel {
     })
     // 远程控制服务（文件根默认 dataRoot；--remote-root 可追加）
     this.remoteControl = new RemoteControlService({ dataRoot, roots: opts.remoteRoots })
-    this.butlerProvider = opts.butlerProvider ?? 'mock'
-    this.butlerModel = opts.butlerModel ?? 'mock-model'
+    // 2.0.7：默认模型路由（生产装配传 deepseek / 无 key 传 undefined + allowMockFallback=false → 明确报错）
+    this.defaultProvider = opts.defaultProvider
+    this.defaultModel = opts.defaultModel ?? 'deepseek-v4-flash'
+    this.allowMockFallback = opts.allowMockFallback ?? true
+    // 但丁默认 provider：显式指定优先；未指定且允许 mock（测试/开发）→ mock；生产禁 mock → undefined（报错链）
+    this.butlerProvider = opts.butlerProvider ?? (this.allowMockFallback ? 'mock' : undefined)
+    this.butlerModel = opts.butlerModel ?? (this.allowMockFallback ? 'mock-model' : this.defaultModel)
     this.butlerArchiveThresholdTokens = opts.butlerArchiveThresholdTokens ?? BUTLER_ARCHIVE_THRESHOLD_TOKENS
     this.experienceTurnEvery = opts.experienceTurnEvery ?? 5
     this.conversationsFile = join(dataRoot, 'butler', 'conversations.json')
@@ -232,8 +247,8 @@ export class Kernel {
   /** 半硬编码中唯一 LLM 环节（mock/真实 provider 由网关路由） */
   private async llmSummarize(text: string, instruction: string): Promise<string> {
     const response = await this.gateway.chat({
-      provider: this.butlerProvider,
-      model: this.butlerModel,
+      provider: this.butlerProvider ?? this.defaultProvider,
+      model: this.butlerModel ?? this.defaultModel,
       messages: [
         { role: 'system', content: instruction },
         { role: 'user', content: text.slice(0, 120_000) },
@@ -756,6 +771,10 @@ export class Kernel {
       registry: this.tools,
       memory: this.memory,
       guard,
+      // 2.0.7：def.provider 缺失 → 继承内核默认（deepseek）；无默认且禁 mock → 明确报错
+      defaultProvider: this.defaultProvider,
+      defaultModel: this.defaultModel,
+      allowMockFallback: this.allowMockFallback,
       protocolText: DEFAULT_PROTOCOL_TEXT,
       basePrompt: def.name === 'butler'
         ? 'You are the butler instance inside a group. Your job: analyze and relay via butler-relay tool to the main window butler. Do not do concrete work.'

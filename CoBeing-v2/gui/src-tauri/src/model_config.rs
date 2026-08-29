@@ -182,6 +182,121 @@ pub fn delete_model_source(app: tauri::AppHandle, id: String) -> Result<(), Stri
     save_config(&path, &cfg)
 }
 
+/// 测试连接结果（前端「测试连接」按钮展示）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TestConnectionResult {
+    /// true = 真实调用成功；false = 失败（message 说明原因）
+    pub ok: bool,
+    pub message: String,
+    pub status: Option<u16>,
+}
+
+/// Tauri 命令：真实调用模型 API 验证来源配置（2.0.7「测试连接」）。
+/// 用来源的 base_url/api_key/model 发一个最小 chat/completions 请求：
+/// 网络/DNS/鉴权/余额/模型名任何一环不通都会给出明确中文结果。
+#[tauri::command]
+pub fn test_model_source(app: tauri::AppHandle, source_id: String) -> Result<TestConnectionResult, String> {
+    let root = crate::resolve_root();
+    let data_root = crate::resolve_data_root(&root, Some(&app));
+    let path = config_path(&data_root);
+    let cfg = load_config(&path);
+    let source = cfg
+        .sources
+        .iter()
+        .find(|s| s.id == source_id)
+        .ok_or_else(|| format!("模型来源不存在: {source_id}"))?;
+    if source.api_key.trim().is_empty() {
+        return Ok(TestConnectionResult {
+            ok: false,
+            message: "未填写 API Key，无法测试".to_string(),
+            status: None,
+        });
+    }
+    let base = if source.base_url.trim().is_empty() {
+        "https://api.deepseek.com".to_string()
+    } else {
+        source.base_url.trim().trim_end_matches('/').to_string()
+    };
+    let model = if source.model.trim().is_empty() {
+        "deepseek-v4-flash"
+    } else {
+        source.model.trim()
+    };
+    let url = format!("{base}/chat/completions");
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{ "role": "user", "content": "hi" }],
+        "max_tokens": 4,
+    });
+    // ureq 3.4：Agent::config_builder 配超时；4xx/5xx 默认返回 Ok(Response)（http_status_as_error=false）
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(10)))
+        .timeout_global(Some(std::time::Duration::from_secs(20)))
+        .build()
+        .into();
+    let response = agent
+        .post(&url)
+        .header("Authorization", &format!("Bearer {}", source.api_key.trim()))
+        .header("Content-Type", "application/json")
+        .send_json(&body);
+    match response {
+        Ok(mut resp) => {
+            let status = resp.status().as_u16();
+            let text = resp.body_mut().read_to_string().unwrap_or_default();
+            if status >= 200 && status < 300 {
+                // 2xx：内容是否可用（推理模型可能 content 为空 → 提示）
+                let has_content = text.contains("\"content\"");
+                let note = if has_content {
+                    "连接成功：模型可正常调用".to_string()
+                } else {
+                    format!("连接成功（HTTP {status}），但响应未含正文——推理模型（deepseek-v4-flash）可能返回空 content，工具调用建议 deepseek-chat")
+                };
+                return Ok(TestConnectionResult {
+                    ok: true,
+                    message: note,
+                    status: Some(status),
+                });
+            }
+            // 4xx/5xx：按状态分类（detail 取响应体）
+            let detail = if text.is_empty() { format!("HTTP {status}") } else { text.chars().take(200).collect() };
+            let message = match status {
+                401 => "鉴权失败（HTTP 401）：API Key 无效或已过期".to_string(),
+                402 => "余额不足（HTTP 402）：请前往模型服务商充值".to_string(),
+                404 => "地址/模型不存在（HTTP 404）：请检查 Base URL 与模型名".to_string(),
+                429 => "请求过于频繁（HTTP 429）：请稍后重试".to_string(),
+                _ if status >= 500 => format!("模型服务端错误（HTTP {status}）：请稍后重试"),
+                _ if text.contains("model") && (text.contains("not found") || text.contains("does not exist")) => {
+                    format!("模型不存在：{model}（HTTP {status}），请检查模型名")
+                }
+                _ => format!("模型请求被拒绝（HTTP {status}）：{detail}"),
+            };
+            Ok(TestConnectionResult {
+                ok: false,
+                message,
+                status: Some(status),
+            })
+        }
+        Err(e) => {
+            // 传输层错误（DNS/超时/拒绝/TLS）：按文本分类
+            let msg = e.to_string();
+            let message = if msg.contains("dns") || msg.contains("resolve") {
+                "无法解析域名：请检查 Base URL 与网络".to_string()
+            } else if msg.contains("timed out") || msg.contains("timeout") {
+                "连接超时：请检查网络/代理（模型服务可达性）".to_string()
+            } else if msg.contains("refused") {
+                "连接被拒绝：请检查 Base URL".to_string()
+            } else {
+                format!("网络错误：{msg}")
+            };
+            Ok(TestConnectionResult {
+                ok: false,
+                message,
+                status: None,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

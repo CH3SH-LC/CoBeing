@@ -26,7 +26,15 @@ export const DEEPSEEK_MODELS = [
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（默认）' },
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
   { id: 'deepseek-v4-flash-vision-exp', label: 'DeepSeek V4 Flash Vision（实验）' },
+  { id: 'deepseek-chat', label: 'DeepSeek Chat（非推理，工具调用更稳）' },
 ] as const
+
+/** 测试连接结果（Rust test_model_source） */
+export interface TestConnectionResult {
+  ok: boolean
+  message: string
+  status?: number | null
+}
 
 /** 生成来源 id（前端本地生成；Rust 仅校验非空） */
 export function newSourceId(): string {
@@ -51,4 +59,9 @@ export function setActiveModelSource(id: string): Promise<void> {
 /** 删除来源；若删除的是当前使用来源，则当前使用置空（内核回退环境变量） */
 export function deleteModelSource(id: string): Promise<void> {
   return invoke('delete_model_source', { id })
+}
+
+/** 真实调用模型 API 验证来源配置（2.0.7「测试连接」；20s 超时） */
+export function testModelSource(sourceId: string): Promise<TestConnectionResult> {
+  return invoke('test_model_source', { sourceId })
 }

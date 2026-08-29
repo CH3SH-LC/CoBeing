@@ -15,6 +15,7 @@ import type { WindowLog } from '../event-log/window-log.js'
 import { renderPrivate, renderPublic, renderToolResults, type WindowProjection } from '../event-log/projection.js'
 import type { ToolScheduler, SchedulerHooks } from '../scheduler/scheduler.js'
 import type { LLMGateway } from '../llm/gateway.js'
+import { LLMError, LLM_ERROR_CODES } from '../llm/errors.js'
 import type { ExperienceStore } from '../memory/store.js'
 import type { PathGuard } from '../permission/guard.js'
 
@@ -54,6 +55,18 @@ export interface AgentInstanceOptions {
   honesty?: (claim: string, evidence: string) => Promise<{ pass: boolean; reason: string; kind?: 'completion' | 'process' | 'other' }>
   /** 诚实审查连续失败上限（默认 3）：超过后放弃发言 */
   maxHonestyRetries?: number
+  /**
+   * 默认模型 provider（2.0.7：def.provider 缺失时继承内核默认，如 'deepseek'）。
+   * 与 allowMockFallback 互斥决定行为：
+   * - defaultProvider 有值 → 继承之
+   * - defaultProvider 无值且 allowMockFallback=true（测试/开发默认）→ 'mock'
+   * - 两者皆无（生产无 key）→ 抛 LLM_CONFIG_MISSING（不再静默 mock）
+   */
+  defaultProvider?: string
+  /** 默认模型名（def.model 缺失时继承；缺省 deepseek-v4-flash） */
+  defaultModel?: string
+  /** 允许 mock 兜底（默认 true 兼容测试；生产装配显式 false——取消 mock 静默回退） */
+  allowMockFallback?: boolean
 }
 
 type ToolDef = import('@cobeing/types').ToolDef
@@ -236,11 +249,22 @@ export class AgentInstance {
       experienceBlock ? '[我的经验档案]\n' + experienceBlock : '',
     ].filter((line) => line !== '').join('\n')
 
+    // 2.0.7：模型路由不再静默 mock——
+    // def.provider → 内核默认（defaultProvider）→ 测试兜底 mock → 否则明确报错
+    const provider = def.provider ?? this.opts.defaultProvider ?? (this.opts.allowMockFallback ? 'mock' : undefined)
+    if (!provider) {
+      throw new LLMError(
+        LLM_ERROR_CODES.LLM_CONFIG_MISSING,
+        '未配置模型服务：智能体没有指定模型，且内核未配置 API Key。请在「设置 → 模型」添加模型来源（或设置 DEEPSEEK_API_KEY）后重启',
+      )
+    }
+    const model = def.model ?? this.opts.defaultModel ?? 'deepseek-v4-flash'
+
     // request/header：模型面完整头（system + tools + 配置），变化才追加（dsh 对齐）
     const toolNames = availableTools.map((line) => line.split('：')[0]!.replace(/^- /, ''))
     await this.appendHeaderIfChanged({
-      provider: def.provider ?? 'mock',
-      model: def.model ?? 'mock-model',
+      provider,
+      model,
       maxTokens: def.maxTokens,
       system,
       tools: toolNames,
@@ -249,8 +273,8 @@ export class AgentInstance {
     let response
     try {
       response = await gateway.chat({
-        provider: def.provider ?? 'mock',
-        model: def.model ?? 'mock-model',
+        provider,
+        model,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: userText },
@@ -263,8 +287,8 @@ export class AgentInstance {
       await log.append({
         type: 'request/error',
         actor: this.name,
-        provider: def.provider ?? 'mock',
-        model: def.model ?? 'mock-model',
+        provider,
+        model,
         attempt: this.opts.maxToolRounds ?? 10,
         errors: errorChain(error),
       })
@@ -564,7 +588,11 @@ export function errorChain(error: unknown): Array<{ message: string; code?: stri
   let current: unknown = error
   let guard = 0
   while (current !== undefined && current !== null && guard < 10) {
-    if (current instanceof Error) {
+    if (current instanceof LLMError) {
+      // LLMError：中文消息 + 诊断 detail + 错误码（request/error 落盘可诊断）
+      out.push({ message: current.toDisplay(), code: current.code })
+      current = current.cause
+    } else if (current instanceof Error) {
       const code = (current as Error & { code?: string }).code
       out.push({ message: current.message, code: code ?? 'ERROR' })
       current = current.cause

@@ -135,6 +135,19 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
   const active = pickActiveSource(fileCfg)
   const apiKey = active?.api_key ?? process.env.DEEPSEEK_API_KEY
   const hasKey = Boolean(apiKey)
+  const modelName = active?.model ?? process.env.DEEPSEEK_MODEL ?? 'deepseek-v4-flash'
+
+  // 2.0.7：取消 mock 静默回退——无 key 时不注册 mock 兜底，模型调用报明确错误。
+  // 有 key → 全链路真实 DeepSeek（但丁 + 工作智能体默认继承 deepseek + active 模型）
+  const modelOpts = hasKey
+    ? {
+        butlerProvider: 'deepseek',
+        butlerModel: modelName,
+        defaultProvider: 'deepseek',
+        defaultModel: modelName,
+        allowMockFallback: false,
+      }
+    : { allowMockFallback: false }
 
   // 远程服务器（kernel 构造后、start 前创建；通知广播闭包引用）
   let remote: RemoteServer | undefined
@@ -152,11 +165,9 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
 
   const kernel = new Kernel(dataRoot, {
     providers: hasKey
-      ? [new DeepSeekProvider({ apiKey, baseUrl: active?.base_url, model: active?.model })]
+      ? [new DeepSeekProvider({ apiKey, baseUrl: active?.base_url, model: modelName })]
       : [],
-    // 但丁默认 provider/model：真实 key 存在用 deepseek，否则 mock
-    butlerProvider: hasKey ? 'deepseek' : 'mock',
-    butlerModel: hasKey ? (active?.model ?? 'deepseek-v4-flash') : 'mock-model',
+    ...modelOpts,
     remoteRoots: options.remoteRoots,
     notifyUser,
   })
@@ -193,6 +204,18 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
   await kernel.start()
   server.noteKernelStarted()
 
+  // 2.0.7：无 key 启动 → 明确错误通知（GUI 横幅/手机端 toast 可见），不再静默 mock
+  if (!hasKey) {
+    const hint =
+      active === undefined
+        ? '未找到有效的模型配置：请在「设置 → 模型」添加模型来源（API Key），或设置环境变量 DEEPSEEK_API_KEY'
+        : '模型来源缺少 API Key：请在「设置 → 模型」补全后重启'
+    notifyUser({ type: 'text', content: `[模型] ⚠ ${hint}。未配置时将无法调用模型（对话/智能体/总结均会报错）` })
+    process.stderr.write(`[model] ${hint}\n`)
+  } else {
+    process.stderr.write(`[model] provider=deepseek model=${modelName} source=${active?.name ?? 'env'}\n`)
+  }
+
   // 远程 WS 服务器（可选）
   if (options.remotePort !== undefined) {
     const token = await loadOrCreateToken(dataRoot, options.remoteToken)
@@ -206,7 +229,7 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
       dataRoot,
       token,
       name: serverName,
-      version: '2.0.6',
+      version: '2.0.7',
       lanUrl,
       onPaired: (record) => {
         notifyUser({ type: 'pair', action: 'paired', deviceName: record.deviceName })
@@ -254,7 +277,7 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
           port: discoveryPort,
           id: serverId,
           name: serverName,
-          version: '2.0.6',
+          version: '2.0.7',
           wsPort: remotePort,
           host: lanIp,
         })

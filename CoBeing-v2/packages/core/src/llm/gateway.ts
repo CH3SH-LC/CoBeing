@@ -6,13 +6,16 @@
  * - DeepSeek 真实适配器见 ./deepseek.ts（gateway.ts 内不再保留占位，避免重复导出）。
  */
 
+import { LLMError, LLM_ERROR_CODES } from './errors.js'
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
 }
 
 export interface ChatRequest {
-  provider: string
+  /** 模型 provider 名；缺省/空 → 未配置错误（LLM_NO_ADAPTER） */
+  provider?: string
   model: string
   messages: ChatMessage[]
   maxTokens?: number
@@ -55,12 +58,21 @@ export class LLMGateway {
 
   /** 经队列 + 限流 + 超时 + 重试的调用 */
   async chat(request: ChatRequest): Promise<ChatResponse> {
-    const provider = this.providers.get(request.provider)
-    if (!provider) throw new Error(`NO_ADAPTER: ${request.provider}`)
-    const prev = this.queues.get(request.provider) ?? Promise.resolve()
+    const provider = this.providers.get(request.provider ?? '')
+    if (!provider) {
+      // 2.0.7：provider 缺失不再静默（原来请求直接 NO_ADAPTER 原始错误）——明确中文引导
+      throw new LLMError(
+        LLM_ERROR_CODES.LLM_NO_ADAPTER,
+        request.provider
+          ? `模型服务不可用（provider "${request.provider}" 未注册：内核未加载对应模型配置，请重启应用）`
+          : '未配置模型服务：请在「设置 → 模型」添加模型来源（API Key），或设置 DEEPSEEK_API_KEY 环境变量',
+        { detail: request.provider ? `NO_ADAPTER: ${request.provider}` : 'NO_ADAPTER: (none)' },
+      )
+    }
+    const prev = this.queues.get(request.provider ?? '') ?? Promise.resolve()
     const run = prev.then(() => this.dispatchWithRetry(provider, request))
     // 队列失败不影响后续（catch 吞掉，让下一次从 prev 链继续）
-    this.queues.set(request.provider, run.catch(() => undefined))
+    this.queues.set(request.provider ?? '', run.catch(() => undefined))
     return run
   }
 
@@ -80,13 +92,19 @@ export class LLMGateway {
         if (request.signal?.aborted) throw error
       }
     }
-    throw lastError
+    // 2.0.7：重试耗尽——LLMError 原样抛（保留分类）；其他错误包装为 LLM_RETRIES_EXHAUSTED
+    if (lastError instanceof LLMError) throw lastError
+    throw new LLMError(LLM_ERROR_CODES.LLM_RETRIES_EXHAUSTED, '模型调用重试后仍失败', {
+      detail: lastError instanceof Error ? lastError.message.slice(0, 300) : String(lastError),
+    })
   }
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`llm timeout after ${timeoutMs}ms`)), timeoutMs)
+    const timer = setTimeout(() => {
+      reject(new LLMError(LLM_ERROR_CODES.LLM_TIMEOUT, `模型响应超时（${Math.round(timeoutMs / 1000)}s）`))
+    }, timeoutMs)
     const onAbort = () => {
       clearTimeout(timer)
       reject(new Error('aborted'))
