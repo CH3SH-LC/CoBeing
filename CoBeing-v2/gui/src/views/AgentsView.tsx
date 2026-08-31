@@ -14,9 +14,9 @@ export function AgentsView() {
   const [form, setForm] = useState({
     name: '',
     role: '',
-    // 2.0.7：默认真实模型（deepseek）——mock 仅是显式测试选项，不再作为默认
+    // 2.0.7/2.0.8：默认真实模型——deepseek-chat（非推理，快且稳）；mock 仅显式测试选项
     provider: 'deepseek',
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-chat',
     maxTokens: '8192',
     basePrompt: '',
   })
@@ -64,7 +64,7 @@ export function AgentsView() {
         maxTokens: Number(form.maxTokens) || undefined,
         createdAt: Date.now(),
       })
-      setForm({ name: '', role: '', provider: 'deepseek', model: 'deepseek-v4-flash', maxTokens: '8192', basePrompt: '' })
+      setForm({ name: '', role: '', provider: 'deepseek', model: 'deepseek-chat', maxTokens: '8192', basePrompt: '' })
       await refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -295,7 +295,7 @@ export function AgentsView() {
               </div>
               <div className="form-field">
                 <label>model</label>
-                <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="deepseek-v4-flash（推理）或 deepseek-chat（工具调用更稳）" />
+                <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="deepseek-chat（推荐）或 deepseek-v4-flash（推理，慢/易空回复）" />
               </div>
               <div className="form-field">
                 <label>maxTokens</label>
@@ -308,8 +308,8 @@ export function AgentsView() {
               </div>
             )}
             {form.provider === 'deepseek' && form.model === 'deepseek-v4-flash' && (
-              <div className="sub">
-                💡 deepseek-v4-flash 为推理模型（先思考后回答）；工具调用任务若遇空回复，建议改用 deepseek-chat。
+              <div className="sub" style={{ color: 'var(--warning, #b57a00)' }}>
+                ⚠ deepseek-v4-flash 为推理模型（先思考后回答）：响应慢、短 maxTokens 下易返回空回复（LLM_EMPTY_RESPONSE）。一般任务推荐 deepseek-chat。
               </div>
             )}
             <div className="form-field">

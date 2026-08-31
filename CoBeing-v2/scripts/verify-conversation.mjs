@@ -14,15 +14,23 @@
 
 import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { tmpdir, homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dataDir = mkdtempSync(join(tmpdir(), 'cb-conv-'))
 
-// 读取 .env（系统环境变量优先）
+// 读取 API Key：优先安装版真实配置（%APPDATA%\com.cobeing.v2\model-config.json active），回退 .env（开发模式）
 let apiKey = process.env.DEEPSEEK_API_KEY ?? ''
+if (!apiKey) {
+  try {
+    const cfgPath = join(homedir(), 'AppData', 'Roaming', 'com.cobeing.v2', 'model-config.json')
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'))
+    const active = cfg.sources?.find((s) => s.id === cfg.active_source)
+    if (active?.api_key) apiKey = active.api_key
+  } catch {}
+}
 if (!apiKey) {
   try {
     const env = readFileSync(join(root, '.env'), 'utf8')
@@ -180,7 +188,29 @@ async function main() {
   const reply3 = (await request('butlerProjection')).result.publicMessages.at(-1)?.content ?? ''
   console.log('  回复:', reply3.slice(0, 80))
 
-  // 6. 自动压缩可见性：context 估算 token / 阈值
+  // 6. 恢复历史会话为当前（2.0.8：历史可重新对话）
+  console.log('  恢复历史会话…')
+  const resumed = await request('butler/resumeConversation', { id: convId }, 60000)
+  assert(resumed.result.id === 'current', '恢复后当前会话 id=current')
+  const cur2 = await request('butlerProjection')
+  assert(cur2.result.publicMessages.some((m) => m.content.includes('北极熊')), '恢复后投影含历史会话内容（第一轮记忆）')
+  assert(cur2.result.publicMessages.some((m) => m.content.includes('黑色')), '恢复后投影含但丁记忆回复')
+  assert(!cur2.result.publicMessages.some((m) => m.content.includes('新会话的第一句话')), '恢复后不含新会话内容（新会话已先归档）')
+
+  // 恢复后可继续对话：但丁仍记得历史上下文
+  await request('mainWindowSpeak', { content: '我让你记住的那句话是什么？请直接回答。' })
+  const s4 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
+  assert(await waitButlerReply(s4, 120_000), '恢复会话中但丁真实回复')
+  const reply4 = (await request('butlerProjection')).result.publicMessages.at(-1)?.content ?? ''
+  console.log('  回复:', reply4.slice(0, 80))
+  assert(/北极熊|黑色/.test(reply4), '恢复会话上下文有效（但丁记得历史记忆）')
+
+  // 历史列表：convId 已移除；新会话成为历史（恢复前自动归档）
+  const list2 = await request('butler/listConversations')
+  assert(!list2.result.some((c) => c.id === convId), '已恢复会话从历史列表移除')
+  assert(list2.result.some((c) => !c.current && c.firstUserMessage?.includes('新会话的第一句话')), '原新会话已归档为历史')
+
+  // 7. 自动压缩可见性：context 估算 token / 阈值
   const ctx = await request('butlerProjection')
   assert(ctx.result.context && ctx.result.context.thresholdTokens === 100_000, `context 阈值 100k（实际 ${ctx.result.context?.thresholdTokens}）`)
   assert(ctx.result.context.estimatedTokens > 0, `context 估算 token ${ctx.result.context.estimatedTokens}`)

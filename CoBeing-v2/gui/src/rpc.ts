@@ -50,9 +50,14 @@ export class RpcClient {
     return this.request('butlerProjection')
   }
 
-  /** 开启新对话窗口：当前会话归档为历史（可回看），重建空会话 */
+  /** 开启新对话窗口：当前会话归档为历史（可回看/恢复），重建空会话 */
   newButlerConversation(): Promise<{ id: string }> {
     return this.request('butler/newConversation')
+  }
+
+  /** 恢复历史会话为当前会话（2.0.8：历史可继续对话；当前会话先自动归档） */
+  resumeButlerConversation(id: string): Promise<{ id: string }> {
+    return this.request('butler/resumeConversation', { id })
   }
 
   /** 会话列表：当前会话 + 历史会话（最新在前） */

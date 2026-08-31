@@ -218,7 +218,7 @@ pub fn test_model_source(app: tauri::AppHandle, source_id: String) -> Result<Tes
         source.base_url.trim().trim_end_matches('/').to_string()
     };
     let model = if source.model.trim().is_empty() {
-        "deepseek-v4-flash"
+        "deepseek-chat"
     } else {
         source.model.trim()
     };

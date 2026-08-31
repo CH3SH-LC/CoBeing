@@ -31,7 +31,7 @@ export class DeepSeekProvider implements LLMProvider {
       throw new LLMError(LLM_ERROR_CODES.LLM_CONFIG_MISSING, '未配置 API Key：请在「设置 → 模型」添加模型来源，或设置 DEEPSEEK_API_KEY 环境变量')
     }
     this.apiKey = key
-    this.model = opts.model ?? 'deepseek-v4-flash'
+    this.model = opts.model ?? 'deepseek-chat'
   }
 
   async chat(req: ChatRequest): Promise<ChatResponse> {

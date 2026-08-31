@@ -244,6 +244,11 @@ export class WsRpcClient {
     return this.request('butler/newConversation')
   }
 
+  /** 恢复历史会话为当前会话（2.0.8：历史可继续对话；当前会话先自动归档） */
+  resumeButlerConversation(id: string): Promise<{ id: string }> {
+    return this.request('butler/resumeConversation', { id })
+  }
+
   listButlerConversations(): Promise<import('./types').ConversationInfo[]> {
     return this.request('butler/listConversations')
   }

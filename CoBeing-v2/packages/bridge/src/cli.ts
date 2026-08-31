@@ -135,9 +135,10 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
   const active = pickActiveSource(fileCfg)
   const apiKey = active?.api_key ?? process.env.DEEPSEEK_API_KEY
   const hasKey = Boolean(apiKey)
-  const modelName = active?.model ?? process.env.DEEPSEEK_MODEL ?? 'deepseek-v4-flash'
+  // 默认模型：deepseek-chat（非推理，快且稳，工具调用友好）——2.0.8 起默认；推理模型（deepseek-v4-flash）显式选择
+  const modelName = active?.model ?? process.env.DEEPSEEK_MODEL ?? 'deepseek-chat'
 
-  // 2.0.7：取消 mock 静默回退——无 key 时不注册 mock 兜底，模型调用报明确错误。
+  // 2.0.8：取消 mock 静默回退——无 key 时不注册 mock 兜底，模型调用报明确错误。
   // 有 key → 全链路真实 DeepSeek（但丁 + 工作智能体默认继承 deepseek + active 模型）
   const modelOpts = hasKey
     ? {
@@ -204,7 +205,7 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
   await kernel.start()
   server.noteKernelStarted()
 
-  // 2.0.7：无 key 启动 → 明确错误通知（GUI 横幅/手机端 toast 可见），不再静默 mock
+  // 2.0.8：无 key 启动 → 明确错误通知（GUI 横幅/手机端 toast 可见），不再静默 mock
   if (!hasKey) {
     const hint =
       active === undefined
@@ -229,7 +230,7 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
       dataRoot,
       token,
       name: serverName,
-      version: '2.0.7',
+      version: '2.0.8',
       lanUrl,
       onPaired: (record) => {
         notifyUser({ type: 'pair', action: 'paired', deviceName: record.deviceName })
@@ -277,7 +278,7 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
           port: discoveryPort,
           id: serverId,
           name: serverName,
-          version: '2.0.7',
+          version: '2.0.8',
           wsPort: remotePort,
           host: lanIp,
         })

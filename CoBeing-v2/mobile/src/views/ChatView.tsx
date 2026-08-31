@@ -19,6 +19,7 @@ export function ChatView() {
   const [text, setText] = useState('')
   const [showConvList, setShowConvList] = useState(false)
   const [confirmingNew, setConfirmingNew] = useState(false)
+  const [confirmingResume, setConfirmingResume] = useState(false)
   const [viewing, setViewing] = useState<ConversationInfo | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
@@ -115,6 +116,27 @@ export function ChatView() {
     setCurrentId('current')
   }
 
+  /** 恢复历史会话为当前会话（2.0.8）：两段确认；当前会话先自动归档 */
+  const resumeConversation = async () => {
+    if (!viewing) return
+    if (!confirmingResume) {
+      setConfirmingResume(true)
+      return
+    }
+    setConfirmingResume(false)
+    try {
+      await client.resumeButlerConversation(viewing.id)
+      setViewing(null)
+      setCurrentId('current')
+      setShowConvList(false)
+      setConfirm(null)
+      await refresh()
+      toast.push('已恢复历史会话，可继续对话', 3000)
+    } catch (e) {
+      toast.push(`恢复失败：${e instanceof Error ? e.message : String(e)}`, 4000)
+    }
+  }
+
   const ctx = projection?.context
   const contextText = ctx ? `${(ctx.estimatedTokens / 1000).toFixed(1)}k / ${(ctx.thresholdTokens / 1000).toFixed(1)}k` : ''
 
@@ -129,9 +151,19 @@ export function ChatView() {
           {contextText && <span className="sub" style={{ marginLeft: 6 }}>上下文 {contextText}</span>}
         </div>
         {viewing ? (
-          <button className="btn small secondary" onClick={backToCurrent}>
-            返回当前
-          </button>
+          <>
+            {confirmingResume && (
+              <button className="btn small ghost" onClick={() => setConfirmingResume(false)}>
+                取消
+              </button>
+            )}
+            <button className={`btn small ${confirmingResume ? 'primary' : 'secondary'}`} onClick={() => void resumeConversation()}>
+              {confirmingResume ? '确认恢复？' : '恢复对话'}
+            </button>
+            <button className="btn small secondary" onClick={backToCurrent}>
+              返回当前
+            </button>
+          </>
         ) : (
           <button className={`btn small ${confirmingNew ? 'danger' : 'ghost'}`} onClick={() => void newConversation()}>
             {confirmingNew ? '再点确认' : '新对话'}

@@ -22,6 +22,13 @@ vi.mock('../rpc', () => ({
       convCalls.push({})
       convList = [{ id: 'current', createdAt: Date.now(), messageCount: 1, current: true }]
     }),
+    resumeButlerConversation: vi.fn(async (id: string) => {
+      convCalls.push({ id })
+      convList = [
+        { id: 'current', createdAt: 1, messageCount: 10, current: true },
+        { id: 'conv-2', createdAt: 300, archivedAt: 400, messageCount: 2, firstUserMessage: '新归档' },
+      ]
+    }),
     listButlerConversations: vi.fn(async () => convList),
     butlerConversationProjection: vi.fn(async (id: string) => {
       convCalls.push({ id })
@@ -163,17 +170,26 @@ describe('MainChatView 会话管理（新对话窗口）', () => {
     })
     expect(convCalls).toContainEqual({ id: 'conv-1' })
     await waitFor(() => expect(screen.getByText('旧会话消息甲')).toBeTruthy())
-    expect(screen.getByText('历史会话只读查看（点击「返回当前会话」继续对话）')).toBeTruthy()
+    expect(screen.getByText(/历史会话只读查看/)).toBeTruthy()
     // 标题显示历史会话 id
     expect(screen.getByText('历史会话 conv-1')).toBeTruthy()
+    // 恢复此会话按钮（2.0.8：历史可重新对话）
+    expect(screen.getByRole('button', { name: /恢复此会话/ })).toBeTruthy()
     // 输入框不可用（只读模式无发送按钮）
     expect(screen.queryByText('发送')).toBeNull()
 
-    // 返回当前会话
+    // 恢复历史会话：两段确认 → resume 调用 → 回到当前模式（历史项移除、新归档出现）
     await act(async () => {
-      fireEvent.click(screen.getByText('返回当前会话'))
+      fireEvent.click(screen.getByRole('button', { name: /恢复此会话/ }))
     })
+    expect(screen.getByRole('button', { name: /确认恢复/ })).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /确认恢复/ }))
+    })
+    expect(convCalls).toContainEqual({ id: 'conv-1' })
+    await waitFor(() => expect(screen.getByText('发送')).toBeTruthy())
+    expect(screen.getByTestId('conv-conv-2')).toBeTruthy()
+    // 恢复后回到当前模式（不再显示历史只读提示）
     expect(screen.queryByText('旧会话消息甲')).toBeNull()
-    expect(screen.getByText('发送')).toBeTruthy()
   })
 })

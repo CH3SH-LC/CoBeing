@@ -152,7 +152,7 @@ export class Kernel {
     this.remoteControl = new RemoteControlService({ dataRoot, roots: opts.remoteRoots })
     // 2.0.7：默认模型路由（生产装配传 deepseek / 无 key 传 undefined + allowMockFallback=false → 明确报错）
     this.defaultProvider = opts.defaultProvider
-    this.defaultModel = opts.defaultModel ?? 'deepseek-v4-flash'
+    this.defaultModel = opts.defaultModel ?? 'deepseek-chat'
     this.allowMockFallback = opts.allowMockFallback ?? true
     // 但丁默认 provider：显式指定优先；未指定且允许 mock（测试/开发）→ mock；生产禁 mock → undefined（报错链）
     this.butlerProvider = opts.butlerProvider ?? (this.allowMockFallback ? 'mock' : undefined)
@@ -368,7 +368,8 @@ export class Kernel {
         role: '主窗口管家',
         provider: this.butlerProvider,
         model: this.butlerModel,
-        maxTokens: 2048,
+        // 2.0.8：2048 → 4096（推理模型/长组装场景下 2048 易截断导致空回复）
+        maxTokens: 4096,
         createdAt: Date.now(),
       },
       group: 'main',
@@ -457,20 +458,15 @@ export class Kernel {
     return this.butlerInstance?.status === 'busy'
   }
 
-  // ---------- 主窗口会话（新对话窗口：当前日志归档 + 空会话重建） ----------
+  // ---------- 主窗口会话（新对话窗口：当前日志归档 + 空会话重建 / 历史恢复继续对话） ----------
 
   /**
-   * 开启新对话：当前主窗口日志完整归档为历史会话（可回看），重建空会话。
-   * - 归档前尝试记忆总结写经验档案（失败不阻塞）
-   * - 主窗口 todo 清空（落空表到新日志）
-   * - 但丁实例/归档运行时随新日志重建（组装上下文归零）
+   * 归档当前主窗口会话为历史（记忆总结 + 日志 rename + 元数据落盘）。
+   * 空会话 → 返回 null（幂等，不产生历史）。
    */
-  async newButlerConversation(): Promise<{ id: string; archived?: ButlerConversationSummary }> {
-    if (this.butlerInstance?.status === 'busy') {
-      throw new Error('但丁正在工作中，请等待当前工作完成后再开启新对话')
-    }
+  private async archiveCurrentConversation(): Promise<ButlerConversationMeta | null> {
     const events = this.butlerLog.readCached()
-    if (events.length === 0) return { id: 'current' } // 空会话：幂等
+    if (events.length === 0) return null
 
     const archivedAt = Date.now()
     const id = `conv-${archivedAt}`
@@ -478,13 +474,13 @@ export class Kernel {
     mkdirSync(convDir, { recursive: true })
     const file = join(convDir, `${id}.jsonl`)
 
-    // 0) 记忆归档总结（纯HI：归档记忆；容错，失败不阻塞新对话）
+    // 记忆归档总结（纯HI：归档记忆；容错，失败不阻塞）
     await this.archiveConversationMemory(events)
 
-    // 1) 当前日志 → 历史文件（完整事件保留：历史可回看，非压缩遮蔽）
+    // 当前日志 → 历史文件（完整事件保留：历史可回看/恢复，非压缩遮蔽）
     await rename(join(this.dataRoot, 'butler', 'log.jsonl'), file)
 
-    // 2) 会话元数据落盘
+    // 会话元数据落盘
     const meta: ButlerConversationMeta = {
       id,
       file,
@@ -495,20 +491,76 @@ export class Kernel {
     }
     this.butlerConversations.push(meta)
     await this.persistButlerConversations()
+    return meta
+  }
 
-    // 3) 重建空会话（日志 + 归档运行时 + 但丁实例）
+  /**
+   * 开启新对话：当前主窗口日志完整归档为历史会话（可回看/恢复），重建空会话。
+   * - 归档前尝试记忆总结写经验档案（失败不阻塞）
+   * - 主窗口 todo 清空（落空表到新日志）
+   * - 但丁实例/归档运行时随新日志重建（组装上下文归零）
+   */
+  async newButlerConversation(): Promise<{ id: string; archived?: ButlerConversationSummary }> {
+    if (this.butlerInstance?.status === 'busy') {
+      throw new Error('但丁正在工作中，请等待当前工作完成后再开启新对话')
+    }
+    const archived = await this.archiveCurrentConversation()
+    if (!archived) return { id: 'current' } // 空会话：幂等
+
+    // 重建空会话（日志 + 归档运行时 + 但丁实例）
     this.butlerLog = new WindowLog(join(this.dataRoot, 'butler', 'log.jsonl'))
     this.butler = this.createButlerRuntime(this.butlerLog)
     this.butlerInstance.dispose()
     this.butlerInstance = this.createButlerInstance(this.butlerLog)
     await this.butlerLog.append({ type: 'group/lifecycle', phase: 'created', detail: 'butler main window (new conversation)' })
 
-    // 4) 主窗口 todo 清空（空表落新日志；重启 replay 干净）
+    // 主窗口 todo 清空（空表落新日志；重启 replay 干净）
     await this.todos.reset('main', 'butler')
 
-    this.notifyUserCb?.({ type: 'text', content: `[管家] 已开启新对话：上一会话 ${id} 已归档（${meta.messageCount} 条事件，可回看）` })
+    this.notifyUserCb?.({ type: 'text', content: `[管家] 已开启新对话：上一会话 ${archived.id} 已归档（${archived.messageCount} 条事件，可回看/恢复）` })
     this.emitUpdate('butler', undefined, 'new-conversation')
-    return { id, archived: meta }
+    // 返回归档会话 id（历史语义：id=conv-<ts>；空会话幂等返回 current）
+    return { id: archived.id, archived }
+  }
+
+  /**
+   * 恢复历史会话为当前会话（2.0.8：历史可重新对话）。
+   * - 当前会话非空 → 先归档为新的历史（原流程）
+   * - 目标历史日志成为主窗口日志 → 但丁实例/归档运行时重建 → 主窗口 todo 恢复为该会话
+   * - 该会话从历史列表移除（成为当前会话）
+   */
+  async resumeButlerConversation(id: string): Promise<{ id: string; restored: ButlerConversationSummary }> {
+    if (this.butlerInstance?.status === 'busy') {
+      throw new Error('但丁正在工作中，请等待当前工作完成后再恢复会话')
+    }
+    const meta = this.butlerConversations.find((c) => c.id === id)
+    if (!meta) throw new Error(`conversation not found: ${id}`)
+
+    // 当前会话归档（空会话幂等）
+    await this.archiveCurrentConversation()
+
+    // 历史日志 → 主窗口日志（独立 WindowLog 实例冷加载）
+    const log = new WindowLog(meta.file)
+    await log.load()
+    this.butlerLog = log
+    this.butler = this.createButlerRuntime(log)
+    this.butlerInstance.dispose()
+    this.butlerInstance = this.createButlerInstance(log)
+    await this.butlerLog.append({ type: 'group/lifecycle', phase: 'resumed', detail: `resumed conversation ${id}` })
+
+    // 主窗口 todo 恢复为该会话的（last-write-wins replay）
+    this.todos.replay('main', log.readCached())
+
+    // 从历史列表移除（成为当前会话）
+    this.butlerConversations = this.butlerConversations.filter((c) => c.id !== id)
+    await this.persistButlerConversations()
+
+    this.notifyUserCb?.({
+      type: 'text',
+      content: `[管家] 已恢复历史会话（可继续对话）：${meta.firstUserMessage ?? id}（${meta.messageCount} 条事件）`,
+    })
+    this.emitUpdate('butler', undefined, 'resume')
+    return { id: 'current', restored: meta }
   }
 
   /** 会话列表：当前会话（id='current'，动态合成）+ 历史会话（最新在前） */

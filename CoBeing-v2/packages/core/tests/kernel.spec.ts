@@ -640,6 +640,59 @@ describe('主窗口会话（新对话窗口：当前日志归档 + 空会话重�
     expect(r.id).toMatch(/^conv-/)
   }, 20_000)
 
+  test('resumeButlerConversation：恢复历史会话为当前 → 可继续对话 → 历史列表移除 → 原当前会话先归档', async () => {
+    const ctx = await setup(routingResponder)
+    contexts.push(ctx)
+    // 第一会话两轮对话
+    await ctx.kernel.mainWindowSpeak('第一轮你好')
+    await waitFor(() => ctx.kernel.butlerProjection().publicMessages.some((m) => m.actor === 'butler'))
+    await ctx.kernel.mainWindowSpeak('第二轮你好')
+    await waitFor(() => {
+      const events = ctx.kernel.butlerLog.readCached()
+      const butlers = events.filter((e) => e.type === 'speak' && e.actor === 'butler')
+      const users = events.filter((e) => e.type === 'speak' && e.actor === 'user')
+      return butlers.length >= 2 && users.length >= 2 && !ctx.kernel.isButlerBusy()
+    })
+    const firstCount = ctx.kernel.butlerLog.readCached().length
+    const { id } = await ctx.kernel.newButlerConversation()
+    expect(id).toMatch(/^conv-/)
+
+    // 新会话里聊一句（恢复时会被归档为新的历史）
+    await ctx.kernel.mainWindowSpeak('新会话内容')
+    await waitFor(() => ctx.kernel.butlerProjection().publicMessages.some((m) => m.content.includes('新会话内容')) && !ctx.kernel.isButlerBusy())
+
+    // 恢复历史会话 id → 成为当前
+    const resumed = await ctx.kernel.resumeButlerConversation(id)
+    expect(resumed.id).toBe('current')
+    expect(resumed.restored.id).toBe(id)
+    expect(resumed.restored.messageCount).toBe(firstCount)
+
+    // 当前投影 = 历史会话内容（含第一轮两句话），不含新会话内容
+    const cur = ctx.kernel.butlerProjection()
+    expect(cur.publicMessages.some((m) => m.content === '第一轮你好')).toBe(true)
+    expect(cur.publicMessages.some((m) => m.content === '第二轮你好')).toBe(true)
+    expect(cur.publicMessages.some((m) => m.content.includes('新会话内容'))).toBe(false)
+
+    // 历史列表：id 已移除；新会话成为历史（恢复前自动归档）
+    const list = ctx.kernel.listButlerConversations()
+    expect(list.some((c) => c.id === id)).toBe(false)
+    expect(list.some((c) => c.id !== 'current' && c.firstUserMessage?.includes('新会话内容'))).toBe(true)
+
+    // 恢复后可继续对话（新消息追加到历史会话）
+    await ctx.kernel.mainWindowSpeak('恢复后继续聊')
+    await waitFor(() => ctx.kernel.butlerProjection().publicMessages.some((m) => m.content.includes('恢复后继续聊')))
+    const after = ctx.kernel.butlerProjection()
+    expect(after.publicMessages.some((m) => m.content === '第一轮你好')).toBe(true) // 历史上下文仍在
+  }, 30_000)
+
+  test('resumeButlerConversation：不存在 id 明确报错', async () => {
+    const ctx = await setup()
+    contexts.push(ctx)
+    await expect(ctx.kernel.resumeButlerConversation('conv-not-exist')).rejects.toThrow(/not found/)
+    // 空当前会话 + 无历史 → 列表只有 current
+    expect(ctx.kernel.listButlerConversations()).toHaveLength(1)
+  }, 15_000)
+
   test('butlerContextInfo 返回估算 token 与阈值（GUI 进度面）', async () => {
     const ctx = await setup()
     contexts.push(ctx)

@@ -19,6 +19,7 @@ export function MainChatView() {
   const [viewingConv, setViewingConv] = useState<ConversationInfo | null>(null)
   const [histProj, setHistProj] = useState<ProjectionDto | null>(null)
   const [confirmNewConv, setConfirmNewConv] = useState(false)
+  const [confirmResume, setConfirmResume] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async () => {
@@ -100,14 +101,35 @@ export function MainChatView() {
     }
   }
 
+  /** 恢复历史会话为当前会话（2.0.8）：两段确认；当前会话先自动归档 */
+  const resumeConversation = async () => {
+    if (!viewingConv) return
+    if (!confirmResume) {
+      setConfirmResume(true)
+      return
+    }
+    setConfirmResume(false)
+    setError('')
+    try {
+      await rpc.resumeButlerConversation(viewingConv.id)
+      setNotifies([])
+      setProj(null)
+      setHistProj(null)
+      setViewingConv(null)
+      await refresh()
+      await loadConvs()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   /** 会话切换：历史 → 只读查看；当前 → 返回 */
   const openConversation = async (conv: ConversationInfo) => {
     if (conv.current) {
       setViewingConv(null)
       return
     }
-    try {
-      const p = await rpc.butlerConversationProjection(conv.id)
+    try {      const p = await rpc.butlerConversationProjection(conv.id)
       setHistProj(p)
       setViewingConv(conv)
     } catch (e) {
@@ -215,9 +237,23 @@ export function MainChatView() {
             </span>
           )}
           {viewingConv ? (
-            <button className="btn small" onClick={() => setViewingConv(null)}>
-              ← 返回当前会话
-            </button>
+            <>
+              {confirmResume && (
+                <button className="btn small text" onClick={() => setConfirmResume(false)}>
+                  取消
+                </button>
+              )}
+              <button
+                className={`btn small ${confirmResume ? 'primary' : ''}`}
+                onClick={() => void resumeConversation()}
+                title="恢复此历史会话为当前会话并继续对话（当前会话将先自动归档）"
+              >
+                {confirmResume ? '确认恢复？' : '恢复此会话'}
+              </button>
+              <button className="btn small" onClick={() => setViewingConv(null)}>
+                ← 返回当前会话
+              </button>
+            </>
           ) : (
             <>
               {confirmNewConv && (
@@ -238,7 +274,7 @@ export function MainChatView() {
         <div className="chat-input-wrap">
           {viewingConv ? (
             <div className="input-row">
-              <span className="hint">历史会话只读查看（点击「返回当前会话」继续对话）</span>
+              <span className="hint">历史会话只读查看；「恢复此会话」可回到该会话继续对话（当前会话先自动归档）</span>
               <button className="btn" onClick={() => setViewingConv(null)}>
                 返回当前会话
               </button>

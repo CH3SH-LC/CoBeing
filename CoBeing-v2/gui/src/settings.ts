@@ -21,12 +21,12 @@ export interface ModelConfigs {
   active_source: string
 }
 
-/** DeepSeek 可选模型（v4 系列；第一个为默认） */
+/** DeepSeek 可选模型（2.0.8：deepseek-chat 为默认推荐——非推理、快且稳、工具调用友好；推理模型显式选择） */
 export const DEEPSEEK_MODELS = [
-  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（默认）' },
+  { id: 'deepseek-chat', label: 'DeepSeek Chat（推荐：非推理，快且稳）' },
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（推理模型：慢、工具任务易空回复）' },
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
   { id: 'deepseek-v4-flash-vision-exp', label: 'DeepSeek V4 Flash Vision（实验）' },
-  { id: 'deepseek-chat', label: 'DeepSeek Chat（非推理，工具调用更稳）' },
 ] as const
 
 /** 测试连接结果（Rust test_model_source） */

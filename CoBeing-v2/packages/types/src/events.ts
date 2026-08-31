@@ -63,7 +63,7 @@ export interface AssistantCompleteEvent extends BaseEvent {
 /** 群组生命周期事件 */
 export interface GroupLifecycleEvent extends BaseEvent {
   type: 'group/lifecycle'
-  phase: 'created' | 'reused' | 'archived' | 'destroyed'
+  phase: 'created' | 'reused' | 'archived' | 'destroyed' | 'resumed'
   detail?: string
 }
 

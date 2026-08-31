@@ -194,6 +194,11 @@ export class BridgeServer {
         return () => this.serializeProjection(this.kernel.butlerProjection(), this.kernel.butlerContextInfo())
       case 'butler/newConversation':
         return () => this.kernel.newButlerConversation()
+      case 'butler/resumeConversation': {
+        this.require(object(params) && str(params, 'id'), 'id is required')
+        const id = (params as { id: string }).id
+        return () => this.kernel.resumeButlerConversation(id)
+      }
       case 'butler/listConversations':
         return () => this.kernel.listButlerConversations()
       case 'butler/conversationProjection': {

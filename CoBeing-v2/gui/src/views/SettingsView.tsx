@@ -127,7 +127,7 @@ export function SettingsView() {
     }
   }
 
-  // ---------- 测试连接（2.0.7：真实调用模型 API 验证配置） ----------
+  // ---------- 测试连接（2.0.8：真实调用模型 API 验证配置） ----------
   const [testResults, setTestResults] = useState<Record<string, TestConnectionResult>>({})
   const [testingId, setTestingId] = useState('')
 
@@ -382,7 +382,7 @@ export function SettingsView() {
                           </span>
                         )}
                       </div>
-                      <div className="sub">模型：{s.model || 'deepseek-v4-flash（默认）'}</div>
+                      <div className="sub">模型：{s.model || 'deepseek-chat（默认）'}</div>
                       {s.base_url && <div className="sub">Base URL：{s.base_url}</div>}
                       <div className="sub">
                         API Key：{s.api_key ? `${s.api_key.slice(0, 4)}…${s.api_key.slice(-4)}` : '（未配置）'}
@@ -585,9 +585,9 @@ export function SettingsView() {
         {section === 'about' && (
           <section>
             <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>关于</h3>
-            <div className="sub">CoBeing 桌面端 v2.0.7</div>
+            <div className="sub">CoBeing 桌面端 v2.0.8</div>
             <div className="sub">架构：Tauri 2 原生桌面 + 内置内核（免装 Node.js）</div>
-            <div className="sub">模型：DeepSeek V4 系列（默认 deepseek-v4-flash），可配置多个来源</div>
+            <div className="sub">模型：DeepSeek 系列（默认 deepseek-chat，推荐非推理），可配置多个来源</div>
             <div className="sub">手机互联：局域网自动发现 + 一键配对 + cloudflared 公网隧道</div>
             <div className="sub">自动更新：GitHub Releases（左侧「检查更新」）</div>
           </section>

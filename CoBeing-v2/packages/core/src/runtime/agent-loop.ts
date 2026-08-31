@@ -258,7 +258,7 @@ export class AgentInstance {
         '未配置模型服务：智能体没有指定模型，且内核未配置 API Key。请在「设置 → 模型」添加模型来源（或设置 DEEPSEEK_API_KEY）后重启',
       )
     }
-    const model = def.model ?? this.opts.defaultModel ?? 'deepseek-v4-flash'
+    const model = def.model ?? this.opts.defaultModel ?? 'deepseek-chat'
 
     // request/header：模型面完整头（system + tools + 配置），变化才追加（dsh 对齐）
     const toolNames = availableTools.map((line) => line.split('：')[0]!.replace(/^- /, ''))
