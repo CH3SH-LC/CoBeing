@@ -145,17 +145,27 @@ export class AgentInstance {
       // 本次唤醒起点 seq：诚实审查证据只取本次工作期间的工具记录
       // （修复 3：跨唤醒的旧工具记录不算"本次工作证据"，防"上次干过活"被当成"这次干过活"）
       const wakeStartSeq = this.opts.log.readCached().at(-1)?.seq ?? 0
+      // 本轮是否已发布过发言（2.0.10：轮次耗尽且从未发言时兜底落一条，杜绝"静默结束"）
+      let spokeThisTurn = false
+      // 诚实拒绝达上限放弃发言（幻觉不发布，防刷屏）——此时不允许兜底发言（语义冲突）
+      let gaveUpOnHonesty = false
+      const hasSpoke = () =>
+        this.opts.log.readCached().some((e) => e.type === 'speak' && e.actor === this.name && e.seq > wakeStartSeq)
       for (let round = 0; round < rounds; round++) {
         // 任何反馈消息（诚实拒绝/截断/工具失败）都补回任务锚点
         if (message.task === undefined && anchorTask !== undefined) {
           message = { ...message, task: anchorTask }
         }
         const outcome = await this.step(message, controller.signal, wakeStartSeq)
+        if (!spokeThisTurn) spokeThisTurn = hasSpoke()
         if (outcome.done || controller.signal.aborted) break
         // 诚实审查拒绝：计数 + 反馈下一轮继续真实工作；超过上限放弃发言（防幻觉刷屏）
         if (outcome.honestyRejected) {
           honestyFails++
-          if (honestyFails >= maxHonestyFails) break
+          if (honestyFails >= maxHonestyFails) {
+            gaveUpOnHonesty = true
+            break
+          }
           message = outcome.feedback ?? {
             content: '',
             task: undefined,
@@ -170,6 +180,15 @@ export class AgentInstance {
         }
         // 任务锚点保留：内容清空（公共上下文已带用户消息），任务说明继续在场
         message = { content: '', task: anchorTask }
+      }
+      // 2.0.10：轮次耗尽仍无发言（工具循环空转/模型未收敛）→ 兜底落一条发言，
+      // 用户始终能看到管家的收尾（不静默、不假装完成）。诚实拒绝放弃发言时不兜底。
+      if (!spokeThisTurn && !gaveUpOnHonesty && !controller.signal.aborted) {
+        await this.opts.log.append({
+          type: 'speak',
+          actor: this.name,
+          content: '[工作未收敛] 本轮工具调用已达上限，工作暂未完成。如需继续，请再次唤醒我。',
+        })
       }
     } catch (error) {
       await this.opts.log.append({

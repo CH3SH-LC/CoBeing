@@ -189,7 +189,7 @@ export class Kernel {
       this.tools.register(createButlerRelayTool(this.butlerLog, (content) => this.notifyUserCb?.({ type: 'text', content }))),
     )
 
-    // 管家主窗口专属工具（list-groups / create-group / ask-user；工具内校验仅主窗口但丁可调）
+    // 管家主窗口专属工具（list-groups / list-agents / create-group / create-agent / ask-user；工具内校验仅主窗口但丁可调）
     for (const tool of createButlerTools({
       listGroups: () =>
         [...this.groups.values()].map((g) => ({
@@ -199,6 +199,9 @@ export class Kernel {
           taskSummary: g.meta.taskSummary,
         })),
       createGroup: (name, label) => this.createGroup(name, label).then((g) => ({ name: g.meta.name, status: g.meta.status })),
+      // 2.0.10：管家自主创建智能体（进待批准队列，GUI 批准后登记名录）
+      requestCreateAgent: (def) => this.requestCreateAgent(def),
+      listAgents: () => this.registry.listAgents().map((a) => ({ name: a.name, role: a.role })),
       notifyUser: (payload) => this.notifyUserCb?.(payload),
     })) {
       this.disposers.push(this.tools.register(tool))
@@ -474,8 +477,10 @@ export class Kernel {
     mkdirSync(convDir, { recursive: true })
     const file = join(convDir, `${id}.jsonl`)
 
-    // 记忆归档总结（纯HI：归档记忆；容错，失败不阻塞）
-    await this.archiveConversationMemory(events)
+    // 记忆归档总结（纯HI：归档记忆；容错，失败不阻塞）。
+    // 2.0.10：改为后台异步执行——【记忆】是真实 LLM 调用（可能 10-30s+），
+    // 若同步等待，用户点「新对话」会卡住很久（issue #2）；归档本身不依赖总结结果。
+    void this.archiveConversationMemory(events).catch(() => undefined)
 
     // 当前日志 → 历史文件（完整事件保留：历史可回看/恢复，非压缩遮蔽）
     await rename(join(this.dataRoot, 'butler', 'log.jsonl'), file)
@@ -831,12 +836,12 @@ export class Kernel {
       basePrompt: def.name === 'butler'
         ? 'You are the butler instance inside a group. Your job: analyze and relay via butler-relay tool to the main window butler. Do not do concrete work.'
         : undefined,
-      // 修复 4：工作智能体工具面收敛——管家协调/元工具（butler-relay/list-groups/create-group/ask-user）
+      // 修复 4：工作智能体工具面收敛——管家协调/元工具（butler-relay/list-groups/list-agents/create-group/create-agent/ask-user）
       // 的 guard 仅主窗口但丁可调，对 worker 调用必失败；与其作为"必失败诱饵"留在工具面
       // 诱惑模型空转，不如直接从 worker 可见工具清单移除（不给偷懒盖章的机会）
       denyTools: def.name === 'butler'
         ? undefined
-        : ['butler-relay', 'list-groups', 'create-group', 'ask-user'],
+        : ['butler-relay', 'list-groups', 'list-agents', 'create-group', 'create-agent', 'ask-user'],
       // 经验档案自动注入（画像 + 最近条目；宿主面文件失败降级为空）
       experience: () => this.experience.contextBlock(agentDef.name).catch(() => ''),
       // 发言真实性审查（【诚实】）：工作智能体 reply 发言前验证（butler 不审查——管家不做具体工作）

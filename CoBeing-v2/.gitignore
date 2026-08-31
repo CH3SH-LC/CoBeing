@@ -5,14 +5,10 @@ data/
 coverage/
 .env
 
-# 远程互联（方案 v1）：cloudflared 二进制
+# 远程互联（方案 v1）：cloudflared 二进制与 Android 生成工程
 tools/
-
-# Android 生成工程（随源码发布，忽略构建产物与本地配置）
+mobile/android/
 mobile/.gradle/
-mobile/android/.gradle/
-mobile/android/**/build/
-mobile/android/app/src/main/assets/
 mobile/local.properties
 mobile/node_modules/
 mobile/dist/

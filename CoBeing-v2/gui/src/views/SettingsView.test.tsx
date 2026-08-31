@@ -23,6 +23,8 @@ interface Src {
   api_key: string
   base_url: string
   model: string
+  thinking_enabled?: boolean
+  reasoning_effort?: string
 }
 
 /**
@@ -120,6 +122,41 @@ describe('SettingsView（分栏设置界面）', () => {
     expect(screen.getByText(/重启应用后生效/)).toBeInTheDocument()
   })
 
+  it('编辑来源显示思考模式与思考强度控件，保存时传递思考字段（2.0.10）', async () => {
+    const sources = [{ ...src('a', 'DeepSeek 官方'), thinking_enabled: true, reasoning_effort: 'max' }]
+    routeMock({
+      get_model_configs: { sources, active_source: 'a' },
+      save_model_source: undefined,
+    })
+    render(<SettingsView />)
+    await waitFor(() => {
+      expect(screen.getByText('DeepSeek 官方')).toBeInTheDocument()
+    })
+    // 列表卡片展示思考状态
+    expect(screen.getByText(/思考模式：开启（强度 max）/)).toBeInTheDocument()
+    // 进入编辑表单：思考开关与强度控件存在且回填
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+    await waitFor(() => {
+      expect(screen.getByLabelText('思考模式（推理开关）')).toBeInTheDocument()
+      expect(screen.getByLabelText('思考强度（思考模式开启时生效）')).toBeInTheDocument()
+    })
+    expect((screen.getByLabelText('思考模式（推理开关）') as HTMLSelectElement).value).toBe('enabled')
+    expect((screen.getByLabelText('思考强度（思考模式开启时生效）') as HTMLSelectElement).value).toBe('max')
+    // 关闭思考 → 强度控件禁用
+    fireEvent.change(screen.getByLabelText('思考模式（推理开关）'), { target: { value: 'disabled' } })
+    expect((screen.getByLabelText('思考强度（思考模式开启时生效）') as HTMLSelectElement).disabled).toBe(true)
+    // 重新开启并改强度 → 保存
+    fireEvent.change(screen.getByLabelText('思考模式（推理开关）'), { target: { value: 'enabled' } })
+    fireEvent.change(screen.getByLabelText('思考强度（思考模式开启时生效）'), { target: { value: 'low' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存来源' }))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_model_source', expect.any(Object))
+    })
+    const saved = invokeMock.mock.calls.find((c) => c[0] === 'save_model_source')?.[1] as { source: Src }
+    expect(saved.source.thinking_enabled).toBe(true)
+    expect(saved.source.reasoning_effort).toBe('low')
+  })
+
   it('删除来源：调用 delete_model_source', async () => {
     routeMock({
       get_model_configs: {
@@ -143,14 +180,14 @@ describe('SettingsView（分栏设置界面）', () => {
     routeMock({
       get_model_configs: { sources: [], active_source: '' },
       check_update: {
-        latest_tag: 'v2.0.9',
-        published_at: '2026-08-27T00:00:00Z',
+        latest_tag: 'v2.0.10',
+        published_at: '2026-08-31T00:00:00Z',
         body: '',
-        asset_name: 'CoBeing.v2_2.0.9_x64-setup.exe',
+        asset_name: 'CoBeing.v2_2.0.10_x64-setup.exe',
         asset_url: 'https://example.com/setup.exe',
         asset_size: 30_000_000,
         has_update: false,
-        current_version: '2.0.9',
+        current_version: '2.0.10',
       },
     })
     render(<SettingsView />)
@@ -172,7 +209,7 @@ describe('SettingsView（分栏设置界面）', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '关于' }))
     await waitFor(() => {
-      expect(screen.getByText(/CoBeing 桌面端 v2\.0\.9/)).toBeInTheDocument()
+      expect(screen.getByText(/CoBeing 桌面端 v2\.0\.10/)).toBeInTheDocument()
     })
   })
 

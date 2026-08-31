@@ -160,8 +160,13 @@ async function main() {
   assert(beforeCount >= 4, `第一会话公共消息 ${beforeCount} 条`)
 
   // 2. 开启新对话（真实归档 + 记忆总结经真实 LLM）
-  console.log('  开启新对话（归档总结经真实 DeepSeek）…')
-  const created = await request('butler/newConversation', undefined, 120000)
+  // 2.0.10：归档记忆总结改为后台异步——newConversation 必须快速返回（不等待 LLM 总结），
+  // 用户点「新对话」不再卡住（issue #2）。耗时断言 < 20s（正常 <2s；LLM 归档总结可能 10-30s+）。
+  console.log('  开启新对话（归档总结后台异步，不应卡住）…')
+  const t0 = Date.now()
+  const created = await request('butler/newConversation', undefined, 30000)
+  const convMs = Date.now() - t0
+  assert(convMs < 20_000, `newConversation 快速返回（${convMs}ms < 20s）`)
   assert(/^conv-/.test(created.result.id), `newConversation 返回会话 id ${created.result.id}`)
   const convId = created.result.id
 

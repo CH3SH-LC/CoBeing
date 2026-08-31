@@ -235,7 +235,7 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
       dataRoot,
       token,
       name: serverName,
-      version: '2.0.9',
+      version: '2.0.10',
       lanUrl,
       onPaired: (record) => {
         notifyUser({ type: 'pair', action: 'paired', deviceName: record.deviceName })
@@ -283,7 +283,7 @@ export async function main(options: CliOptions = parseArgs(process.argv.slice(2)
           port: discoveryPort,
           id: serverId,
           name: serverName,
-          version: '2.0.9',
+          version: '2.0.10',
           wsPort: remotePort,
           host: lanIp,
         })

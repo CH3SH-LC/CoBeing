@@ -16,7 +16,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem'
 import { registerPlugin } from '@capacitor/core'
 
 /** 当前 App 版本（与 mobile/package.json version 同步） */
-export const APP_VERSION = '2.0.9'
+export const APP_VERSION = '2.0.10'
 
 export const GITHUB_RELEASES_API = 'https://api.github.com/repos/CH3SH-LC/CoBeing/releases'
 

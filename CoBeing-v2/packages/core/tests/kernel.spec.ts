@@ -251,6 +251,84 @@ describe('Kernel 管家群组感知与确认交互（纯HI：管家分析转发/
     expect(group.label).toContain('worker')
   }, 15_000)
 
+  test('create-agent 工具：主窗口但丁自主创建智能体 → 待批准队列 → 批准后登记名录（2.0.10）', async () => {
+    const ctx = await setup((req) => {
+      const last = req.messages[req.messages.length - 1]?.content ?? ''
+      if (last.includes('需要搜索')) {
+        return '{"toolCalls":[{"name":"create-agent","args":{"name":"websearcher","role":"网络搜索","basePrompt":"负责搜索"}}]}'
+      }
+      if (last.includes('还需要搜索')) {
+        return '{"toolCalls":[{"name":"create-agent","args":{"name":"websearcher","role":"网络搜索"}}]}'
+      }
+      return '{"reply":"ok"}'
+    })
+    contexts.push(ctx)
+    // 但丁自主发起创建 → 进入待批准队列（未登记名录）
+    await ctx.kernel.mainWindowSpeak('我需要搜索能力')
+    await waitFor(() => ctx.kernel.listPendingApprovals().some((a) => a.name === 'websearcher'))
+    expect(ctx.kernel.registry.getAgent('websearcher')).toBeUndefined()
+    expect(ctx.kernel.listPendingApprovals().find((a) => a.name === 'websearcher')!.role).toBe('网络搜索')
+    // 重复提交同一名字被拒
+    await ctx.kernel.mainWindowSpeak('我还需要搜索')
+    await waitFor(() => {
+      const events = ctx.kernel.butlerLog.readCached()
+      return events.some((e) => e.type === 'tool/result' && e.ok === false && (e as { content: string }).content.includes('pending approval already exists'))
+    })
+    // 用户批准 → 登记名录；随后可建群
+    await ctx.kernel.confirmAgent('websearcher')
+    expect(ctx.kernel.registry.getAgent('websearcher')).toBeDefined()
+    await ctx.kernel.createGroup('search-g', ['user', 'butler', 'websearcher'])
+    expect(ctx.kernel.listGroups().some((g) => g.name === 'search-g')).toBe(true)
+  }, 15_000)
+
+  test('create-agent 工具：非法名字/缺 role 被工具拒绝（不进待批准队列）', async () => {
+    const ctx = await setup((req) => {
+      const last = req.messages[req.messages.length - 1]?.content ?? ''
+      // 注意公共上下文含历史消息：先精确匹配本次唤醒词再分派
+      if (last.includes('非法名') && !last.includes('缺角色')) {
+        return '{"toolCalls":[{"name":"create-agent","args":{"name":"中文名!","role":"测试"}}]}'
+      }
+      if (last.includes('缺角色')) {
+        return '{"toolCalls":[{"name":"create-agent","args":{"name":"okagent"}}]}'
+      }
+      return '{"reply":"ok"}'
+    })
+    contexts.push(ctx)
+    await ctx.kernel.mainWindowSpeak('请创建非法名智能体')
+    await waitFor(() => {
+      const events = ctx.kernel.butlerLog.readCached()
+      return events.some((e) => e.type === 'tool/result' && e.ok === false && (e as { content: string }).content.includes('不合法'))
+    })
+    expect(ctx.kernel.listPendingApprovals().some((a) => a.name === 'okagent')).toBe(false)
+    await ctx.kernel.mainWindowSpeak('请创建缺角色的智能体')
+    await waitFor(() => {
+      const events = ctx.kernel.butlerLog.readCached()
+      return events.some((e) => e.type === 'tool/result' && e.ok === false && (e as { content: string }).content.includes('role 必填'))
+    })
+    expect(ctx.kernel.listPendingApprovals().some((a) => a.name === 'okagent')).toBe(false)
+  }, 15_000)
+
+  test('list-agents 工具：主窗口但丁可查询名录（含空名录提示）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cb-kernel-'))
+    const kernel = new Kernel(dir, {
+      mockResponder: (req) => {
+        const last = req.messages[req.messages.length - 1]?.content ?? ''
+        if (last.includes('查一下名录')) {
+          return '{"toolCalls":[{"name":"list-agents","args":{}}]}'
+        }
+        return '{"reply":"ok"}'
+      },
+      notifyUser: () => undefined,
+    })
+    await kernel.start()
+    contexts.push({ kernel, dir })
+    await kernel.mainWindowSpeak('帮我查一下名录')
+    await waitFor(() => {
+      const events = kernel.butlerLog.readCached()
+      return events.some((e) => e.type === 'tool/result' && e.ok === true && (e as { content: string }).content.includes('名录中没有任何智能体'))
+    })
+  }, 15_000)
+
   test('管家协调工具（list-groups 等）：群组工作智能体工具面已收敛（调用被 denyTools 拒绝）', async () => {
     const ctx = await setup((req) => {
       const last = req.messages[req.messages.length - 1]?.content ?? ''
