@@ -56,9 +56,8 @@ describe('settings model configs (多来源)', () => {
     expect(newSourceId()).toMatch(/^src-/)
   })
 
-  it('DEEPSEEK_MODELS：deepseek-chat 为默认推荐（第一个）', () => {
+  it('DEEPSEEK_MODELS：V4 系列（v4-flash 默认；无 chat/reasoner——思考由开关控制）', () => {
     expect(DEEPSEEK_MODELS.map((m) => m.id)).toEqual([
-      'deepseek-chat',
       'deepseek-v4-flash',
       'deepseek-v4-pro',
       'deepseek-v4-flash-vision-exp',

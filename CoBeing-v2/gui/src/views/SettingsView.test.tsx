@@ -143,14 +143,14 @@ describe('SettingsView（分栏设置界面）', () => {
     routeMock({
       get_model_configs: { sources: [], active_source: '' },
       check_update: {
-        latest_tag: 'v2.0.8',
+        latest_tag: 'v2.0.9',
         published_at: '2026-08-27T00:00:00Z',
         body: '',
-        asset_name: 'CoBeing.v2_2.0.8_x64-setup.exe',
+        asset_name: 'CoBeing.v2_2.0.9_x64-setup.exe',
         asset_url: 'https://example.com/setup.exe',
         asset_size: 30_000_000,
         has_update: false,
-        current_version: '2.0.8',
+        current_version: '2.0.9',
       },
     })
     render(<SettingsView />)
@@ -172,7 +172,7 @@ describe('SettingsView（分栏设置界面）', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '关于' }))
     await waitFor(() => {
-      expect(screen.getByText(/CoBeing 桌面端 v2\.0\.8/)).toBeInTheDocument()
+      expect(screen.getByText(/CoBeing 桌面端 v2\.0\.9/)).toBeInTheDocument()
     })
   })
 

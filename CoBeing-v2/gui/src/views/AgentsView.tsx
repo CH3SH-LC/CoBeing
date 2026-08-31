@@ -14,9 +14,9 @@ export function AgentsView() {
   const [form, setForm] = useState({
     name: '',
     role: '',
-    // 2.0.7/2.0.8：默认真实模型——deepseek-chat（非推理，快且稳）；mock 仅显式测试选项
+    // 2.0.9：DeepSeek V4 无 chat/reasoner——默认 v4-flash；思考行为由模型来源配置（思考开关/强度）控制
     provider: 'deepseek',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     maxTokens: '8192',
     basePrompt: '',
   })
@@ -64,7 +64,7 @@ export function AgentsView() {
         maxTokens: Number(form.maxTokens) || undefined,
         createdAt: Date.now(),
       })
-      setForm({ name: '', role: '', provider: 'deepseek', model: 'deepseek-chat', maxTokens: '8192', basePrompt: '' })
+      setForm({ name: '', role: '', provider: 'deepseek', model: 'deepseek-v4-flash', maxTokens: '8192', basePrompt: '' })
       await refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -295,7 +295,7 @@ export function AgentsView() {
               </div>
               <div className="form-field">
                 <label>model</label>
-                <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="deepseek-chat（推荐）或 deepseek-v4-flash（推理，慢/易空回复）" />
+                <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="deepseek-v4-flash（默认）/ deepseek-v4-pro" />
               </div>
               <div className="form-field">
                 <label>maxTokens</label>
@@ -307,9 +307,9 @@ export function AgentsView() {
                 ⚠ mock 模式返回固定硬回复，智能体不会真实工作。仅用于界面测试，正式任务请使用 deepseek。
               </div>
             )}
-            {form.provider === 'deepseek' && form.model === 'deepseek-v4-flash' && (
-              <div className="sub" style={{ color: 'var(--warning, #b57a00)' }}>
-                ⚠ deepseek-v4-flash 为推理模型（先思考后回答）：响应慢、短 maxTokens 下易返回空回复（LLM_EMPTY_RESPONSE）。一般任务推荐 deepseek-chat。
+            {form.provider === 'deepseek' && (
+              <div className="sub">
+                💡 思考模式（推理开关/强度）在「设置 → 模型」的来源配置中统一控制：关闭 = 响应快（默认）；开启 = 深度思考但慢、maxTokens 需更大。
               </div>
             )}
             <div className="form-field">

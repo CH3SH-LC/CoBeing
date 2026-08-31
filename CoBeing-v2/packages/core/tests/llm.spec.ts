@@ -85,7 +85,7 @@ describe('DeepSeekProvider', () => {
     expect(error?.message).toContain('无法连接模型服务')
   })
 
-  it('空 content（推理模型 reasoning_content）→ LLM_EMPTY_RESPONSE 且提示换模型', async () => {
+  it('空 content（思考模式 reasoning_content）→ LLM_EMPTY_RESPONSE 且提示关思考/调强度', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -100,7 +100,33 @@ describe('DeepSeekProvider', () => {
       .chat({ provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
       .then(() => null, (e) => e)) as { code?: string; message?: string } | null
     expect(error?.code).toBe('LLM_EMPTY_RESPONSE')
-    expect(error?.message).toContain('推理模型')
+    expect(error?.message).toContain('思考模式')
+  })
+
+  it('思考模式默认关闭（thinking disabled）；开启时传 effort', async () => {
+    const calls: Array<{ body: { thinking: { type: string }; reasoning_effort?: string } }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async (_url: string, init: { body: string }) => {
+        calls.push({ body: JSON.parse(init.body) })
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 })
+      }),
+    )
+    // 默认：thinking disabled，不传 effort
+    const provider = new DeepSeekProvider({ apiKey: 'k' })
+    await provider.chat({ provider: 'deepseek', model: 'm', messages: [] })
+    expect(calls[0]!.body.thinking).toEqual({ type: 'disabled' })
+    expect(calls[0]!.body.reasoning_effort).toBeUndefined()
+    // 开启思考 + effort low
+    const provider2 = new DeepSeekProvider({ apiKey: 'k', thinking: true, reasoningEffort: 'low' })
+    await provider2.chat({ provider: 'deepseek', model: 'm', messages: [] })
+    expect(calls[1]!.body.thinking).toEqual({ type: 'enabled' })
+    expect(calls[1]!.body.reasoning_effort).toBe('low')
+    // 开启思考未配 effort → 不传（API 默认 high）
+    const provider3 = new DeepSeekProvider({ apiKey: 'k', thinking: true })
+    await provider3.chat({ provider: 'deepseek', model: 'm', messages: [] })
+    expect(calls[2]!.body.thinking).toEqual({ type: 'enabled' })
+    expect(calls[2]!.body.reasoning_effort).toBeUndefined()
   })
 
   it('无 apiKey 时抛 LLM_CONFIG_MISSING 中文引导', async () => {

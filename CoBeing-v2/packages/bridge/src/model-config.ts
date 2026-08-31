@@ -18,6 +18,10 @@ export interface ModelSourceFile {
   api_key?: string
   base_url?: string
   model?: string
+  /** 思考模式（2.0.9）：true=开启；缺省 false（关闭，快且稳） */
+  thinking_enabled?: boolean
+  /** 思考强度（思考开启时生效）：low / high / max；缺省 high */
+  reasoning_effort?: string
 }
 
 export interface ModelConfigsFile {
@@ -64,6 +68,11 @@ export function parseModelConfig(raw: string): ModelConfigsFile {
     if (apiKey !== undefined) entry.api_key = apiKey
     if (baseUrl !== undefined) entry.base_url = baseUrl
     if (model !== undefined) entry.model = model
+    // 思考模式（2.0.9）：布尔字段容错解析（旧文件缺省 undefined → 调用方默认关闭）
+    if (typeof src.thinking_enabled === 'boolean') entry.thinking_enabled = src.thinking_enabled
+    if (typeof src.thinking_enabled === 'string') entry.thinking_enabled = src.thinking_enabled === 'true'
+    const effort = str(src.reasoning_effort)
+    if (effort !== undefined) entry.reasoning_effort = effort
     sources.push(entry)
   }
   const active = str(obj.active_source)

@@ -14,6 +14,10 @@ export interface ModelSource {
   api_key: string
   base_url: string
   model: string
+  /** 思考模式（2.0.9）：true=开启；缺省/undefined=关闭（快且稳） */
+  thinking_enabled?: boolean
+  /** 思考强度（思考开启时生效）：low / high / max；缺省 high */
+  reasoning_effort?: string
 }
 
 export interface ModelConfigs {
@@ -21,10 +25,16 @@ export interface ModelConfigs {
   active_source: string
 }
 
-/** DeepSeek 可选模型（2.0.8：deepseek-chat 为默认推荐——非推理、快且稳、工具调用友好；推理模型显式选择） */
+/** 思考强度选项 */
+export const REASONING_EFFORTS = [
+  { id: 'low', label: '低（low）' },
+  { id: 'high', label: '高（high，默认）' },
+  { id: 'max', label: '最高（max）' },
+] as const
+
+/** DeepSeek 可选模型（2.0.9：V4 系列仅 flash/pro；无 chat/reasoner——思考行为由开关+强度控制） */
 export const DEEPSEEK_MODELS = [
-  { id: 'deepseek-chat', label: 'DeepSeek Chat（推荐：非推理，快且稳）' },
-  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（推理模型：慢、工具任务易空回复）' },
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（默认）' },
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
   { id: 'deepseek-v4-flash-vision-exp', label: 'DeepSeek V4 Flash Vision（实验）' },
 ] as const

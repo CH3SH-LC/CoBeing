@@ -29,6 +29,12 @@ pub struct ModelSource {
     pub base_url: String,
     #[serde(default)]
     pub model: String,
+    /// 思考模式（2.0.9）：true=开启（thinking enabled）；缺省 false（关闭，快且稳）
+    #[serde(default)]
+    pub thinking_enabled: bool,
+    /// 思考强度（思考开启时生效）：low / high / max；缺省 high
+    #[serde(default)]
+    pub reasoning_effort: String,
 }
 
 impl ModelSource {
@@ -91,6 +97,7 @@ fn migrate_legacy(raw: &str) -> Option<ModelConfigs> {
             api_key: legacy.api_key,
             base_url: legacy.base_url,
             model: legacy.model,
+            ..Default::default()
         }],
         active_source: "default".into(),
     })
@@ -223,11 +230,23 @@ pub fn test_model_source(app: tauri::AppHandle, source_id: String) -> Result<Tes
         source.model.trim()
     };
     let url = format!("{base}/chat/completions");
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [{ "role": "user", "content": "hi" }],
-        "max_tokens": 4,
-    });
+    // 2.0.9：思考模式显式控制（来源配置；默认关闭）
+    let body = if source.thinking_enabled {
+        serde_json::json!({
+            "model": model,
+            "messages": [{ "role": "user", "content": "hi" }],
+            "max_tokens": 32,
+            "thinking": { "type": "enabled" },
+            "reasoning_effort": if source.reasoning_effort.trim().is_empty() { "high" } else { source.reasoning_effort.trim() },
+        })
+    } else {
+        serde_json::json!({
+            "model": model,
+            "messages": [{ "role": "user", "content": "hi" }],
+            "max_tokens": 16,
+            "thinking": { "type": "disabled" },
+        })
+    };
     // ureq 3.4：Agent::config_builder 配超时；4xx/5xx 默认返回 Ok(Response)（http_status_as_error=false）
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(std::time::Duration::from_secs(10)))
@@ -322,6 +341,7 @@ mod tests {
             api_key: key.into(),
             base_url: String::new(),
             model: model.into(),
+            ..Default::default()
         }
     }
 

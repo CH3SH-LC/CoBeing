@@ -152,7 +152,7 @@ export class Kernel {
     this.remoteControl = new RemoteControlService({ dataRoot, roots: opts.remoteRoots })
     // 2.0.7：默认模型路由（生产装配传 deepseek / 无 key 传 undefined + allowMockFallback=false → 明确报错）
     this.defaultProvider = opts.defaultProvider
-    this.defaultModel = opts.defaultModel ?? 'deepseek-chat'
+    this.defaultModel = opts.defaultModel ?? 'deepseek-v4-flash'
     this.allowMockFallback = opts.allowMockFallback ?? true
     // 但丁默认 provider：显式指定优先；未指定且允许 mock（测试/开发）→ mock；生产禁 mock → undefined（报错链）
     this.butlerProvider = opts.butlerProvider ?? (this.allowMockFallback ? 'mock' : undefined)

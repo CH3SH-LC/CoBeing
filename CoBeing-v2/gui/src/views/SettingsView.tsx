@@ -16,6 +16,7 @@ import {
   testModelSource,
   newSourceId,
   DEEPSEEK_MODELS,
+  REASONING_EFFORTS,
   type ModelConfigs,
   type ModelSource,
   type TestConnectionResult,
@@ -37,7 +38,16 @@ type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error'
 
 /** 空来源表单（编辑/新建共用） */
 function emptyForm(): Omit<ModelSource, 'id'> & { id: string } {
-  return { id: newSourceId(), name: '', api_key: '', base_url: '', model: DEEPSEEK_MODELS[0].id }
+  return {
+    id: newSourceId(),
+    name: '',
+    api_key: '',
+    base_url: '',
+    model: DEEPSEEK_MODELS[0].id,
+    // 2.0.9：思考模式默认关闭（快且稳）；强度默认 high
+    thinking_enabled: false,
+    reasoning_effort: 'high',
+  }
 }
 
 export function SettingsView() {
@@ -127,7 +137,7 @@ export function SettingsView() {
     }
   }
 
-  // ---------- 测试连接（2.0.8：真实调用模型 API 验证配置） ----------
+  // ---------- 测试连接（2.0.9：真实调用模型 API 验证配置） ----------
   const [testResults, setTestResults] = useState<Record<string, TestConnectionResult>>({})
   const [testingId, setTestingId] = useState('')
 
@@ -382,10 +392,13 @@ export function SettingsView() {
                           </span>
                         )}
                       </div>
-                      <div className="sub">模型：{s.model || 'deepseek-chat（默认）'}</div>
+                      <div className="sub">模型：{s.model || 'deepseek-v4-flash（默认）'}</div>
                       {s.base_url && <div className="sub">Base URL：{s.base_url}</div>}
                       <div className="sub">
                         API Key：{s.api_key ? `${s.api_key.slice(0, 4)}…${s.api_key.slice(-4)}` : '（未配置）'}
+                      </div>
+                      <div className="sub">
+                        思考模式：{s.thinking_enabled ? `开启（强度 ${s.reasoning_effort || 'high'}）` : '关闭（快且稳）'}
                       </div>
                       {testResults[s.id] && (
                         <div className="sub" style={{ color: testResults[s.id].ok ? 'var(--success, #30a46c)' : 'var(--danger, #e5484d)', marginTop: 4 }}>
@@ -470,7 +483,35 @@ export function SettingsView() {
                           </option>
                         ))}
                       </select>
-                      <div className="hint">DeepSeek V4 系列（v4-flash 默认）</div>
+                      <div className="hint">DeepSeek V4 系列（v4-flash 默认；已无 chat/reasoner 模型——思考行为由下方开关+强度控制）</div>
+                    </div>
+                    <div className="form-field">
+                      <label htmlFor="src-thinking">思考模式（推理开关）</label>
+                      <select
+                        id="src-thinking"
+                        value={editing.thinking_enabled ? 'enabled' : 'disabled'}
+                        onChange={(e) => setEditing({ ...editing, thinking_enabled: e.target.value === 'enabled' })}
+                      >
+                        <option value="disabled">关闭（推荐：响应快、工具调用稳）</option>
+                        <option value="enabled">开启（先推理再回答，深度思考但慢）</option>
+                      </select>
+                      <div className="hint">关闭 = 请求带 thinking disabled（等价于旧版非推理模型）；开启后回答质量更高但更慢、maxTokens 需更大</div>
+                    </div>
+                    <div className="form-field">
+                      <label htmlFor="src-effort">思考强度（思考模式开启时生效）</label>
+                      <select
+                        id="src-effort"
+                        disabled={!editing.thinking_enabled}
+                        value={editing.reasoning_effort || 'high'}
+                        onChange={(e) => setEditing({ ...editing, reasoning_effort: e.target.value })}
+                      >
+                        {REASONING_EFFORTS.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="hint">low / high / max（medium、xhigh 会被服务端映射为 high）</div>
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button className="btn primary" onClick={() => void handleSaveSource()}>
@@ -585,7 +626,7 @@ export function SettingsView() {
         {section === 'about' && (
           <section>
             <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>关于</h3>
-            <div className="sub">CoBeing 桌面端 v2.0.8</div>
+            <div className="sub">CoBeing 桌面端 v2.0.9</div>
             <div className="sub">架构：Tauri 2 原生桌面 + 内置内核（免装 Node.js）</div>
             <div className="sub">模型：DeepSeek 系列（默认 deepseek-chat，推荐非推理），可配置多个来源</div>
             <div className="sub">手机互联：局域网自动发现 + 一键配对 + cloudflared 公网隧道</div>

@@ -116,7 +116,7 @@ export function classifyHttpError(status: number, body: string, url: string): LL
   return new LLMError(LLM_ERROR_CODES.LLM_RETRIES_EXHAUSTED, `模型调用失败（HTTP ${status}）`, { status, detail })
 }
 
-/** 空内容（choices 缺失 / content 为空）分类：区分推理模型（reasoning_content 有值） */
+/** 空内容（choices 缺失 / content 为空）分类：区分思考模式（reasoning_content 有值） */
 export function classifyEmptyResponse(body: unknown): LLMError {
   const data = body as {
     choices?: Array<{ message?: { content?: string; reasoning_content?: string }; finish_reason?: string }>
@@ -126,7 +126,7 @@ export function classifyEmptyResponse(body: unknown): LLMError {
   if (reasoning) {
     return new LLMError(
       LLM_ERROR_CODES.LLM_EMPTY_RESPONSE,
-      '模型返回空回复（推理模型思考后未输出正式内容；工具调用场景建议使用非推理模型 deepseek-chat，或增大 maxTokens）',
+      '模型返回空回复（思考模式：思维链占满输出上限后未给出正式回答）。请关闭思考模式（模型来源配置），或增大 maxTokens / 调低思考强度',
       { detail: `finish_reason=${choice?.finish_reason ?? '?'}` },
     )
   }
