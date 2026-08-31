@@ -65,7 +65,7 @@ export async function runE2E(onStep: (index: number, step: E2EStep) => void, opt
   const steps: E2EStep[] = [
     { name: 'ping 内核', state: 'pending' },
     { name: '创建智能体 e2e-tester 并批准', state: 'pending' },
-    { name: '主对话发言 → 但丁回复', state: 'pending' },
+    { name: '主对话发言 → 铃音回复', state: 'pending' },
     { name: '开启新对话窗口 → 当前清空 + 历史可回看', state: 'pending' },
     { name: '创建群组 e2e-smoke（user+butler+e2e-tester）', state: 'pending' },
     { name: '群内 mention e2e-tester → 群组发言', state: 'pending' },

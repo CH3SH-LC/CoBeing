@@ -147,7 +147,7 @@ export function ChatView() {
           {viewing ? `历史：${viewing.firstUserMessage?.slice(0, 10) ?? viewing.id}` : '会话'}
         </button>
         <div className="title" style={{ fontSize: 13, fontWeight: 600 }}>
-          {viewing ? '历史会话（只读）' : '与但丁对话'}
+          {viewing ? '历史会话（只读）' : '与铃音对话'}
           {contextText && <span className="sub" style={{ marginLeft: 6 }}>上下文 {contextText}</span>}
         </div>
         {viewing ? (
@@ -201,7 +201,7 @@ export function ChatView() {
         <div className="composer">
           <textarea
             rows={1}
-            placeholder="给但丁发消息…（Enter 发送）"
+            placeholder="给铃音发消息…（Enter 发送）"
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {

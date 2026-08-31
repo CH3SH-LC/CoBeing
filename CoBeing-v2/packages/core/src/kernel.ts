@@ -507,7 +507,7 @@ export class Kernel {
    */
   async newButlerConversation(): Promise<{ id: string; archived?: ButlerConversationSummary }> {
     if (this.butlerInstance?.status === 'busy') {
-      throw new Error('但丁正在工作中，请等待当前工作完成后再开启新对话')
+      throw new Error('铃音正在工作中，请等待当前工作完成后再开启新对话')
     }
     const archived = await this.archiveCurrentConversation()
     if (!archived) return { id: 'current' } // 空会话：幂等
@@ -536,7 +536,7 @@ export class Kernel {
    */
   async resumeButlerConversation(id: string): Promise<{ id: string; restored: ButlerConversationSummary }> {
     if (this.butlerInstance?.status === 'busy') {
-      throw new Error('但丁正在工作中，请等待当前工作完成后再恢复会话')
+      throw new Error('铃音正在工作中，请等待当前工作完成后再恢复会话')
     }
     const meta = this.butlerConversations.find((c) => c.id === id)
     if (!meta) throw new Error(`conversation not found: ${id}`)
@@ -834,7 +834,7 @@ export class Kernel {
       allowMockFallback: this.allowMockFallback,
       protocolText: DEFAULT_PROTOCOL_TEXT,
       basePrompt: def.name === 'butler'
-        ? 'You are the butler instance inside a group. Your job: analyze and relay via butler-relay tool to the main window butler. Do not do concrete work.'
+        ? '你是管家铃音在群组内的分身：你的职责是分析群组内需要管家/用户决策的内容，用 butler-relay 工具转给主窗口管家铃音；不做具体工作。'
         : undefined,
       // 修复 4：工作智能体工具面收敛——管家协调/元工具（butler-relay/list-groups/list-agents/create-group/create-agent/ask-user）
       // 的 guard 仅主窗口但丁可调，对 worker 调用必失败；与其作为"必失败诱饵"留在工具面

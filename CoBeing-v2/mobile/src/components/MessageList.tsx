@@ -30,8 +30,15 @@ function avatarColor(name: string): string {
 
 function avatarText(actor: string): string {
   if (actor === 'user') return '我'
-  if (actor === 'butler') return '丁'
+  if (actor === 'butler') return '铃'
   return actor.slice(0, 1).toUpperCase()
+}
+
+/** 角色显示名（系统标识 butler → 用户可见名字铃音；user → 我） */
+function actorLabel(actor: string): string {
+  if (actor === 'user') return '我'
+  if (actor === 'butler') return '铃音'
+  return actor
 }
 
 function dayLabel(ts: number): string {
@@ -118,7 +125,7 @@ export function MessageList({ projection, confirm }: { projection: ProjectionDto
                 </div>
                 <div className="msg-col">
                   <div className="meta">
-                    {isUser ? '我' : m.actor}
+                    {actorLabel(m.actor)}
                     {m.mention?.length ? ` @${m.mention.join('@')}` : ''}
                     <span className="time">{clock(m.ts ?? Date.now())}</span>
                   </div>

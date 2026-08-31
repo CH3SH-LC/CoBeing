@@ -45,7 +45,7 @@ function routingResponder(req: ChatRequest): string {
     return '{"toolCalls":[{"name":"butler-relay","args":{"content":"任务完成","kind":"report"}}]}'
   }
   if (last.includes('欢迎语')) return '{"reply":"欢迎来到 CoBeing！"}'
-  if (last.includes('你好')) return '{"reply":"你好，我是管家但丁"}'
+  if (last.includes('你好')) return '{"reply":"你好，我是管家铃音"}'
   return '{"reply":"(mock) 已收到"}'
 }
 
@@ -77,7 +77,7 @@ describe('Kernel 主窗口管家循环', () => {
     await ctx.kernel.mainWindowSpeak('你好')
     await waitFor(() => {
       const projection = ctx.kernel.butlerProjection()
-      return projection.publicMessages.some((m) => m.actor === 'butler' && m.content.includes('但丁'))
+      return projection.publicMessages.some((m) => m.actor === 'butler' && m.content.includes('铃音'))
     })
     const projection = ctx.kernel.butlerProjection()
     const actors = projection.publicMessages.map((m) => m.actor)
@@ -685,7 +685,7 @@ describe('主窗口会话（新对话窗口：当前日志归档 + 空会话重�
     rmSync(dir, { recursive: true, force: true })
   }, 15_000)
 
-  test('但丁工作中 newConversation 拒绝；收敛后可开启', async () => {
+  test('铃音工作中 newConversation 拒绝；收敛后可开启', async () => {
     // 阻塞 provider：控制但丁一轮的持续时间（busy 窗口可观测）
     let release!: () => void
     const gate = new Promise<void>((r) => {
@@ -1098,7 +1098,7 @@ describe('发言真实性审查【诚实】（kernel 接线）', () => {
     const dir = mkdtempSync(join(tmpdir(), 'cb-kernel-'))
     let honestyCalls = 0
     const kernel = new Kernel(dir, {
-      mockResponder: () => '{"reply":"你好，我是管家但丁"}',
+      mockResponder: () => '{"reply":"你好，我是管家铃音"}',
       notifyUser: () => undefined,
     })
     await kernel.start()
@@ -1113,6 +1113,6 @@ describe('发言真实性审查【诚实】（kernel 接线）', () => {
     await waitFor(() => kernel.butlerProjection().publicMessages.some((m) => m.actor === 'butler'))
     // 主窗口但丁回复正常发布且未触发【诚实】
     expect(honestyCalls).toBe(0)
-    expect(kernel.butlerProjection().publicMessages.some((m) => m.actor === 'butler' && m.content.includes('但丁'))).toBe(true)
+    expect(kernel.butlerProjection().publicMessages.some((m) => m.actor === 'butler' && m.content.includes('铃音'))).toBe(true)
   }, 15_000)
 })

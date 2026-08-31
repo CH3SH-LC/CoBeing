@@ -137,15 +137,15 @@ describe('ExperienceService 自适 scope（总结适合自己的经验）', () =
     expect(scope).toContain('用户偏好浅色主题') // 既有画像并入
   })
 
-  test('scopeFor：但丁用管家人格；未登记实例退化按名字', async () => {
+  test('scopeFor：管家用铃音人格；未登记实例退化按名字', async () => {
     const svc = new ExperienceService({
       memory: new ExperienceStore(join(tempDir('cb-exp-svc-'), 'memory')),
       llm: async () => '',
       defOf: () => undefined,
-      butlerPersona: '你是管家但丁（Dante）\n【职责】观察、总结、协调、向用户汇报',
+      butlerPersona: '你是管家铃音（Suzune）\n【职责】观察、总结、协调、向用户汇报',
     })
     const butlerScope = await svc.scopeFor('butler')
-    expect(butlerScope).toContain('但丁')
+    expect(butlerScope).toContain('铃音')
     expect(butlerScope).toContain('观察、总结、协调')
     const bareScope = await svc.scopeFor('unknown-agent')
     expect(bareScope).toContain('unknown-agent')
@@ -342,7 +342,7 @@ describe('AgentInstance 经验注入（user 动态区，前缀稳定）', () => 
 // ---------- Kernel 接线（归档/新对话/存档信息） ----------
 
 describe('Kernel 经验接线', () => {
-  test('newButlerConversation 归档 → butler.md 写自适经验条目（含但丁 scope）', async () => {
+  test('newButlerConversation 归档 → butler.md 写自适经验条目（含铃音 scope）', async () => {
     const dir = tempDir('cb-exp-kernel-')
     const seenInstructions: string[] = []
     const { Kernel } = await import('../src/kernel.js')
@@ -354,18 +354,18 @@ describe('Kernel 经验接线', () => {
           seenInstructions.push(system)
           return '- 用户希望管家记住北极熊皮肤是黑色的'
         }
-        if (system.includes('[输出协议]')) return '{"reply":"你好，我是管家但丁"}'
+        if (system.includes('[输出协议]')) return '{"reply":"你好，我是管家铃音"}'
         return '{"reply":"(mock)"}'
       },
       notifyUser: () => undefined,
     })
     await kernel.start()
-    await kernel.mainWindowSpeak('你好但丁，请记住：北极熊的皮肤是黑色的。')
+    await kernel.mainWindowSpeak('你好铃音，请记住：北极熊的皮肤是黑色的。')
     await waitFor(() => kernel.butlerProjection().publicMessages.some((m) => m.actor === 'butler'))
     await kernel.newButlerConversation()
-    // 归档总结经【记忆】工具智能体：指令含但丁自适 scope
+    // 归档总结经【记忆】工具智能体：指令含铃音自适 scope
     expect(seenInstructions.length).toBeGreaterThan(0)
-    expect(seenInstructions[0]).toContain('但丁')
+    expect(seenInstructions[0]).toContain('铃音')
     const memoryFile = join(dir, 'memory', 'butler.md')
     expect(existsSync(memoryFile)).toBe(true)
     const text = readFileSync(memoryFile, 'utf8')

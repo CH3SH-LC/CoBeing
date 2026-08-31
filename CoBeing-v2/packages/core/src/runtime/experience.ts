@@ -47,7 +47,7 @@ export class ExperienceService {
     const def = this.deps.defOf(name)
     const parts: string[] = []
     if (name === 'butler' && this.deps.butlerPersona) {
-      parts.push(`你是管家但丁（主窗口管家）。`)
+      parts.push(`你是管家铃音（主窗口管家）。`)
       parts.push(this.deps.butlerPersona.split('\n').slice(0, 4).join('\n'))
     } else if (def) {
       parts.push(`你是 ${name}（${def.role ?? '工作智能体'}）。`)

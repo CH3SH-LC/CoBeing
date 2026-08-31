@@ -9,6 +9,13 @@ import { useToast } from '../components/Toast'
 import { MessageList } from '../components/MessageList'
 import type { GroupMeta, GroupStatus, NotifyPayload, ProjectionDto } from '../types'
 
+/** 成员标签显示名（协议标识 user/butler → 用户可见；其余原样） */
+function memberLabel(m: string): string {
+  if (m === 'user') return '用户'
+  if (m === 'butler') return '铃音'
+  return m
+}
+
 export function GroupsView() {
   const { status, lastUpdate } = useAppState()
   const toast = useToast()
@@ -150,7 +157,7 @@ export function GroupsView() {
                     style={{ fontSize: 12, padding: '4px 10px' }}
                   >
                     {m.busy ? '⏳ ' : ''}
-                    {m.name === 'user' ? '我' : m.name}
+                    {memberLabel(m.name)}
                   </span>
                 ))}
               </div>
@@ -172,7 +179,7 @@ export function GroupsView() {
                   className={`btn small ${mention.includes(m) ? '' : 'ghost'}`}
                   onClick={() => setMention((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]))}
                 >
-                  @{m}
+                  @{memberLabel(m)}
                 </button>
               ))}
             </div>
@@ -225,7 +232,7 @@ export function GroupsView() {
         {groups.map((g) => (
           <div key={g.name} className="card">
             <h3>{g.name}</h3>
-            <div className="sub">成员：{g.label.join(' · ')}</div>
+            <div className="sub">成员：{g.label.map(memberLabel).join(' · ')}</div>
             <div className="sub">状态：{g.status}{g.taskSummary ? ` · 任务：${g.taskSummary}` : ''}</div>
             <button className="btn small secondary" onClick={() => openGroup(g.name)}>
               进入群组

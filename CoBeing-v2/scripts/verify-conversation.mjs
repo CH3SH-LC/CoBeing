@@ -2,11 +2,11 @@
  * 真实验证：主窗口会话（新对话窗口 + 自动压缩可见性）——真实 DeepSeek 端到端
  *
  * 场景：
- *   1. 主窗口与但丁真实对话两轮（真实 key）
+ *   1. 主窗口与铃音真实对话两轮（真实 key）
  *   2. butler/newConversation 开启新对话：当前归档为历史会话
  *   3. butler/listConversations：当前 + 历史
  *   4. butler/conversationProjection(历史)：旧消息完整可回看
- *   5. 新会话中继续真实对话（但丁在新会话正常工作，上下文归零）
+ *   5. 新会话中继续真实对话（铃音在新会话正常工作，上下文归零）
  *   6. butlerProjection.context：估算 token / 阈值（自动压缩可见性）
  * 用法：node scripts/verify-conversation.mjs
  * key：同目录 .env 的 DEEPSEEK_API_KEY（系统环境变量优先）
@@ -143,17 +143,17 @@ async function main() {
   await request('ping')
 
   // 1. 第一会话：两轮真实对话（上下文延续）
-  await request('mainWindowSpeak', { content: '你好但丁，请记住一句话：北极熊的皮肤是黑色的。' })
+  await request('mainWindowSpeak', { content: '你好铃音，请记住一句话：北极熊的皮肤是黑色的。' })
   const s1 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
-  assert(await waitButlerReply(s1, 120_000), '第一会话第一轮但丁真实回复')
+  assert(await waitButlerReply(s1, 120_000), '第一会话第一轮铃音真实回复')
   console.log('  回复:', ((await request('butlerProjection')).result.publicMessages.at(-1)?.content ?? '').slice(0, 80))
 
   await request('mainWindowSpeak', { content: '我上一句让你记住什么？请直接回答。' })
   const s2 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
-  assert(await waitButlerReply(s2, 120_000), '第一会话第二轮但丁真实回复（延续上下文）')
+  assert(await waitButlerReply(s2, 120_000), '第一会话第二轮铃音真实回复（延续上下文）')
   const reply2 = (await request('butlerProjection')).result.publicMessages.at(-1)?.content ?? ''
   console.log('  回复:', reply2.slice(0, 80))
-  assert(/北极熊|黑色/.test(reply2), '但丁记住了上一轮信息（会话内上下文有效）')
+  assert(/北极熊|黑色/.test(reply2), '铃音记住了上一轮信息（会话内上下文有效）')
 
   const before = await request('butlerProjection')
   const beforeCount = before.result.publicMessages.length
@@ -182,14 +182,14 @@ async function main() {
   const histUsers = histProj.result.publicMessages.filter((m) => m.actor === 'user')
   assert(histUsers.length === 2, `历史投影含第一会话 2 条用户消息（实际 ${histUsers.length}）`)
   assert(histUsers[0].content.includes('北极熊'), '历史第一条用户消息完整保留')
-  assert(histProj.result.publicMessages.some((m) => m.content.includes('黑色')), '历史含但丁记忆回复')
+  assert(histProj.result.publicMessages.some((m) => m.content.includes('黑色')), '历史含铃音记忆回复')
 
   // 5. 新会话：投影清空 + 继续真实对话（上下文归零）
   const cur = await request('butlerProjection')
   assert(cur.result.publicMessages.length === 0, '新会话投影为空（上下文归零）')
   await request('mainWindowSpeak', { content: '新会话的第一句话：现在是全新对话，请用一句话确认。' })
   const s3 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
-  assert(await waitButlerReply(s3, 120_000), '新会话中但丁继续真实回复')
+  assert(await waitButlerReply(s3, 120_000), '新会话中铃音继续真实回复')
   const reply3 = (await request('butlerProjection')).result.publicMessages.at(-1)?.content ?? ''
   console.log('  回复:', reply3.slice(0, 80))
 
@@ -199,16 +199,16 @@ async function main() {
   assert(resumed.result.id === 'current', '恢复后当前会话 id=current')
   const cur2 = await request('butlerProjection')
   assert(cur2.result.publicMessages.some((m) => m.content.includes('北极熊')), '恢复后投影含历史会话内容（第一轮记忆）')
-  assert(cur2.result.publicMessages.some((m) => m.content.includes('黑色')), '恢复后投影含但丁记忆回复')
+  assert(cur2.result.publicMessages.some((m) => m.content.includes('黑色')), '恢复后投影含铃音记忆回复')
   assert(!cur2.result.publicMessages.some((m) => m.content.includes('新会话的第一句话')), '恢复后不含新会话内容（新会话已先归档）')
 
-  // 恢复后可继续对话：但丁仍记得历史上下文
+  // 恢复后可继续对话：铃音仍记得历史上下文
   await request('mainWindowSpeak', { content: '我让你记住的那句话是什么？请直接回答。' })
   const s4 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
-  assert(await waitButlerReply(s4, 120_000), '恢复会话中但丁真实回复')
+  assert(await waitButlerReply(s4, 120_000), '恢复会话中铃音真实回复')
   const reply4 = (await request('butlerProjection')).result.publicMessages.at(-1)?.content ?? ''
   console.log('  回复:', reply4.slice(0, 80))
-  assert(/北极熊|黑色/.test(reply4), '恢复会话上下文有效（但丁记得历史记忆）')
+  assert(/北极熊|黑色/.test(reply4), '恢复会话上下文有效（铃音记得历史记忆）')
 
   // 历史列表：convId 已移除；新会话成为历史（恢复前自动归档）
   const list2 = await request('butler/listConversations')

@@ -163,7 +163,7 @@ export function MainChatView() {
         </div>
         <div className="card-body">
           <div className="form-field" style={{ marginBottom: 16 }}>
-            <span className="hint">主对话是唯一非群组特例：与但丁（管家）直接对话，工作事务会转交群组。上下文达阈值自动压缩；「新对话」归档当前会话为历史并开启空会话。</span>
+            <span className="hint">主对话是唯一非群组特例：与铃音（管家）直接对话，工作事务会转交群组。上下文达阈值自动压缩；「新对话」归档当前会话为历史并开启空会话。</span>
           </div>
           <div className="form-field">
             <label>会话（新对话窗口）</label>
@@ -229,7 +229,7 @@ export function MainChatView() {
       {/* 主体对话卡片 */}
       <section className="card card-chat">
         <div className="card-title">
-          <h2>{viewingConv ? `历史会话 ${viewingConv.id}` : '主对话 · 但丁'}</h2>
+          <h2>{viewingConv ? `历史会话 ${viewingConv.id}` : '主对话 · 铃音'}</h2>
           <span className="spacer" />
           {!viewingConv && context && context.thresholdTokens > 0 && (
             <span className="badge" title="自动压缩阈值：上下文估算达到后归档记忆并压缩">
@@ -283,7 +283,7 @@ export function MainChatView() {
             <div className="input-row">
               <textarea
                 rows={2}
-                placeholder="对但丁说话…（工作类事务会由管家分析并转交群组）"
+                placeholder="对铃音说话…（工作类事务会由管家分析并转交群组）"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {

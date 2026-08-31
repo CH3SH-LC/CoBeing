@@ -125,7 +125,7 @@ async function main() {
     check('remote/panels → quick 面板', Array.isArray(panels.result) && panels.result[0]?.id === 'quick')
 
     // 4. 主对话发言（mock 但丁回复）+ 投影
-    await request(ws, 'mainWindowSpeak', { content: '你好但丁，汇报一下状态' })
+    await request(ws, 'mainWindowSpeak', { content: '你好铃音，汇报一下状态' })
     check('mainWindowSpeak 无错误', true)
     await new Promise((r) => setTimeout(r, 2500))
     const proj = await request(ws, 'butlerProjection')

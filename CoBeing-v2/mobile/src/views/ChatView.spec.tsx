@@ -47,7 +47,7 @@ describe('ChatView', () => {
   it('已连接时渲染输入条（composer：输入框 + 发送按钮）', async () => {
     render(<ChatView />)
     // 输入条不依赖投影，同步可断言
-    const textarea = screen.getByPlaceholderText('给但丁发消息…（Enter 发送）')
+    const textarea = screen.getByPlaceholderText('给铃音发消息…（Enter 发送）')
     expect(textarea).toBeTruthy()
     expect(screen.getByText('发送')).toBeTruthy()
     // 投影请求已发出（对话页打开即加载）
@@ -56,10 +56,10 @@ describe('ChatView', () => {
 
   it('发送消息调用 mainWindowSpeak', async () => {
     render(<ChatView />)
-    const textarea = screen.getByPlaceholderText('给但丁发消息…（Enter 发送）')
-    fireEvent.change(textarea, { target: { value: '你好但丁' } })
+    const textarea = screen.getByPlaceholderText('给铃音发消息…（Enter 发送）')
+    fireEvent.change(textarea, { target: { value: '你好铃音' } })
     fireEvent.click(screen.getByText('发送'))
-    await waitFor(() => expect(mocks.speak).toHaveBeenCalledWith('你好但丁'))
+    await waitFor(() => expect(mocks.speak).toHaveBeenCalledWith('你好铃音'))
   })
 
   it('历史会话只读：打开历史会话后输入条隐藏', async () => {
@@ -80,9 +80,9 @@ describe('ChatView', () => {
     fireEvent.click(screen.getByText('打开'))
     // 历史只读：无输入条，显示"返回当前"
     await waitFor(() => expect(screen.getByText('返回当前')).toBeTruthy())
-    expect(screen.queryByPlaceholderText('给但丁发消息…（Enter 发送）')).toBeNull()
+    expect(screen.queryByPlaceholderText('给铃音发消息…（Enter 发送）')).toBeNull()
     // 返回当前 → 输入条恢复
     fireEvent.click(screen.getByText('返回当前'))
-    await waitFor(() => expect(screen.getByPlaceholderText('给但丁发消息…（Enter 发送）')).toBeTruthy())
+    await waitFor(() => expect(screen.getByPlaceholderText('给铃音发消息…（Enter 发送）')).toBeTruthy())
   })
 })

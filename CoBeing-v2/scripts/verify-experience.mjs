@@ -128,7 +128,7 @@ async function main() {
   await request('ping')
 
   // 1. 主窗口真实对话（沉淀素材）
-  await request('mainWindowSpeak', { content: '你好但丁，请记住一条用户偏好：汇报时用中文、简洁、先说结论。' })
+  await request('mainWindowSpeak', { content: '你好铃音，请记住一条用户偏好：汇报时用中文、简洁、先说结论。' })
   const s1 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
   assert(await poll(async () => {
     const p = await request('butlerProjection', undefined, 15000)

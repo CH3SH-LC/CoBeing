@@ -9,8 +9,15 @@ interface MessageListProps {
 
 function avatarText(actor: string): string {
   if (actor === 'user') return '我'
-  if (actor === 'butler') return '丁'
+  if (actor === 'butler') return '铃'
   return actor.slice(0, 1).toUpperCase()
+}
+
+/** 角色显示名（系统标识 butler → 用户可见名字铃音；user → 我） */
+export function actorLabel(actor: string): string {
+  if (actor === 'user') return '我'
+  if (actor === 'butler') return '铃音'
+  return actor
 }
 
 /** 消息气泡列表（用户右 / 智能体左；气泡色随角色走主题 token） */
@@ -20,7 +27,7 @@ export function MessageList({ messages, actorKind }: MessageListProps) {
       <div className="empty-hint">
         还没有消息
         <br />
-        从下方输入框开始与但丁对话
+        从下方输入框开始与铃音对话
       </div>
     )
   }
@@ -37,7 +44,7 @@ export function MessageList({ messages, actorKind }: MessageListProps) {
               style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0, maxWidth: '68%' }}
             >
               <div className="msg-meta">
-                <span>{m.actor === 'user' ? '我' : m.actor}</span>
+                <span>{actorLabel(m.actor)}</span>
                 {m.task && <span className="msg-tag">任务：{m.task}</span>}
                 {m.mention && m.mention.length > 0 && (
                   <span className="msg-tag">@ {m.mention.join(', ')}</span>

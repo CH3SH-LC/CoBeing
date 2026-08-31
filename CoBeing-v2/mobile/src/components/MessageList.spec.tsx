@@ -19,7 +19,7 @@ const today = Date.now()
 const proj: ProjectionDto = {
   publicMessages: [
     { seq: 1, actor: 'user', content: '你好', ts: today },
-    { seq: 2, actor: 'butler', content: '我是但丁', ts: today + 60_000 },
+    { seq: 2, actor: 'butler', content: '我是铃音', ts: today + 60_000 },
     { seq: 3, actor: 'writer', content: '收到，开始工作', ts: today - 86_400_000 }, // 昨天
   ],
   compactions: [],
@@ -44,11 +44,12 @@ describe('MessageList', () => {
   it('渲染消息与角色头像', () => {
     render(<MessageList projection={proj} confirm={null} />)
     expect(screen.getByText('你好')).toBeTruthy()
-    expect(screen.getByText('我是但丁')).toBeTruthy()
-    // 头像首字：user=我（头像+meta 各一处，取 avatar 容器） / butler=丁 / writer=W
+    expect(screen.getByText('我是铃音')).toBeTruthy()
+    // 头像首字：user=我（头像+meta 各一处，取 avatar 容器） / butler=铃 / writer=W；meta 显示名铃音
     expect(screen.getAllByText('我').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('丁')).toBeTruthy()
+    expect(screen.getByText('铃')).toBeTruthy()
     expect(screen.getByText('W')).toBeTruthy()
+    expect(screen.getByText('铃音')).toBeTruthy()
   })
 
   it('按天显示日期分隔（今天 / 昨天）', () => {

@@ -1,8 +1,8 @@
 ﻿# CoBeing 手机端 APK 一键打包（方案 v1 + v2 自动配对）
-# 用法：powershell -ExecutionPolicy Bypass -File scripts\build-apk.ps1 [-Version 2.0.10]
+# 用法：powershell -ExecutionPolicy Bypass -File scripts\build-apk.ps1 [-Version 2.0.11]
 # 产物：releases\CoBeing-mobile-<版本>-debug.apk（拷贝到手机直接安装）
 param(
-  [string]$Version = '2.0.10'
+  [string]$Version = '2.0.11'
 )
 
 $ErrorActionPreference = 'Stop'

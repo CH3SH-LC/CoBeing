@@ -41,7 +41,7 @@ export class RpcClient {
     return invoke('get_kernel_status')
   }
 
-  // ---------- 主对话（但丁） ----------
+  // ---------- 主对话（管家铃音） ----------
   mainWindowSpeak(content: string, opts: { group?: string; mention?: string[]; task?: string } = {}): Promise<void> {
     return this.request('mainWindowSpeak', { content, ...opts })
   }

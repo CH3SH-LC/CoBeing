@@ -100,7 +100,7 @@ function routingResponder(req: ChatRequest): string {
     return '{"toolCalls":[{"name":"butler-relay","args":{"content":"任务完成","kind":"report"}}]}'
   }
   if (last.includes('欢迎语')) return '{"reply":"欢迎来到 CoBeing！"}'
-  if (last.includes('你好')) return '{"reply":"你好，我是管家但丁"}'
+  if (last.includes('你好')) return '{"reply":"你好，我是管家铃音"}'
   return '{"reply":"(mock) 已收到"}'
 }
 
@@ -229,12 +229,12 @@ describe('bridge e2e', () => {
     expect(suggestions.result.some((s: any) => s.id === target.id)).toBe(false)
   })
 
-  test('主窗口：mainWindowSpeak → 但丁回复进 butlerProjection', async () => {
+  test('主窗口：mainWindowSpeak → 管家铃音回复进 butlerProjection', async () => {
     const ctx = await setup()
     await rpc(ctx, 'mainWindowSpeak', { content: '你好' })
     await waitFor(() => {
       const proj = ctx.kernel.butlerProjection()
-      return proj.publicMessages.some((m) => m.actor === 'butler' && m.content.includes('但丁'))
+      return proj.publicMessages.some((m) => m.actor === 'butler' && m.content.includes('铃音'))
     })
     const { reply: projection } = await rpc(ctx, 'butlerProjection')
     const actors = projection.result.publicMessages.map((m: any) => m.actor)

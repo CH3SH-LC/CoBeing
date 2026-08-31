@@ -1,13 +1,12 @@
 /**
- * 真实验证 2.0.10：管家自主创建智能体（create-agent 工具，真实 DeepSeek）
+ * 真实验证 2.0.11：铃音（二次元少女管家）人格端到端（真实 DeepSeek）
  *
  * 场景：
- *   1. 主窗口对但丁说"需要一个做网络搜索的智能体"——但丁应自主调用 create-agent 工具
- *      （不再只能引导用户手动创建；issue #4）
- *   2. 待批准队列出现 websearcher（未登记名录）
- *   3. 桥 confirmAgent 批准 → 登记名录 → 可用 list-agents 查询 → 建群成功
- *   4. 但丁回复质量：非空泛套话（非"有什么可以帮您的？"类固定问候；issue #3）
- * 用法：node scripts/verify-agent-create.mjs
+ *   1. 主窗口打招呼 → 铃音自称「铃音」（改名生效），回复带二次元元气风格但非空泛套话
+ *   2. 用户提出具体问题 → 铃音直接回答（不绕弯、不套话）
+ *   3. 用户提出新能力需求 → 铃音自主调用 create-agent 工具（职责纪律未破坏）
+ *   4. 群组场景：群组内但丁分身 prompt 已改中文铃音（butler-relay 链路）
+ * 用法：node scripts/verify-persona.mjs
  * key：同目录 .env 的 DEEPSEEK_API_KEY（系统环境变量优先）
  */
 
@@ -18,7 +17,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const dataDir = mkdtempSync(join(tmpdir(), 'cb-agent-create-'))
+const dataDir = mkdtempSync(join(tmpdir(), 'cb-persona-'))
 
 let apiKey = process.env.DEEPSEEK_API_KEY ?? ''
 if (!apiKey) {
@@ -140,43 +139,59 @@ async function main() {
   const started = Date.now()
   await request('ping')
 
-  // 1. 用户提出需要新能力 → 但丁应自主调用 create-agent 工具（协议【创建智能体】）
-  await request('mainWindowSpeak', {
-    content: '我需要一个能做网络搜索的智能体，请立即调用 create-agent 工具创建它，名字 websearcher，角色 网络搜索。',
-  })  const s1 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
-  assert(await waitButlerReply(s1, 120_000), '但丁真实回复（收到创建请求）')
+  // 1. 打招呼：铃音自称新名字（改名生效）
+  await request('mainWindowSpeak', { content: '你好，你是谁？请介绍一下自己。' })
+  const s1 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
+  assert(await waitButlerReply(s1, 120_000), '铃音真实回复（自我介绍）')
+  const reply1 = (await request('butlerProjection')).result.publicMessages.at(-1)?.content ?? ''
+  console.log('  回复:', reply1.slice(0, 150))
+  assert(/铃音/.test(reply1), '回复自称「铃音」（改名生效，不再自称但丁）')
+  assert(!/但丁|Dante/.test(reply1), '回复不含旧名字「但丁」')
+  assert(!/^[\s\S]*有什么可以帮.{0,4}？[\s\S]*$/.test(reply1.trim()), '回复非空泛套话')
 
-  // 2. 等待 create-agent 工具调用成功 → 待批准队列出现 websearcher（未登记名录）
+  // 2. 具体问题：直接回答（不绕弯、不套话）
+  await request('mainWindowSpeak', { content: '1+1 等于几？直接回答。' })
+  const s2 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
+  assert(await waitButlerReply(s2, 120_000), '铃音回答具体问题')
+  const reply2 = (await request('butlerProjection')).result.publicMessages.at(-1)?.content ?? ''
+  console.log('  回复:', reply2.slice(0, 120))
+  assert(/2/.test(reply2), '回答包含正确答案（直接回应内容）')
+
+  // 3. 新能力需求 → 自主调用 create-agent（职责纪律未破坏）
+  await request('mainWindowSpeak', {
+    content: '我需要一个能写文案的智能体，请调用 create-agent 工具创建，名字 copywriter，角色 文案写作。',
+  })
+  const s3 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
+  assert(await waitButlerReply(s3, 120_000), '铃音收到创建请求')
   assert(
     await poll(async () => {
       const p = await request('listPendingApprovals')
-      return Array.isArray(p.result) && p.result.some((a) => a.name === 'websearcher')
+      return Array.isArray(p.result) && p.result.some((a) => a.name === 'copywriter')
     }, 90_000),
-    '待批准队列出现 websearcher（管家自主发起创建）',
+    '待批准队列出现 copywriter（铃音自主发起创建）',
   )
-  const listAgents = await request('listAgents')
-  assert(!listAgents.result.some((a) => a.name === 'websearcher'), '批准前名录未登记 websearcher')
 
-  // 3. 用户批准（GUI 确认按钮同桥方法）→ 登记名录
-  await request('confirmAgent', { name: 'websearcher' })
-  const agents2 = await request('listAgents')
-  assert(agents2.result.some((a) => a.name === 'websearcher'), '批准后名录登记 websearcher')
-
-  // 4. 批准后即可建群（未登记成员建群会失败——修复 #4 前置依赖闭环）
-  await request('createGroup', { name: 'search-team', label: ['user', 'butler', 'websearcher'] })
-  const groups = await request('listGroups')
-  assert(groups.result.some((g) => g.name === 'search-team'), '建群成功（成员已登记）')
-
-  // 5. 但丁回复质量：非空泛套话（issue #3）——检查回复含具体内容
-  const proj = await request('butlerProjection')
-  const butlerMsgs = proj.result.publicMessages.filter((m) => m.actor === 'butler')
-  const lastReply = butlerMsgs.at(-1)?.content ?? ''
-  console.log('  但丁最终回复:', lastReply.slice(0, 120))
-  assert(!/^[\s\S]*有什么可以帮.{0,4}？[\s\S]*$/.test(lastReply.trim()) || lastReply.length > 12, '但丁回复非空泛套话（有具体内容）')
-  assert(!/^晚上好[，,].*$/.test(lastReply.trim()), '但丁回复非固定问候语')
+  // 4. 群组内管家分身：butler-relay 链路（prompt 已改中文铃音分身）
+  await request('requestCreateAgent', { def: { name: 'writer', role: '写作者', createdAt: Date.now() } })
+  await request('confirmAgent', { name: 'writer' })
+  await request('createGroup', { name: 'persona-g', label: ['user', 'butler', 'writer'] })
+  await request('speakToGroup', { group: 'persona-g', actor: 'user', content: '请群组内管家转告主窗口：任务已完成', mention: ['butler'], task: '转告' })
+  // 分身回复出现在群组投影（转告成功）
+  assert(
+    await poll(async () => {
+      const p = await request('groupProjection', { group: 'persona-g' })
+      return p.result.publicMessages.some((m) => m.actor === 'butler' && /转告|已.*主窗口/.test(m.content ?? ''))
+    }, 120_000),
+    '群组内铃音分身回复（butler-relay 链路正常）',
+  )
+  // 主窗口收到 relay 通知（notify 广播 text：[group → 管家] report）
+  assert(
+    await poll(() => Promise.resolve(/persona-g.*→.*管家.*report|任务已完成/.test(stdoutBuf)), 30_000),
+    '主窗口收到群组 relay 通知（转告链路完整）',
+  )
 
   const elapsed = ((Date.now() - started) / 1000).toFixed(1)
-  console.log(`\nAGENT-CREATE VERIFY PASSED (${elapsed}s, data=${dataDir})`)
+  console.log(`\nPERSONA VERIFY PASSED (${elapsed}s, data=${dataDir})`)
   await request('stop')
   await new Promise((resolve) => {
     const timer = setTimeout(() => { console.log('⚠ stop 后未退出'); resolve() }, 3000)

@@ -5,6 +5,13 @@ import type { AgentDef, GroupMeta, GroupStatus, ProjectionDto } from '../types'
 import { MessageList } from '../components/MessageList'
 import { Modal } from '../components/Modal'
 
+/** 成员标签显示名（协议标识 user/butler → 用户可见；其余原样） */
+function memberLabel(m: string): string {
+  if (m === 'user') return '用户'
+  if (m === 'butler') return '铃音'
+  return m
+}
+
 interface GroupsViewProps {
   agents: AgentDef[]
 }
@@ -164,7 +171,7 @@ export function GroupsView({ agents }: GroupsViewProps) {
             >
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="list-item-title">{g.name}</div>
-                <div className="list-item-sub">{g.label.join(' · ')}</div>
+                <div className="list-item-sub">{g.label.map(memberLabel).join(' · ')}</div>
               </div>
               <span className={`badge ${g.status === 'working' ? 'success' : ''}`}>{g.status}</span>
             </div>
@@ -192,7 +199,7 @@ export function GroupsView({ agents }: GroupsViewProps) {
                     return (
                       <span key={m} className={`chip on ${member?.busy ? 'chip-busy' : ''}`} style={{ cursor: 'default' }}>
                         {member?.busy ? '⏳ ' : ''}
-                        {m}
+                        {memberLabel(m)}
                       </span>
                     )
                   })}
@@ -242,7 +249,7 @@ export function GroupsView({ agents }: GroupsViewProps) {
                   .filter((m) => m !== 'user')
                   .map((m) => (
                     <span key={m} className={`chip ${mention.includes(m) ? 'on' : ''}`} onClick={() => toggleMention(m)}>
-                      @{m}
+                      @{memberLabel(m)}
                     </span>
                   ))}
               </div>
