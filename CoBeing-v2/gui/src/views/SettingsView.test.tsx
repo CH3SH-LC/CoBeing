@@ -180,14 +180,14 @@ describe('SettingsView（分栏设置界面）', () => {
     routeMock({
       get_model_configs: { sources: [], active_source: '' },
       check_update: {
-        latest_tag: 'v2.0.11',
+        latest_tag: 'v2.0.12',
         published_at: '2026-08-31T00:00:00Z',
         body: '',
-        asset_name: 'CoBeing.v2_2.0.11_x64-setup.exe',
+        asset_name: 'CoBeing.v2_2.0.12_x64-setup.exe',
         asset_url: 'https://example.com/setup.exe',
         asset_size: 30_000_000,
         has_update: false,
-        current_version: '2.0.11',
+        current_version: '2.0.12',
       },
     })
     render(<SettingsView />)
@@ -201,6 +201,78 @@ describe('SettingsView（分栏设置界面）', () => {
     })
   })
 
+  it('发现新版本 → 下载（带资产大小校验参数）→ 启动安装程序', async () => {
+    routeMock({
+      get_model_configs: { sources: [], active_source: '' },
+      check_update: {
+        latest_tag: 'v2.0.12',
+        published_at: '2026-09-02T00:00:00Z',
+        body: '',
+        asset_name: 'CoBeing.v2_2.0.12_x64-setup.exe',
+        asset_url: 'https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.12/CoBeing.v2_2.0.12_x64-setup.exe',
+        gitee_url: 'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.0.12/CoBeing.v2_2.0.12_x64-setup.exe',
+        asset_size: 32_000_000,
+        has_update: true,
+        current_version: '2.0.5',
+      },
+      download_installer: 'C:\\updates\\CoBeing.v2_2.0.12_x64-setup.exe',
+      launch_installer: undefined,
+    })
+    render(<SettingsView />)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /检查更新/ })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /检查更新/ }))
+    // 有更新 → 出现下载按钮
+    const downloadBtn = await screen.findByRole('button', { name: /下载并安装/ })
+    expect(screen.getByText(/CoBeing\.v2_2\.0\.12_x64-setup\.exe/)).toBeInTheDocument()
+    fireEvent.click(downloadBtn)
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('download_installer', {
+        url: 'https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.12/CoBeing.v2_2.0.12_x64-setup.exe',
+        giteeUrl: 'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.0.12/CoBeing.v2_2.0.12_x64-setup.exe',
+        assetName: 'CoBeing.v2_2.0.12_x64-setup.exe',
+        expectedSize: 32_000_000,
+      })
+    })
+    // 下载完成 → 启动安装程序
+    const installBtn = await screen.findByRole('button', { name: '启动安装程序' })
+    fireEvent.click(installBtn)
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('launch_installer', {
+        path: 'C:\\updates\\CoBeing.v2_2.0.12_x64-setup.exe',
+      })
+    })
+  })
+
+  it('下载失败 → 就地显示错误并出现重试', async () => {
+    routeMock({
+      get_model_configs: { sources: [], active_source: '' },
+      check_update: {
+        latest_tag: 'v2.0.12',
+        published_at: '2026-09-02T00:00:00Z',
+        body: '',
+        asset_name: 'CoBeing.v2_2.0.12_x64-setup.exe',
+        asset_url: 'https://example.com/setup.exe',
+        asset_size: 32_000_000,
+        has_update: true,
+        current_version: '2.0.5',
+      },
+    })
+    render(<SettingsView />)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /检查更新/ })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /检查更新/ }))
+    const downloadBtn = await screen.findByRole('button', { name: /下载并安装/ })
+    invokeMock.mockRejectedValueOnce(new Error('下载失败：GitHub 直连：连接超时'))
+    fireEvent.click(downloadBtn)
+    await waitFor(() => {
+      expect(screen.getByText(/下载失败：GitHub 直连/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+    })
+  })
+
   it('「关于」条目：点击显示版本信息', async () => {
     routeMock({ get_model_configs: { sources: [src('a', 'DeepSeek 官方')], active_source: 'a' } })
     render(<SettingsView />)
@@ -209,7 +281,7 @@ describe('SettingsView（分栏设置界面）', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '关于' }))
     await waitFor(() => {
-      expect(screen.getByText(/CoBeing 桌面端 v2\.0\.11/)).toBeInTheDocument()
+      expect(screen.getByText(/CoBeing 桌面端 v2\.0\.12/)).toBeInTheDocument()
     })
   })
 

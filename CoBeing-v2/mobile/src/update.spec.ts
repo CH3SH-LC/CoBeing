@@ -13,6 +13,28 @@ import {
   type GithubRelease,
 } from './update'
 
+vi.mock('@capacitor/filesystem', () => ({
+  Filesystem: {
+    stat: vi.fn(),
+    deleteFile: vi.fn().mockResolvedValue(undefined),
+    downloadFile: vi.fn(),
+  },
+  Directory: { Cache: 'CACHE' },
+}))
+
+import { Filesystem } from '@capacitor/filesystem'
+import { DOWNLOAD_SOURCES, giteeAssetUrl } from './update'
+
+type StatLike = { size: number }
+/** 链式可用的 mock 形态（返回自身以便 mockResolvedValueOnce(...).mockResolvedValue(...)） */
+type ChainMock = {
+  mockResolvedValue: (v: StatLike) => ChainMock
+  mockResolvedValueOnce: (v: StatLike) => ChainMock
+  mockClear: () => void
+}
+const statMock = Filesystem.stat as unknown as ChainMock
+const deleteFileMock = Filesystem.deleteFile as unknown as { mockClear: () => void }
+
 function rel(tag: string, prerelease: boolean, assets: Array<{ name: string; size?: number }>): GithubRelease {
   return {
     tag_name: tag,
@@ -145,7 +167,7 @@ describe('downloadApk（原生下载 + 镜像 fallback，修复 Failed to fetch�
     const path = await downloadApk('https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.4/x.apk', 'x.apk')
     expect(path).toBe('updates/x.apk')
     expect(calls).toHaveLength(2)
-    expect(calls[1]).toContain('ghfast.top')
+    expect(calls[1]).toContain('gh.ddlc.top') // 镜像按实测可达性排序（2026-09-02 仅 gh.ddlc.top 可用）
     expect(calls[1]).toContain('github.com/CH3SH-LC/CoBeing')
   })
 
@@ -157,5 +179,103 @@ describe('downloadApk（原生下载 + 镜像 fallback，修复 Failed to fetch�
     })
     await expect(downloadApk('https://github.com/x/y.apk', 'y.apk')).rejects.toThrow(/APK 下载失败.*镜像源均不可达/)
     await expect(downloadApk('https://github.com/x/y.apk', 'y.apk')).rejects.toThrow(/timeout/)
+  })
+})
+
+describe('downloadApk（v2.0.12 完整性校验：落盘字节数 vs 资产 size）', () => {
+  afterEach(() => {
+    setDownloadImplForTest(undefined)
+    vi.clearAllMocks()
+    statMock.mockClear()
+    deleteFileMock.mockClear()
+  })
+
+  it('下载源链含 gh.ddlc.top 且排在旧镜像前', () => {
+    const urls = DOWNLOAD_SOURCES.map((f) => f('https://github.com/x/y.apk'))
+    expect(urls[0]).toBe('https://github.com/x/y.apk')
+    expect(urls[1]).toContain('gh.ddlc.top')
+    expect(urls[2]).toContain('ghfast.top')
+    expect(urls[3]).toContain('gh-proxy.com')
+  })
+
+  it('提供 Gitee 源时其排在整个源链最前（国内首选）', async () => {
+    const calls: string[] = []
+    setDownloadImplForTest({
+      async download(url: string): Promise<void> {
+        calls.push(url)
+        throw new Error('first source down') // Gitee 也失败 → 应继续换源
+      },
+    })
+    statMock.mockResolvedValue({ size: 100 })
+    const gitee = 'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.0.12/x.apk'
+    await expect(downloadApk('https://github.com/x/y.apk', 'y.apk', 100, gitee)).rejects.toThrow()
+    expect(calls[0]).toBe(gitee)
+    expect(calls[1]).toBe('https://github.com/x/y.apk')
+    expect(calls[2]).toContain('gh.ddlc.top')
+  })
+
+  it('giteeAssetUrl 构造 raw/dist/<tag>/<asset> 路径', () => {
+    expect(giteeAssetUrl('v2.0.12', 'CoBeing-mobile-v2.0.12-debug.apk')).toBe(
+      'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.0.12/CoBeing-mobile-v2.0.12-debug.apk',
+    )
+  })
+
+  it('直连下载成功且字节数与资产一致 → 返回路径且不清理', async () => {
+    const calls: string[] = []
+    setDownloadImplForTest({
+      async download(url: string): Promise<void> {
+        calls.push(url)
+      },
+    })
+    statMock.mockResolvedValue({ size: 3_860_191 })
+    const path = await downloadApk(
+      'https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.12/x.apk',
+      'x.apk',
+      3_860_191,
+    )
+    expect(path).toBe('updates/x.apk')
+    expect(calls).toHaveLength(1)
+    expect(deleteFileMock).not.toHaveBeenCalled()
+  })
+
+  it('直连字节数不符（截断/错误页）→ 删除残缺文件并自动换镜像源', async () => {
+    const calls: string[] = []
+    setDownloadImplForTest({
+      async download(url: string): Promise<void> {
+        calls.push(url)
+      },
+    })
+    statMock.mockResolvedValueOnce({ size: 3_500_000 }).mockResolvedValue({ size: 3_860_191 })
+    const path = await downloadApk(
+      'https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.12/x.apk',
+      'x.apk',
+      3_860_191,
+    )
+    expect(path).toBe('updates/x.apk')
+    expect(calls).toHaveLength(2)
+    expect(calls[1]).toContain('gh.ddlc.top')
+    expect(deleteFileMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('所有源均不完整 → 明确中文错误', async () => {
+    setDownloadImplForTest({
+      async download(): Promise<void> {
+        /* 静默"成功"（模拟服务器提前断流不报错） */
+      },
+    })
+    statMock.mockResolvedValue({ size: 123 })
+    await expect(downloadApk('https://github.com/x/y.apk', 'y.apk', 999)).rejects.toThrow(/下载不完整/)
+  })
+
+  it('未提供期望大小（旧调用）→ 跳过校验直接成功', async () => {
+    const calls: string[] = []
+    setDownloadImplForTest({
+      async download(url: string): Promise<void> {
+        calls.push(url)
+      },
+    })
+    const path = await downloadApk('https://github.com/x/y.apk', 'y.apk')
+    expect(path).toBe('updates/y.apk')
+    expect(calls).toHaveLength(1)
   })
 })

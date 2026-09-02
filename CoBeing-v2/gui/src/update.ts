@@ -14,6 +14,8 @@ export interface DesktopUpdateInfo {
   body: string
   asset_name: string
   asset_url: string
+  /** Gitee 国内下载源（资产未上传时 404 自动落到 GitHub/镜像） */
+  gitee_url: string
   asset_size: number
   has_update: boolean
   current_version: string
@@ -29,9 +31,14 @@ export function checkUpdate(): Promise<DesktopUpdateInfo> {
   return invoke('check_update')
 }
 
-/** 下载安装包到应用数据目录 updates/，返回本地路径（Rust 命令：流式下载） */
-export function downloadInstaller(url: string, assetName: string): Promise<string> {
-  return invoke('download_installer', { url, assetName })
+/** 下载安装包到应用数据目录 updates/，返回本地路径（Rust 命令：Gitee→GitHub→镜像 多源链+续传+校验） */
+export function downloadInstaller(
+  url: string,
+  giteeUrl: string,
+  assetName: string,
+  expectedSize: number,
+): Promise<string> {
+  return invoke('download_installer', { url, giteeUrl, assetName, expectedSize })
 }
 
 /** 启动已下载的 NSIS 安装程序（Rust 命令） */

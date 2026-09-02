@@ -9,6 +9,12 @@
  *   access-control-allow-origin: null），WebView fetch 跨域被浏览器拦截。
  * - 修复：改用 @capacitor/filesystem 原生 downloadFile（Android HttpURLConnection，
  *   不走 WebView 网络栈，无 CORS 限制）；直连失败自动尝试国内加速镜像源。
+ *
+ * 下载可靠性（v2.0.12 修复，2026-09-02）：
+ * - 根因：镜像源（ghfast.top/gh-proxy.com）2026-09-02 实测全部失效；直连在部分
+ *   国内网络不可达 → 整链必败；且下载后无完整性校验（截断/错误页可能冒充成功）。
+ * - 修复：源链 = Gitee 国内源（首选）→ GitHub 直连 → 镜像（gh.ddlc.top 实测可用
+ *   排最前，旧镜像兜底）；下载后按 GitHub 资产 size 校验落盘字节数，不符删除换源。
  */
 
 import { Capacitor } from '@capacitor/core'
@@ -16,16 +22,39 @@ import { Filesystem, Directory } from '@capacitor/filesystem'
 import { registerPlugin } from '@capacitor/core'
 
 /** 当前 App 版本（与 mobile/package.json version 同步） */
-export const APP_VERSION = '2.0.11'
+export const APP_VERSION = '2.0.12'
 
 export const GITHUB_RELEASES_API = 'https://api.github.com/repos/CH3SH-LC/CoBeing/releases'
 
-/** APK 下载源链：直连 GitHub → 国内加速镜像（逐个尝试，任一成功即止） */
+/** Gitee 国内镜像仓库（下载源链首选；每次发版把安装包推到其 dist 分支：dist/<tag>/<资产名>） */
+export const GITEE_REPO = 'CH3SH-LC/CoBeing'
+export const GITEE_DIST_BRANCH = 'dist'
+
+/** 由 tag + 资产名构造 Gitee 下载 URL（raw/{dist}/{tag}/{asset}） */
+export function giteeAssetUrl(tag: string, assetName: string): string {
+  return `https://gitee.com/${GITEE_REPO}/raw/${GITEE_DIST_BRANCH}/${tag}/${assetName}`
+}
+
+/** APK 镜像源链：GitHub 直连 → 国内加速镜像（按实测可达性排序，逐个尝试，任一成功且校验通过即止） */
 export const DOWNLOAD_SOURCES: Array<(url: string) => string> = [
   (url) => url,
+  (url) => `https://gh.ddlc.top/${url}`,
   (url) => `https://ghfast.top/${url}`,
   (url) => `https://gh-proxy.com/${url}`,
 ]
+
+/** 构建完整下载源链：Gitee（国内首选，可选）→ GitHub 直连 → 国内镜像 */
+export function buildApkSources(url: string, giteeUrl?: string): string[] {
+  const sources: string[] = []
+  if (giteeUrl && giteeUrl.length > 0) sources.push(giteeUrl)
+  for (const build of DOWNLOAD_SOURCES) sources.push(build(url))
+  return sources
+}
+
+/** 下载源主机名（错误信息用） */
+export function sourceHost(url: string): string {
+  return url.replace(/^https?:\/\//, '').split('/')[0]
+}
 
 /** 下载执行器（原生 downloadFile 封装；测试注入） */
 export interface DownloadExecutor {
@@ -72,6 +101,8 @@ export interface MobileUpdateInfo {
   body: string
   asset_name: string
   asset_url: string
+  /** Gitee 国内下载源（资产未上传时 404 自动落到 GitHub/镜像） */
+  gitee_url: string
   asset_size: number
   has_update: boolean
   current_version: string
@@ -129,6 +160,7 @@ export async function checkMobileUpdate(): Promise<MobileUpdateInfo> {
     body: release.body ?? '',
     asset_name: asset.name,
     asset_url: asset.browser_download_url,
+    gitee_url: giteeAssetUrl(release.tag_name, asset.name),
     asset_size: asset.size,
     has_update: hasUpdate,
     current_version: APP_VERSION,
@@ -143,23 +175,43 @@ export interface ApkInstallerPlugin {
 export const ApkInstaller = registerPlugin<ApkInstallerPlugin>('ApkInstaller')
 
 /**
- * 下载 APK 到应用 cache 目录（原生网络栈 + 镜像 fallback），返回 cache 相对路径。
+ * 下载 APK 到应用 cache 目录（原生网络栈 + 多源链），返回 cache 相对路径。
  * 说明：GitHub 资产响应无 CORS 头，WebView fetch 会被拦截（Failed to fetch）——
- * 必须走 Capacitor 原生下载；直连失败自动尝试镜像源。
+ * 必须走 Capacitor 原生下载；源链 = Gitee（国内首选）→ GitHub 直连 → 国内镜像，
+ * 任一源失败自动尝试下一源。
+ *
+ * v2.0.12 起增加完整性校验：下载成功后按 GitHub 资产 size 核对落盘字节数
+ * （防镜像截断/错误页冒充），不符则删除并换下一源。
  */
-export async function downloadApk(url: string, fileName: string): Promise<string> {
+export async function downloadApk(
+  url: string,
+  fileName: string,
+  expectedSize?: number,
+  giteeUrl?: string,
+): Promise<string> {
   const path = `updates/${fileName}`
   const errors: string[] = []
-  for (const build of DOWNLOAD_SOURCES) {
-    const target = build(url)
+  for (const target of buildApkSources(url, giteeUrl)) {
     try {
       await downloadImpl.download(target, path)
+      if (expectedSize && expectedSize > 0) {
+        const stat = await Filesystem.stat({ path, directory: Directory.Cache })
+        const size = stat.size ?? 0
+        if (size !== expectedSize) {
+          // 残缺/错误内容：删除并换下一源
+          await Filesystem.deleteFile({ path, directory: Directory.Cache }).catch(() => undefined)
+          errors.push(`${sourceHost(target)}: 下载不完整（${size}/${expectedSize} 字节）`)
+          continue
+        }
+      }
       return path
     } catch (error) {
-      errors.push(`${target.replace(/^https?:\/\//, '').split('/')[0]}: ${error instanceof Error ? error.message : String(error)}`)
+      errors.push(`${sourceHost(target)}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  throw new Error(`APK 下载失败（直连与镜像源均不可达）：${errors.join('；')}。请检查网络后重试`)
+  throw new Error(
+    `APK 下载失败（Gitee/直连/镜像源均不可达或文件不完整）：${errors.join('；')}。请检查网络后重试`,
+  )
 }
 
 /** 触发系统安装（返回是否已启动安装界面；Android 8+ 需用户允许未知来源） */

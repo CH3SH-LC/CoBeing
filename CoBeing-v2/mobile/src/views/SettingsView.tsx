@@ -115,7 +115,7 @@ export function SettingsView() {
     setUpdatePhase('downloading')
     setUpdateError('')
     try {
-      const cachePath = await downloadApk(updateInfo.asset_url, updateInfo.asset_name)
+      const cachePath = await downloadApk(updateInfo.asset_url, updateInfo.asset_name, updateInfo.asset_size, updateInfo.gitee_url ?? '')
       setUpdatePhase('downloaded')
       await installApk(cachePath)
       toast.push('已启动系统安装界面，请按提示完成安装', 4000)
@@ -274,7 +274,7 @@ export function SettingsView() {
 
         <div className="card">
           <h3>关于</h3>
-          <div className="sub">CoBeing 手机端 v2.0.11（方案 v1 + 自动配对）</div>
+          <div className="sub">CoBeing 手机端 v2.0.12（方案 v1 + 自动配对）</div>
           <div className="sub">协议：cobeing-ws/1 · JSON-RPC 2.0 over WebSocket（全双工）</div>
           <div className="sub">互联：局域网自动发现 + 一键配对 + cloudflared 公网隧道</div>
           <div className="sub">插件扩展：控制面板由电脑内核 manifest 驱动，无需升级 App</div>
