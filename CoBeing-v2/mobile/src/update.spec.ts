@@ -23,7 +23,7 @@ vi.mock('@capacitor/filesystem', () => ({
 }))
 
 import { Filesystem } from '@capacitor/filesystem'
-import { DOWNLOAD_SOURCES, giteeAssetUrl } from './update'
+import { DOWNLOAD_SOURCES } from './update'
 
 type StatLike = { size: number }
 /** 链式可用的 mock 形态（返回自身以便 mockResolvedValueOnce(...).mockResolvedValue(...)） */
@@ -196,28 +196,6 @@ describe('downloadApk（v2.0.12 完整性校验：落盘字节数 vs 资产 size
     expect(urls[1]).toContain('gh.ddlc.top')
     expect(urls[2]).toContain('ghfast.top')
     expect(urls[3]).toContain('gh-proxy.com')
-  })
-
-  it('提供 Gitee 源时其排在整个源链最前（国内首选）', async () => {
-    const calls: string[] = []
-    setDownloadImplForTest({
-      async download(url: string): Promise<void> {
-        calls.push(url)
-        throw new Error('first source down') // Gitee 也失败 → 应继续换源
-      },
-    })
-    statMock.mockResolvedValue({ size: 100 })
-    const gitee = 'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.0.12/x.apk'
-    await expect(downloadApk('https://github.com/x/y.apk', 'y.apk', 100, gitee)).rejects.toThrow()
-    expect(calls[0]).toBe(gitee)
-    expect(calls[1]).toBe('https://github.com/x/y.apk')
-    expect(calls[2]).toContain('gh.ddlc.top')
-  })
-
-  it('giteeAssetUrl 构造 raw/dist/<tag>/<asset> 路径', () => {
-    expect(giteeAssetUrl('v2.0.12', 'CoBeing-mobile-v2.0.12-debug.apk')).toBe(
-      'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.0.12/CoBeing-mobile-v2.0.12-debug.apk',
-    )
   })
 
   it('直连下载成功且字节数与资产一致 → 返回路径且不清理', async () => {

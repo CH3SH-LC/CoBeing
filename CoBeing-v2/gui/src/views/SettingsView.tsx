@@ -174,12 +174,7 @@ export function SettingsView() {
     setProgress(null)
     setUpdateError('')
     try {
-      const path = await downloadInstaller(
-        updateInfo.asset_url,
-        updateInfo.gitee_url ?? '',
-        updateInfo.asset_name,
-        updateInfo.asset_size,
-      )
+      const path = await downloadInstaller(updateInfo.asset_url, updateInfo.asset_name, updateInfo.asset_size)
       setInstallerPath(path)
       setUpdatePhase('downloaded')
     } catch (e) {

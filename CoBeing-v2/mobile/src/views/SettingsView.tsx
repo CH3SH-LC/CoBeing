@@ -115,7 +115,7 @@ export function SettingsView() {
     setUpdatePhase('downloading')
     setUpdateError('')
     try {
-      const cachePath = await downloadApk(updateInfo.asset_url, updateInfo.asset_name, updateInfo.asset_size, updateInfo.gitee_url ?? '')
+      const cachePath = await downloadApk(updateInfo.asset_url, updateInfo.asset_name, updateInfo.asset_size)
       setUpdatePhase('downloaded')
       await installApk(cachePath)
       toast.push('已启动系统安装界面，请按提示完成安装', 4000)

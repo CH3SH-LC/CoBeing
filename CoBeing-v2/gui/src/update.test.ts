@@ -37,17 +37,11 @@ describe('desktop update module', () => {
     expect(res.latest_tag).toBe('v2.1.0')
   })
 
-  it('downloadInstaller 传 url/giteeUrl/assetName/expectedSize 到 Rust', async () => {
+  it('downloadInstaller 传 url/assetName/expectedSize 到 Rust', async () => {
     invokeMock.mockResolvedValue('C:\\data\\updates\\setup.exe')
-    const path = await downloadInstaller(
-      'https://example.com/setup.exe',
-      'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.1.0/setup.exe',
-      'setup.exe',
-      31_000_000,
-    )
+    const path = await downloadInstaller('https://example.com/setup.exe', 'setup.exe', 31_000_000)
     expect(invokeMock).toHaveBeenCalledWith('download_installer', {
       url: 'https://example.com/setup.exe',
-      giteeUrl: 'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.1.0/setup.exe',
       assetName: 'setup.exe',
       expectedSize: 31_000_000,
     })

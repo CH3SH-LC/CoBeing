@@ -210,7 +210,6 @@ describe('SettingsView（分栏设置界面）', () => {
         body: '',
         asset_name: 'CoBeing.v2_2.0.12_x64-setup.exe',
         asset_url: 'https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.12/CoBeing.v2_2.0.12_x64-setup.exe',
-        gitee_url: 'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.0.12/CoBeing.v2_2.0.12_x64-setup.exe',
         asset_size: 32_000_000,
         has_update: true,
         current_version: '2.0.5',
@@ -230,7 +229,6 @@ describe('SettingsView（分栏设置界面）', () => {
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('download_installer', {
         url: 'https://github.com/CH3SH-LC/CoBeing/releases/download/v2.0.12/CoBeing.v2_2.0.12_x64-setup.exe',
-        giteeUrl: 'https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.0.12/CoBeing.v2_2.0.12_x64-setup.exe',
         assetName: 'CoBeing.v2_2.0.12_x64-setup.exe',
         expectedSize: 32_000_000,
       })

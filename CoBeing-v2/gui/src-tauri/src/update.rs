@@ -10,7 +10,8 @@
 //! （现场证据：用户 updates/ 目录遗留 31,488,795/32,175,831 字节的残缺安装包，反复下载反复失败）。
 //!
 //! 修复：
-//! 1. 多源链：直连 GitHub → 国内镜像（按实测可达性排序：gh.ddlc.top / ghfast.top / gh-proxy.com）
+//! 1. 多源链：GitHub 直连 → 国内加速镜像（github.com 内容代理，按实测可达性排序：
+//!    gh.ddlc.top / ghfast.top / gh-proxy.com）
 //! 2. Range 断点续传：失败残留自动从断点继续（手动跟随重定向，保证 Range 头直达最终主机）
 //! 3. 读超时 30s（30s 无数据才判死，慢而持续可下完）+ 全局兜底 30min
 //! 4. 按 GitHub 资产 size 校验完整性；残缺自动换源重试（3 轮）；全败清理残留文件
@@ -26,19 +27,10 @@ use tauri::{AppHandle, Emitter, Manager};
 pub const GITHUB_REPO: &str = "CH3SH-LC/CoBeing";
 pub const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/CH3SH-LC/CoBeing/releases";
 
-/// Gitee 国内镜像仓库（下载源链首选；每次发版把安装包推到其 dist 分支：dist/<tag>/<资产名>）
-pub const GITEE_REPO: &str = "CH3SH-LC/CoBeing";
-pub const GITEE_DIST_BRANCH: &str = "dist";
-
-/// 由 tag + 资产名构造 Gitee 下载 URL（raw/{dist}/{tag}/{asset}）
-pub fn gitee_asset_url(tag: &str, asset_name: &str) -> String {
-    format!("https://gitee.com/{GITEE_REPO}/raw/{GITEE_DIST_BRANCH}/{tag}/{asset_name}")
-}
-
 /// 下载重试轮数（每轮依次尝试全部来源）
 pub const MAX_DOWNLOAD_ROUNDS: usize = 3;
 
-/// 国内镜像前缀（顺序 = 实测可达性；2026-09-02 实测仅 gh.ddlc.top 可用，其余保留兜底）
+/// 国内镜像前缀（github.com 内容加速代理；顺序 = 实测可达性，2026-09-02 实测仅 gh.ddlc.top 可用）
 const MIRROR_PREFIXES: [&str; 3] = [
     "https://gh.ddlc.top/",
     "https://ghfast.top/",
@@ -74,8 +66,6 @@ pub struct DesktopUpdateInfo {
     pub body: String,
     pub asset_name: String,
     pub asset_url: String,
-    /// Gitee 国内下载源（直连固定 URL；资产未上传时 404 自动落到 GitHub/镜像）
-    pub gitee_url: String,
     pub asset_size: u64,
     pub has_update: bool,
     pub current_version: String,
@@ -183,7 +173,6 @@ pub fn check_update(app: AppHandle) -> Result<DesktopUpdateInfo, String> {
         body: rel.body.clone().unwrap_or_default(),
         asset_name: asset.name.clone(),
         asset_url: asset.browser_download_url.clone(),
-        gitee_url: gitee_asset_url(&rel.tag_name, &asset.name),
         asset_size: asset.size,
         has_update,
         current_version: current,
@@ -371,14 +360,12 @@ fn real_download_attempt(
 }
 
 /// Tauri 命令：下载安装包到应用数据目录 `updates/`，返回本地路径。
-/// 源链：Gitee 国内源（可选）→ GitHub 直连 → 国内镜像；断点续传 + 完整性校验
-/// （expected_size 来自 GitHub 资产 size）。下载过程中通过 `update-progress`
-/// 事件向前端推送 {received, total}。
+/// 源链：GitHub 直连 → 国内镜像；断点续传 + 完整性校验（expected_size 来自 GitHub
+/// 资产 size）。下载过程中通过 `update-progress` 事件向前端推送 {received, total}。
 #[tauri::command]
 pub async fn download_installer(
     app: AppHandle,
     url: String,
-    gitee_url: String,
     asset_name: String,
     expected_size: u64,
 ) -> Result<String, String> {
@@ -390,13 +377,7 @@ pub async fn download_installer(
     std::fs::create_dir_all(&updates_dir).map_err(|e| format!("创建更新目录失败: {e}"))?;
     let dest: PathBuf = updates_dir.join(sanitize_filename(&asset_name));
 
-    // 源链：Gitee（国内首选）→ GitHub 直连 → 第三方镜像（均支持失败自动换源）
-    let mut sources: Vec<String> = Vec::new();
-    if !gitee_url.is_empty() {
-        sources.push(gitee_url);
-    }
-    sources.extend(build_download_sources(&url));
-
+    let sources = build_download_sources(&url);
     let agent = download_agent();
     let handle = app.clone();
     let mut progress = |received: u64| {
@@ -532,14 +513,6 @@ mod tests {
             "GitHub 直连"
         );
         assert!(source_label("https://gh.ddlc.top/https://github.com/x/y.exe").contains("gh.ddlc.top"));
-    }
-
-    #[test]
-    fn gitee_asset_url_builds_dist_raw_url() {
-        assert_eq!(
-            gitee_asset_url("v2.0.12", "CoBeing.v2_2.0.12_x64-setup.exe"),
-            "https://gitee.com/CH3SH-LC/CoBeing/raw/dist/v2.0.12/CoBeing.v2_2.0.12_x64-setup.exe"
-        );
     }
 
     #[test]
