@@ -626,7 +626,7 @@ export function SettingsView() {
         {section === 'about' && (
           <section>
             <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>关于</h3>
-            <div className="sub">CoBeing 桌面端 v2.0.12</div>
+            <div className="sub">CoBeing 桌面端 v2.0.14</div>
             <div className="sub">架构：Tauri 2 原生桌面 + 内置内核（免装 Node.js）</div>
             <div className="sub">模型：DeepSeek 系列（默认 deepseek-v4-flash；思考开关/强度在「模型」来源配置中调整），可配置多个来源</div>
             <div className="sub">手机互联：局域网自动发现 + 一键配对 + cloudflared 公网隧道</div>

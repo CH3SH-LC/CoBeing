@@ -122,6 +122,10 @@ export class RpcClient {
     return this.request('confirmAgent', { name })
   }
 
+  rejectAgentApproval(name: string): Promise<void> {
+    return this.request('rejectAgentApproval', { name })
+  }
+
   destroyAgent(name: string): Promise<void> {
     return this.request('destroyAgent', { name })
   }

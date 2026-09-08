@@ -1,7 +1,7 @@
 {
   "name": "cobeing-v2",
   "private": true,
-  "version": "2.0.12",
+  "version": "2.0.14",
   "description": "CoBeing 2.0.10 — 全新架构重写工程（抛弃 v1 硬架构，参考 dsh 工程机制）",
   "type": "module",
   "scripts": {

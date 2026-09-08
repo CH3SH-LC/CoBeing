@@ -21,6 +21,8 @@ export function ChatView() {
   const [confirmingNew, setConfirmingNew] = useState(false)
   const [confirmingResume, setConfirmingResume] = useState(false)
   const [viewing, setViewing] = useState<ConversationInfo | null>(null)
+  /** 2.0.14 铃音思考中：发送后记录基线 seq，直到投影出现但丁新回复才清除 */
+  const [thinkingUntil, setThinkingUntil] = useState<number | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
 
@@ -28,12 +30,17 @@ export function ChatView() {
     try {
       const proj = await client.butlerConversationProjection(currentId)
       setProjection(proj)
+      // 2.0.14：见到但丁新回复即清除"思考中"
+      if (thinkingUntil !== null) {
+        const hasButlerReply = proj.publicMessages.some((m) => m.actor === 'butler' && m.seq > thinkingUntil)
+        if (hasButlerReply) setThinkingUntil(null)
+      }
     } catch (error) {
       if (status === 'connected') {
         toast.push(`投影加载失败：${error instanceof Error ? error.message : String(error)}`, 3000)
       }
     }
-  }, [currentId, status, toast])
+  }, [currentId, status, toast, thinkingUntil])
 
   useEffect(() => {
     if (status !== 'connected') {
@@ -77,6 +84,8 @@ export function ChatView() {
     if (!content) return
     setText('')
     try {
+      // 2.0.14：记录基线 seq → 铃音思考中，直到但丁在它之后回复
+      setThinkingUntil(projection?.publicMessages.at(-1)?.seq ?? 0)
       await client.mainWindowSpeak(content)
       void refresh()
     } catch (error) {
@@ -194,7 +203,7 @@ export function ChatView() {
       )}
 
       <div className="page-body" ref={bodyRef} style={{ paddingBottom: 90 }}>
-        <MessageList projection={projection} confirm={confirm} />
+        <MessageList projection={projection} confirm={confirm} thinking={!viewing && thinkingUntil !== null} />
       </div>
 
       {!viewing && (

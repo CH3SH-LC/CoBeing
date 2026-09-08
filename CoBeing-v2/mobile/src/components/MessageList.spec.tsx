@@ -3,12 +3,13 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { MessageList, MessageSkeleton } from './MessageList'
 import type { ProjectionDto } from '../types'
+import { client } from '../rpc'
 
 vi.mock('../rpc', () => ({
-  client: { mainWindowSpeak: vi.fn() },
+  client: { mainWindowSpeak: vi.fn(), confirmAgent: vi.fn(), rejectAgentApproval: vi.fn() },
 }))
 
 vi.mock('../components/Toast', () => ({
@@ -68,5 +69,28 @@ describe('MessageList', () => {
   it('骨架屏独立渲染 3 个占位', () => {
     render(<MessageSkeleton />)
     expect(screen.getAllByLabelText('加载中').length).toBe(1)
+  })
+
+  it('approval 卡（待批准创建智能体）：批准→confirmAgent、拒绝→rejectAgentApproval，不回传管家', () => {
+    const confirm: any = {
+      type: 'confirm',
+      id: 'agent-approval-websearcher',
+      question: '管家想创建智能体「websearcher」（角色：网络搜索），是否批准？',
+      options: [
+        { id: 'approve', label: '批准' },
+        { id: 'reject', label: '拒绝' },
+      ],
+      approval: { name: 'websearcher', role: '网络搜索' },
+    }
+    render(<MessageList projection={proj} confirm={confirm} />)
+    expect(screen.getByText(/管家想创建智能体.*websearcher.*是否批准/)).toBeTruthy()
+
+    fireEvent.click(screen.getByText('批准'))
+    expect(client.confirmAgent).toHaveBeenCalledWith('websearcher')
+    expect(client.mainWindowSpeak).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('拒绝'))
+    expect(client.rejectAgentApproval).toHaveBeenCalledWith('websearcher')
+    expect(client.mainWindowSpeak).not.toHaveBeenCalled()
   })
 })

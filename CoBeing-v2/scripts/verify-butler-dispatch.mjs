@@ -1,13 +1,12 @@
 /**
- * 真实验证 2.0.10：管家自主创建智能体（create-agent 工具，真实 DeepSeek）
+ * 真实验证 2.0.14：管家端到端任务闭环（真实 DeepSeek）
  *
- * 场景：
- *   1. 主窗口对但丁说"需要一个做网络搜索的智能体"——但丁应自主调用 create-agent 工具
- *      （不再只能引导用户手动创建；issue #4）
- *   2. 待批准队列出现 websearcher（未登记名录）
- *   3. 桥 confirmAgent 批准 → 登记名录 → 可用 list-agents 查询 → 建群成功
- *   4. 但丁回复质量：非空泛套话（非"有什么可以帮您的？"类固定问候；issue #3）
- * 用法：node scripts/verify-agent-create.mjs
+ * 场景（一次用户请求 → 管家全自主推进，无需用户进群手操）：
+ *   1. 主窗口对但丁说"建 websearcher + 建群 + 派活开工"——但丁自主 create-agent 提交
+ *   2. 用户批准（桥 confirmAgent）→ 名录登记
+ *   3. **批准后不再发任何消息** → 但丁应被自动唤醒续步，自主建群 + speak-to-group 派活
+ *   4. 群组 worker 被唤醒并真实开工（发言/产出）
+ * 用法：node scripts/verify-butler-dispatch.mjs
  * key：同目录 .env 的 DEEPSEEK_API_KEY（系统环境变量优先）
  */
 
@@ -18,7 +17,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const dataDir = mkdtempSync(join(tmpdir(), 'cb-agent-create-'))
+const dataDir = mkdtempSync(join(tmpdir(), 'cb-butler-dispatch-'))
 
 let apiKey = process.env.DEEPSEEK_API_KEY ?? ''
 if (!apiKey) {
@@ -140,14 +139,14 @@ async function main() {
   const started = Date.now()
   await request('ping')
 
-  // 1. 用户提出需要新能力 → 但丁应自主调用 create-agent 工具（协议【创建智能体】）
+  // 1. 用户一次提出完整任务：建智能体 + 建群 + 派活开工
   await request('mainWindowSpeak', {
-    content: '我需要一个能做网络搜索的智能体，请立即调用 create-agent 工具创建它，名字 websearcher，角色 网络搜索。',
+    content: '请创建一个搜索智能体 websearcher（角色：网络搜索），批准后建群并让它在群里开工调研搜索技术方案。',
   })
   const s1 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
-  assert(await waitButlerReply(s1, 120_000), '但丁真实回复（收到创建请求）')
+  assert(await waitButlerReply(s1, 150_000), '但丁真实回复（收到创建请求）')
 
-  // 2. 等待 create-agent 工具调用成功 → 待批准队列出现 websearcher（未登记名录）
+  // 2. 待批准队列出现 websearcher
   assert(
     await poll(async () => {
       const p = await request('listPendingApprovals')
@@ -155,35 +154,58 @@ async function main() {
     }, 90_000),
     '待批准队列出现 websearcher（管家自主发起创建）',
   )
-  // 2.5 2.0.13：管家提交后应下发「待批准创建智能体」确认卡（approval confirm 通知，主对话弹批准/拒绝）——
-  //    修复"管家能提交但主对话无批准弹窗、只能去智能体页批准"的 GUI 断点
-  assert(
-    await poll(() => stdoutBuf.includes('"method":"notify"') && stdoutBuf.includes('"approval"') && stdoutBuf.includes('"name":"websearcher"'), 15_000),
-    '管家提交后下发 approval 批准确认通知（主对话批准卡可弹出）',
-  )
-  const listAgents = await request('listAgents')
-  assert(!listAgents.result.some((a) => a.name === 'websearcher'), '批准前名录未登记 websearcher')
 
-  // 3. 用户批准（GUI 确认按钮同桥方法）→ 登记名录
+  // 3. 用户批准（GUI 同桥方法）→ 名录登记；此后再无任何用户发言
   await request('confirmAgent', { name: 'websearcher' })
-  const agents2 = await request('listAgents')
-  assert(agents2.result.some((a) => a.name === 'websearcher'), '批准后名录登记 websearcher')
+  const agents = await request('listAgents')
+  assert(agents.result.some((a) => a.name === 'websearcher'), '批准后名录登记 websearcher')
 
-  // 4. 批准后即可建群（未登记成员建群会失败——修复 #4 前置依赖闭环）
-  await request('createGroup', { name: 'search-team', label: ['user', 'butler', 'websearcher'] })
-  const groups = await request('listGroups')
-  assert(groups.result.some((g) => g.name === 'search-team'), '建群成功（成员已登记）')
+  // 4. 关键：批准后不发言 → 但丁应被自动唤醒续步，自主建群（模型自主定群名，含 websearcher 成员）
+  const s2 = (await request('butlerProjection')).result.publicMessages.at(-1)?.seq ?? 0
+  assert(
+    await poll(async () => {
+      const p = await request('butlerProjection', undefined, 15000)
+      return p.result.publicMessages.some((m) => m.actor === 'butler' && m.seq > s2)
+    }, 150_000),
+    '批准后但丁被自动唤醒（无用户发言仍续步）',
+  )
+  // 建群：批准后出现新的 working 群组且含 websearcher 成员
+  assert(
+    await poll(async () => {
+      const g = await request('listGroups')
+      return Array.isArray(g.result) && g.result.some((x) => x.status === 'working' && x.label.includes('websearcher'))
+    }, 120_000),
+    '但丁自动建群（working 群组含 websearcher 成员）',
+  )
+  // 派活：任一含 websearcher 的群组出现任务摘要或但丁/成员群内发言
+  assert(
+    await poll(async () => {
+      const g = await request('listGroups')
+      const meta = Array.isArray(g.result) ? g.result.find((x) => x.status === 'working' && x.label.includes('websearcher')) : null
+      if (!meta) return false
+      if (meta.taskSummary) return true
+      const proj = await request('groupProjection', { group: meta.name }).catch(() => null)
+      if (proj?.result?.publicMessages?.some((m) => m.actor !== 'user')) return true
+      return false
+    }, 150_000),
+    '但丁向群组派活（任务摘要/群内发言出现）',
+  )
 
-  // 5. 但丁回复质量：非空泛套话（issue #3）——检查回复含具体内容
-  const proj = await request('butlerProjection')
-  const butlerMsgs = proj.result.publicMessages.filter((m) => m.actor === 'butler')
-  const lastReply = butlerMsgs.at(-1)?.content ?? ''
-  console.log('  但丁最终回复:', lastReply.slice(0, 120))
-  assert(!/^[\s\S]*有什么可以帮.{0,4}？[\s\S]*$/.test(lastReply.trim()) || lastReply.length > 12, '但丁回复非空泛套话（有具体内容）')
-  assert(!/^晚上好[，,].*$/.test(lastReply.trim()), '但丁回复非固定问候语')
+  // 5. 群组工作成员被唤醒并真实开工（发言/产出）
+  assert(
+    await poll(async () => {
+      const g = await request('listGroups')
+      const meta = Array.isArray(g.result) ? g.result.find((x) => x.status === 'working' && x.label.includes('websearcher')) : null
+      if (!meta) return false
+      const proj = await request('groupProjection', { group: meta.name }).catch(() => null)
+      return !!proj?.result?.publicMessages?.some((m) => m.actor !== 'user' && m.actor !== 'butler')
+    }, 180_000),
+    '群组工作智能体被唤醒并发言/开工',
+  )
 
   const elapsed = ((Date.now() - started) / 1000).toFixed(1)
-  console.log(`\nAGENT-CREATE VERIFY PASSED (${elapsed}s, data=${dataDir})`)
+  console.log(`
+BUTLER-DISPATCH VERIFY PASSED (${elapsed}s, data=${dataDir})`)
   await request('stop')
   await new Promise((resolve) => {
     const timer = setTimeout(() => { console.log('⚠ stop 后未退出'); resolve() }, 3000)

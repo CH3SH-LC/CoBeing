@@ -105,6 +105,8 @@ export class Kernel {
 
   private groups = new Map<string, GroupRuntime>()
   private pendingApprovals: AgentDef[] = []
+  /** 待批准来源（2.0.14：butler=管家 create-agent 发起——批准后自动唤醒管家续步；gui=手动提交不打扰） */
+  private pendingSources = new Map<string, 'butler' | 'gui'>()
   private disposers: Array<() => void> = []
   private notifyUserCb?: (payload: NotifyPayload) => void
   private butlerGuard: PathGuard
@@ -200,9 +202,11 @@ export class Kernel {
         })),
       createGroup: (name, label) => this.createGroup(name, label).then((g) => ({ name: g.meta.name, status: g.meta.status })),
       // 2.0.10：管家自主创建智能体（进待批准队列，GUI 批准后登记名录）
-      requestCreateAgent: (def) => this.requestCreateAgent(def),
+      requestCreateAgent: (def, source = 'butler') => this.requestCreateAgent(def, source),
       listAgents: () => this.registry.listAgents().map((a) => ({ name: a.name, role: a.role })),
       notifyUser: (payload) => this.notifyUserCb?.(payload),
+      // 2.0.14：管家向群组派活开工（speak-to-group；actor=butler 经内核入口唤醒成员）
+      speakToGroup: (group, content, task) => this.speakToGroup(group, 'butler', content, undefined, task),
     })) {
       this.disposers.push(this.tools.register(tool))
     }
@@ -630,12 +634,17 @@ export class Kernel {
 
   // ---------- 智能体名录（创造需用户批准） ----------
 
-  /** 请求创造（进入待批准队列，GUI 确认后调用 confirmAgent） */
-  async requestCreateAgent(def: AgentDef): Promise<void> {
+  /**
+   * 请求创造（进入待批准队列，GUI 确认后调用 confirmAgent）。
+   * source：'butler'=管家 create-agent 工具发起（批准后自动唤醒管家续步）；
+   *        'gui'=用户在智能体页手动提交（批准后不打扰管家）。缺省 'gui'。
+   */
+  async requestCreateAgent(def: AgentDef, source: 'butler' | 'gui' = 'gui'): Promise<void> {
     if (this.pendingApprovals.some((a) => a.name === def.name)) {
       throw new Error(`pending approval already exists: ${def.name}`)
     }
     this.pendingApprovals.push(def)
+    this.pendingSources.set(def.name, source)
     this.emitUpdate('agents', undefined, 'pending')
   }
 
@@ -648,8 +657,33 @@ export class Kernel {
     const index = this.pendingApprovals.findIndex((a) => a.name === name)
     if (index === -1) throw new Error(`no pending approval: ${name}`)
     const [def] = this.pendingApprovals.splice(index, 1)
+    const source = this.pendingSources.get(name) ?? 'gui'
+    this.pendingSources.delete(name)
     await this.registry.createAgent(def!)
     this.emitUpdate('agents', undefined, 'confirm')
+    // 2.0.14：管家发起的创建批准后 → 向主窗口但丁注入批准结果并唤醒，让它续原任务
+    // （建群/派活等）；GUI 手动创建不唤醒管家（用户本就在智能体页操作）。
+    if (source === 'butler') {
+      await this.butlerLog.append({
+        type: 'speak',
+        actor: 'system',
+        content: `[审批通过] 智能体「${def!.name}」（角色：${def!.role}）已获批准并登记入名录。请继续你此前为该智能体安排的后续步骤（如需建群/派活请继续）。`,
+      })
+      this.butlerInstance.wake({
+        content: '你提交的智能体已获批准登记。请查看名录并继续此前未完成的安排（如需建群或向群组派活开工）。',
+        systemNote: this.groupStateNote(),
+      })
+      this.emitUpdate('butler', undefined, 'approval')
+    }
+  }
+
+  /** 用户拒绝创建请求（2.0.13）：从待批准队列移除，不登记名录、不留记录 */
+  async rejectAgentApproval(name: string): Promise<void> {
+    const index = this.pendingApprovals.findIndex((a) => a.name === name)
+    if (index === -1) throw new Error(`no pending approval: ${name}`)
+    this.pendingApprovals.splice(index, 1)
+    this.pendingSources.delete(name)
+    this.emitUpdate('agents', undefined, 'reject')
   }
 
   /** 销毁（规格 §3：清人格经验 + 注销名录 + 保留历史记录） */
@@ -836,12 +870,12 @@ export class Kernel {
       basePrompt: def.name === 'butler'
         ? '你是管家铃音在群组内的分身：你的职责是分析群组内需要管家/用户决策的内容，用 butler-relay 工具转给主窗口管家铃音；不做具体工作。'
         : undefined,
-      // 修复 4：工作智能体工具面收敛——管家协调/元工具（butler-relay/list-groups/list-agents/create-group/create-agent/ask-user）
+      // 修复 4：工作智能体工具面收敛——管家协调/元工具（butler-relay/list-groups/list-agents/create-group/create-agent/ask-user/speak-to-group）
       // 的 guard 仅主窗口但丁可调，对 worker 调用必失败；与其作为"必失败诱饵"留在工具面
       // 诱惑模型空转，不如直接从 worker 可见工具清单移除（不给偷懒盖章的机会）
       denyTools: def.name === 'butler'
         ? undefined
-        : ['butler-relay', 'list-groups', 'list-agents', 'create-group', 'create-agent', 'ask-user'],
+        : ['butler-relay', 'list-groups', 'list-agents', 'create-group', 'create-agent', 'ask-user', 'speak-to-group'],
       // 经验档案自动注入（画像 + 最近条目；宿主面文件失败降级为空）
       experience: () => this.experience.contextBlock(agentDef.name).catch(() => ''),
       // 发言真实性审查（【诚实】）：工作智能体 reply 发言前验证（butler 不审查——管家不做具体工作）

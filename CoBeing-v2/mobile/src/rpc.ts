@@ -303,6 +303,10 @@ export class WsRpcClient {
     return this.request('confirmAgent', { name })
   }
 
+  rejectAgentApproval(name: string): Promise<unknown> {
+    return this.request('rejectAgentApproval', { name })
+  }
+
   destroyAgent(name: string): Promise<unknown> {
     return this.request('destroyAgent', { name })
   }

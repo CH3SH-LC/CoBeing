@@ -66,7 +66,7 @@ export type UpdateScope = 'butler' | 'group' | 'groups' | 'agents'
 
 export type NotifyPayload =
   | { type: 'text'; content: string }
-  | { type: 'confirm'; id: string; question: string; options: { id: string; label: string }[] }
+  | { type: 'confirm'; id: string; question: string; options: { id: string; label: string }[]; approval?: { name: string; role: string } }
   | { type: 'update'; scope: UpdateScope; group?: string; kind?: string }
   | { type: 'pair'; action: 'paired' | 'revoked'; deviceName: string }
   | { type: 'tunnel'; action: 'update' | 'started' | 'stopped' | 'error'; url?: string; message?: string }

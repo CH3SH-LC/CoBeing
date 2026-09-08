@@ -15,6 +15,8 @@ export function MainChatView() {
   const [notifies, setNotifies] = useState<NotifyPayload[]>([])
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+  /** 2.0.14：铃音思考中——发送后直到看到但丁新回复（seq > 记录点）才清除 */
+  const [thinkingUntil, setThinkingUntil] = useState<number | null>(null)
   const [convs, setConvs] = useState<ConversationInfo[]>([])
   const [viewingConv, setViewingConv] = useState<ConversationInfo | null>(null)
   const [histProj, setHistProj] = useState<ProjectionDto | null>(null)
@@ -24,11 +26,17 @@ export function MainChatView() {
 
   const refresh = useCallback(async () => {
     try {
-      setProj(await rpc.butlerProjection())
+      const p = await rpc.butlerProjection()
+      setProj(p)
+      // 2.0.14：见到 butler 新回复（seq > 记录点）即清除"思考中"
+      if (thinkingUntil !== null) {
+        const hasButlerReply = p.publicMessages.some((m) => m.actor === 'butler' && m.seq > thinkingUntil)
+        if (hasButlerReply) setThinkingUntil(null)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }, [])
+  }, [thinkingUntil])
 
   const loadConvs = useCallback(async () => {
     try {
@@ -70,6 +78,8 @@ export function MainChatView() {
     setSending(true)
     setError('')
     try {
+      // 2.0.14：记录当前最后 seq → 铃音思考中，直到但丁在它之后发言
+      setThinkingUntil(proj?.publicMessages.at(-1)?.seq ?? 0)
       await rpc.mainWindowSpeak(content)
       setText('')
       await refresh()
@@ -137,10 +147,18 @@ export function MainChatView() {
     }
   }
 
-  /** 确认卡片选项点击：答复回传主对话（管家下一轮看到选择并执行） */
-  const answerConfirm = async (payload: Extract<NotifyPayload, { type: 'confirm' }>, optionLabel: string) => {
+  /** 确认卡片选项点击：
+   *  - approval 卡（管家 create-agent 发起待批准创建智能体）：批准→confirmAgent，拒绝→rejectAgentApproval（直接 RPC，不回传管家）
+   *  - 普通 ask-user 卡：答复文本回传主对话（管家下一轮看到选择并执行） */
+  const answerConfirm = async (payload: Extract<NotifyPayload, { type: 'confirm' }>, optionId: string) => {
     try {
-      await rpc.mainWindowSpeak(`【确认答复】${optionLabel}`)
+      if (payload.approval) {
+        if (optionId === 'approve') await rpc.confirmAgent(payload.approval.name)
+        else await rpc.rejectAgentApproval(payload.approval.name)
+      } else {
+        const label = payload.options.find((o) => o.id === optionId)?.label ?? optionId
+        await rpc.mainWindowSpeak(`【确认答复】${label}`)
+      }
       setNotifies((prev) => prev.filter((n) => n !== payload))
       await refresh()
     } catch (e) {
@@ -190,7 +208,7 @@ export function MainChatView() {
               <div className="confirm-question">{n.question}</div>
               <div className="confirm-options">
                 {n.options.map((opt) => (
-                  <button key={opt.id} className="btn small" onClick={() => void answerConfirm(n, opt.label)}>
+                  <button key={opt.id} className="btn small" onClick={() => void answerConfirm(n, opt.id)}>
                     {opt.label}
                   </button>
                 ))}
@@ -270,6 +288,16 @@ export function MainChatView() {
         </div>
         <div className="chat-scroll" ref={scrollRef}>
           <MessageList messages={messages} actorKind={(a) => (a === 'user' ? 'user' : 'butler')} />
+          {!viewingConv && thinkingUntil !== null && (
+            <div className="msg butler">
+              <div className="typing-dots" aria-label="铃音思考中">
+                <span />
+                <span />
+                <span />
+              </div>
+              <span className="typing-label">铃音思考中…</span>
+            </div>
+          )}
         </div>
         <div className="chat-input-wrap">
           {viewingConv ? (

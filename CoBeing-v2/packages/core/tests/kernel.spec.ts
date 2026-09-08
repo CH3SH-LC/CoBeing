@@ -308,6 +308,143 @@ describe('Kernel 管家群组感知与确认交互（纯HI：管家分析转发/
     expect(ctx.kernel.listPendingApprovals().some((a) => a.name === 'okagent')).toBe(false)
   }, 15_000)
 
+  test('create-agent 工具成功后向用户弹出带 approval 的批准确认卡（2.0.13）', async () => {
+    const notifies: NotifyPayload[] = []
+    const dir = mkdtempSync(join(tmpdir(), 'cb-kernel-'))
+    const kernel = new Kernel(dir, {
+      mockResponder: (req) => {
+        const last = req.messages[req.messages.length - 1]?.content ?? ''
+        if (last.includes('帮我建一个搜索智能体')) {
+          return '{"toolCalls":[{"name":"create-agent","args":{"name":"websearcher","role":"网络搜索"}}]}'
+        }
+        return '{"reply":"ok"}'
+      },
+      notifyUser: (n) => notifies.push(n),
+    })
+    await kernel.start()
+    await kernel.requestCreateAgent({ name: 'worker', role: '工作者', createdAt: Date.now() })
+    await kernel.confirmAgent('worker')
+    await kernel.mainWindowSpeak('帮我建一个搜索智能体')
+    await waitFor(() => kernel.listPendingApprovals().some((a) => a.name === 'websearcher'))
+    // 管家工具执行应发出带 approval 的 confirm 卡（主对话可见批准/拒绝按钮）
+    const card = notifies.find((n) => n.type === 'confirm' && n.approval?.name === 'websearcher')
+    expect(card).toBeDefined()
+    const confirmCard = card as Extract<NotifyPayload, { type: 'confirm' }>
+    expect(confirmCard.approval).toEqual({ name: 'websearcher', role: '网络搜索' })
+    expect(confirmCard.options.map((o) => o.id)).toEqual(['approve', 'reject'])
+    // 直接批准 → 登记名录
+    await kernel.confirmAgent('websearcher')
+    expect(kernel.registry.getAgent('websearcher')).toBeDefined()
+    await kernel.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }, 15_000)
+
+  test('butler 发起创建被批准后 → 自动唤醒管家续步（注入 [审批通过] + wake）（2.0.14）', async () => {
+    const notifies: NotifyPayload[] = []
+    const dir = mkdtempSync(join(tmpdir(), 'cb-kernel-'))
+    // 模拟：管家提交 create-agent 后批准；批准唤醒的续步消息不应被当成普通回复吞掉
+    const kernel = new Kernel(dir, {
+      mockResponder: (req) => {
+        const last = req.messages[req.messages.length - 1]?.content ?? ''
+        if (last.includes('创建搜索智能体')) {
+          return '{"toolCalls":[{"name":"create-agent","args":{"name":"websearcher","role":"网络搜索"}}]}'
+        }
+        return '{"reply":"已收到续步消息"}'
+      },
+      notifyUser: (n) => notifies.push(n),
+    })
+    await kernel.start()
+    await kernel.mainWindowSpeak('帮我创建搜索智能体，然后建群开工')
+    await waitFor(() => kernel.listPendingApprovals().some((a) => a.name === 'websearcher'))
+    // 批准（来自但丁 create-agent 工具 → source=butler）
+    await kernel.confirmAgent('websearcher')
+    expect(kernel.registry.getAgent('websearcher')).toBeDefined()
+    // 主窗口日志出现 [审批通过] 系统消息（唤醒管家续步的依据）
+    await waitFor(() => {
+      const events = kernel.butlerLog.readCached()
+      return events.some((e) => e.type === 'speak' && e.actor === 'system' && (e as { content: string }).content.includes('[审批通过]'))
+    })
+    // 管家收到续步唤醒并回复（busy→idle 一轮后有 butler 发言在审批事件之后）
+    await waitFor(() => {
+      const events = kernel.butlerLog.readCached()
+      const sysIdx = events.findIndex((e) => e.type === 'speak' && e.actor === 'system')
+      return events.some((e, i) => i > sysIdx && e.type === 'speak' && e.actor === 'butler')
+    })
+    await kernel.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }, 15_000)
+
+  test('GUI 手动创建被批准 → 不唤醒管家（source=gui）（2.0.14）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cb-kernel-'))
+    const kernel = new Kernel(dir, {
+      mockResponder: () => '{"reply":"ok"}',
+      notifyUser: () => undefined,
+    })
+    await kernel.start()
+    // 手动路径：requestCreateAgent 不带 source → 缺省 'gui'
+    await kernel.requestCreateAgent({ name: 'manual-agent', role: '手动', createdAt: Date.now() })
+    await kernel.confirmAgent('manual-agent')
+    expect(kernel.registry.getAgent('manual-agent')).toBeDefined()
+    const events = kernel.butlerLog.readCached()
+    // 主窗口不应出现 [审批通过] 系统唤醒（手动创建不打扰管家）
+    expect(events.some((e) => e.type === 'speak' && (e as { content: string }).content.includes('[审批通过]'))).toBe(false)
+    await kernel.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }, 15_000)
+
+  test('speak-to-group 工具：主窗口管家建群后向群组派活 → 成员被唤醒开工（2.0.14）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cb-kernel-'))
+    let created = false
+    const kernel = new Kernel(dir, {
+      mockResponder: (req) => {
+        const last = req.messages.at(-1)?.content ?? ''
+        // 有状态 mock：群建好后引导派活（无状态会导致模型重复建群撞 already exists）
+        if (!created && last.includes('建群')) {
+          created = true
+          return '{"toolCalls":[{"name":"create-group","args":{"name":"search-g","label":["user","butler","websearcher"]}}]}'
+        }
+        if (created && (last.includes('建群') || last.includes('派活') || last === '')) {
+          return '{"toolCalls":[{"name":"speak-to-group","args":{"group":"search-g","content":"请调研搜索技术方案并汇报","task":"搜索方案调研"}}]}'
+        }
+        return '{"reply":"ok"}'
+      },
+      notifyUser: () => undefined,
+    })
+    await kernel.start()
+    await kernel.requestCreateAgent({ name: 'websearcher', role: '搜索', createdAt: Date.now() })
+    await kernel.confirmAgent('websearcher')
+    // 一条唤醒内：但丁建群 → speak-to-group 派活 → 群组任务摘要 + websearcher 被唤醒
+    await kernel.mainWindowSpeak('请建群并派活：用 websearcher 做搜索方案调研')
+    await waitFor(() => kernel.listGroups().some((g) => g.name === 'search-g'))
+    await waitFor(() => kernel.getGroup('search-g')!.meta.taskSummary === '搜索方案调研')
+    await waitFor(() => {
+      const proj = kernel.getGroup('search-g')!.projection()
+      return proj.publicMessages.some((m) => m.actor === 'websearcher')
+    }, 15_000)
+    const groupProj = kernel.getGroup('search-g')!.projection()
+    expect(groupProj.publicMessages.some((m) => m.actor === 'butler' && m.content.includes('调研搜索技术方案'))).toBe(true)
+    await kernel.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }, 20_000)
+
+  test('rejectAgentApproval：从待批准队列移除且不登记名录（2.0.13）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cb-kernel-'))
+    const kernel = new Kernel(dir, {
+      mockResponder: () => '{"reply":"ok"}',
+      notifyUser: () => undefined,
+    })
+    await kernel.start()
+    await kernel.requestCreateAgent({ name: 'websearcher', role: '网络搜索', createdAt: Date.now() })
+    expect(kernel.listPendingApprovals().some((a) => a.name === 'websearcher')).toBe(true)
+    await kernel.rejectAgentApproval('websearcher')
+    expect(kernel.listPendingApprovals().some((a) => a.name === 'websearcher')).toBe(false)
+    expect(kernel.registry.getAgent('websearcher')).toBeUndefined()
+    // 拒绝不存在 / 已处理的请求 → 明确报错
+    await expect(kernel.rejectAgentApproval('websearcher')).rejects.toThrow('no pending approval')
+    await kernel.stop()
+    rmSync(dir, { recursive: true, force: true })
+  }, 15_000)
+
   test('list-agents 工具：主窗口但丁可查询名录（含空名录提示）', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cb-kernel-'))
     const kernel = new Kernel(dir, {

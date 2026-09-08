@@ -2,11 +2,14 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { MainChatView } from './MainChatView'
+import { rpc } from '../rpc'
 
 // mock rpc 模块：捕获 mainWindowSpeak 调用，手动触发 notify 回调
 const notifyHandlers: Array<(n: unknown) => void> = []
 const speakCalls: Array<{ content: string }> = []
 const convCalls: Array<{ id?: string }> = []
+/** 主对话投影（thinking 显隐测试可改写；默认空） */
+let liveMsgs: Array<{ seq: number; actor: string; content: string; ts: number }> = []
 
 let convList: Array<{ id: string; createdAt: number; archivedAt?: number; messageCount: number; current?: boolean; firstUserMessage?: string }> = [
   { id: 'current', createdAt: 1, messageCount: 3, current: true },
@@ -14,10 +17,17 @@ let convList: Array<{ id: string; createdAt: number; archivedAt?: number; messag
 
 vi.mock('../rpc', () => ({
   rpc: {
-    butlerProjection: vi.fn(async () => ({ events: [], publicMessages: [], compactions: [], context: { estimatedTokens: 12_345, thresholdTokens: 100_000 } })),
+    butlerProjection: vi.fn(async () => ({
+      events: [],
+      publicMessages: liveMsgs,
+      compactions: [],
+      context: { estimatedTokens: 12_345, thresholdTokens: 100_000 },
+    })),
     mainWindowSpeak: vi.fn(async (content: string) => {
       speakCalls.push({ content })
     }),
+    confirmAgent: vi.fn(async () => undefined),
+    rejectAgentApproval: vi.fn(async () => undefined),
     newButlerConversation: vi.fn(async () => {
       convCalls.push({})
       convList = [{ id: 'current', createdAt: Date.now(), messageCount: 1, current: true }]
@@ -98,6 +108,56 @@ describe('MainChatView 确认卡片（ask-user）', () => {
     expect(screen.queryByText('用哪个群组？')).toBeNull()
   })
 
+  it('待批准创建卡（approval）：点击批准 → confirmAgent，点击拒绝 → rejectAgentApproval（不回传管家）', async () => {
+    const confirmAgent = vi.mocked(rpc).confirmAgent
+    const rejectAgentApproval = vi.mocked(rpc).rejectAgentApproval
+    render(<MainChatView />)
+    await act(async () => {
+      notifyHandlers.forEach((cb) =>
+        cb({
+          type: 'confirm',
+          id: 'agent-approval-websearcher',
+          question: '管家想创建智能体「websearcher」…是否批准？',
+          options: [
+            { id: 'approve', label: '批准' },
+            { id: 'reject', label: '拒绝' },
+          ],
+          approval: { name: 'websearcher', role: '网络搜索' },
+        }),
+      )
+    })
+    expect(screen.getByText('管家想创建智能体「websearcher」…是否批准？')).toBeTruthy()
+
+    // 批准：直接 confirmAgent，非文本回传
+    await act(async () => {
+      fireEvent.click(screen.getByText('批准'))
+    })
+    expect(confirmAgent).toHaveBeenCalledWith('websearcher')
+    expect(speakCalls).toHaveLength(0)
+    expect(screen.queryByText(/管家想创建智能体/)).toBeNull()
+
+    // 拒绝：再触发一张卡 → rejectAgentApproval
+    await act(async () => {
+      notifyHandlers.forEach((cb) =>
+        cb({
+          type: 'confirm',
+          id: 'agent-approval-websearcher-2',
+          question: '管家想创建智能体「websearcher」…是否批准？',
+          options: [
+            { id: 'approve', label: '批准' },
+            { id: 'reject', label: '拒绝' },
+          ],
+          approval: { name: 'websearcher', role: '网络搜索' },
+        }),
+      )
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('拒绝'))
+    })
+    expect(rejectAgentApproval).toHaveBeenCalledWith('websearcher')
+    expect(speakCalls).toHaveLength(0)
+  })
+
   it('text 通知进入通知流（不渲染为卡片）', async () => {
     render(<MainChatView />)
     await act(async () => {
@@ -105,6 +165,41 @@ describe('MainChatView 确认卡片（ask-user）', () => {
     })
     expect(screen.getByText('[g1 → 管家] report: 任务完成')).toBeTruthy()
     expect(screen.queryByText('用哪个群组？')).toBeNull()
+  })
+})
+
+describe('MainChatView 铃音思考中提示（2.0.14）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    notifyHandlers.length = 0
+    speakCalls.length = 0
+    convCalls.length = 0
+    liveMsgs = []
+    convList = [{ id: 'current', createdAt: 1, messageCount: 3, current: true }]
+  })
+
+  it('发送后显示「铃音思考中…」，但丁回复后消失', async () => {
+    render(<MainChatView />)
+    // 输入并发送
+    const input = screen.getByPlaceholderText(/对铃音说话/)
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '帮我调研' } })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    })
+    // 此时尚未见但丁回复 → 思考中可见
+    expect(screen.getAllByText('铃音思考中…').length).toBeGreaterThanOrEqual(1)
+
+    // 但丁回复到达（投影新增 butler speak）→ 触发刷新 → 思考中消失
+    liveMsgs = [
+      { seq: 1, actor: 'user', content: '帮我调研', ts: Date.now() },
+      { seq: 2, actor: 'butler', content: '好的，已开始', ts: Date.now() + 100 },
+    ]
+    await act(async () => {
+      notifyHandlers.forEach((cb) => cb({ type: 'update', scope: 'butler', kind: 'reply' }))
+    })
+    await waitFor(() => expect(screen.queryAllByText('铃音思考中…').length).toBe(0))
   })
 })
 

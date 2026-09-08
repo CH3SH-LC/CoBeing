@@ -277,6 +277,10 @@ export class BridgeServer {
         this.require(object(params) && str(params, 'name'), 'name is required')
         return () => this.kernel.confirmAgent((params as { name: string }).name)
       }
+      case 'rejectAgentApproval': {
+        this.require(object(params) && str(params, 'name'), 'name is required')
+        return () => this.kernel.rejectAgentApproval((params as { name: string }).name)
+      }
       case 'destroyAgent': {
         this.require(object(params) && str(params, 'name'), 'name is required')
         return () => this.kernel.destroyAgent((params as { name: string }).name)

@@ -73,18 +73,26 @@ export function MessageSkeleton() {
   )
 }
 
-export function MessageList({ projection, confirm }: { projection: ProjectionDto | null; confirm: NotifyPayload | null }) {
+export function MessageList({ projection, confirm, thinking = false }: { projection: ProjectionDto | null; confirm: NotifyPayload | null; thinking?: boolean }) {
   const toast = useToast()
   if (!projection) {
     return <MessageSkeleton />
   }
 
-  const replyConfirm = async (label: string) => {
+  const replyConfirm = async (payload: Extract<NotifyPayload, { type: 'confirm' }>, optionId: string) => {
     try {
-      await client.mainWindowSpeak(`【确认答复】${label}`)
-      toast.push(`已答复：${label}`)
+      if (payload.approval) {
+        // 2.0.13 待批准创建智能体：批准/拒绝直接 RPC，不回传管家
+        if (optionId === 'approve') await client.confirmAgent(payload.approval.name)
+        else await client.rejectAgentApproval(payload.approval.name)
+        toast.push(optionId === 'approve' ? `已批准 ${payload.approval.name}` : `已拒绝 ${payload.approval.name}`)
+      } else {
+        const label = payload.options.find((o) => o.id === optionId)?.label ?? optionId
+        await client.mainWindowSpeak(`【确认答复】${label}`)
+        toast.push(`已答复：${label}`)
+      }
     } catch (error) {
-      toast.push(`答复失败：${error instanceof Error ? error.message : String(error)}`, 4000)
+      toast.push(`操作失败：${error instanceof Error ? error.message : String(error)}`, 4000)
     }
   }
 
@@ -138,14 +146,22 @@ export function MessageList({ projection, confirm }: { projection: ProjectionDto
       ))}
       {confirm?.type === 'confirm' && (
         <div className="confirm-card">
-          <div className="q">❓ {confirm.question}</div>
+          <div className="q">{confirm.approval ? '🤖 ' : '❓ '}{confirm.question}</div>
           <div className="opts">
             {confirm.options.map((o) => (
-              <button key={o.id} className="btn small" onClick={() => replyConfirm(o.label)}>
+              <button key={o.id} className="btn small" onClick={() => void replyConfirm(confirm, o.id)}>
                 {o.label}
               </button>
             ))}
           </div>
+        </div>
+      )}
+      {thinking && (
+        <div className="typing-row" role="status" aria-label="铃音思考中">
+          <span className="typing-dot" />
+          <span className="typing-dot" />
+          <span className="typing-dot" />
+          <span className="typing-text">铃音思考中…</span>
         </div>
       )}
     </div>

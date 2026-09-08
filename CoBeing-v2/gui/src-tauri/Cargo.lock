@@ -329,7 +329,7 @@ dependencies = [
 
 [[package]]
 name = "cobeing-gui"
-version = "2.0.12"
+version = "2.0.14"
 dependencies = [
  "serde",
  "serde_json",

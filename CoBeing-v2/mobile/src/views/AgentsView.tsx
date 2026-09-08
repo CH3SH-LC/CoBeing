@@ -86,6 +86,16 @@ export function AgentsView() {
     }
   }
 
+  const reject = async (agentName: string) => {
+    try {
+      await client.rejectAgentApproval(agentName)
+      toast.push(`已拒绝 ${agentName}`)
+      void refresh()
+    } catch (error) {
+      toast.push(`操作失败：${error instanceof Error ? error.message : String(error)}`, 4000)
+    }
+  }
+
   const destroy = async (agentName: string) => {
     try {
       await client.destroyAgent(agentName)
@@ -133,7 +143,7 @@ export function AgentsView() {
                   <button className="btn small" onClick={() => void confirm(a.name)}>
                     批准
                   </button>
-                  <button className="btn small danger" onClick={() => void destroy(a.name)}>
+                  <button className="btn small danger" onClick={() => void reject(a.name)}>
                     拒绝
                   </button>
                 </div>

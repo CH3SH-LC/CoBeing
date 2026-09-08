@@ -166,6 +166,20 @@ describe('bridge e2e', () => {
     expect(agents.result.some((a: any) => a.name === 'researcher')).toBe(true)
   })
 
+  test('待批准智能体拒绝：rejectAgentApproval 移除队列且不登记名录', async () => {
+    const ctx = await setup()
+    await rpc(ctx, 'requestCreateAgent', {
+      def: { name: 'rejected-one', role: '临时', createdAt: Date.now() },
+    })
+    const { reply: pending } = await rpc(ctx, 'listPendingApprovals')
+    expect(pending.result.some((a: any) => a.name === 'rejected-one')).toBe(true)
+    await rpc(ctx, 'rejectAgentApproval', { name: 'rejected-one' })
+    const { reply: after } = await rpc(ctx, 'listPendingApprovals')
+    expect(after.result.some((a: any) => a.name === 'rejected-one')).toBe(false)
+    const { reply: agents } = await rpc(ctx, 'listAgents')
+    expect(agents.result.some((a: any) => a.name === 'rejected-one')).toBe(false)
+  })
+
   test('群组全流程：createGroup → speakToGroup → writer 发言进投影', async () => {
     const ctx = await setup()
     const { reply: created } = await rpc(ctx, 'createGroup', {

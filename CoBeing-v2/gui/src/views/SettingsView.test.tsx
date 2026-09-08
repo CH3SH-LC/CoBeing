@@ -279,7 +279,7 @@ describe('SettingsView（分栏设置界面）', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '关于' }))
     await waitFor(() => {
-      expect(screen.getByText(/CoBeing 桌面端 v2\.0\.12/)).toBeInTheDocument()
+      expect(screen.getByText(/CoBeing 桌面端 v2\.0\.14/)).toBeInTheDocument()
     })
   })
 

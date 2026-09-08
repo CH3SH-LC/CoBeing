@@ -80,6 +80,15 @@ export function AgentsView() {
     }
   }
 
+  const rejectPending = async (name: string) => {
+    try {
+      await rpc.rejectAgentApproval(name)
+      await refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   const destroy = async () => {
     if (!selected) return
     try {
@@ -174,9 +183,14 @@ export function AgentsView() {
                   <div className="list-item-title">{p.name}</div>
                   <div className="list-item-sub">{p.role}</div>
                 </div>
-                <button className="btn small primary" onClick={() => void confirmPending(p.name)}>
-                  批准
-                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn small primary" onClick={() => void confirmPending(p.name)}>
+                    批准
+                  </button>
+                  <button className="btn small danger" onClick={() => void rejectPending(p.name)}>
+                    拒绝
+                  </button>
+                </div>
               </div>
             ))}
           </div>
