@@ -1,6 +1,7 @@
 # CoBeing v2 项目指令（CoBeing-v2 工程）
 
 > 版本：2026-08-20 建立
+> 版本注记（2026-09-09 · v2.0.15 远程回连工具）：发布后现场排查「手机连不上电脑」→ 判定**环境性问题**（①校园网无线客户端隔离：同 WiFi 手机↔电脑二层互不可达，手机扫不到/直连超时；②校园网 DNS 污染 `*.trycloudflare.com`，仅系统 DNS 返回 NXDOMAIN、阿里/CF 公网 DNS 正常），非内核/GUI/手机功能代码缺陷（发现/配对代码 2.0.12→2.0.15 未改）。处置：新增远程回连一键工具 `scripts/cobeing-remote-tunnel.ps1` + 根 `CoBeing-remote-tunnel.bat`（自动探测运行中 App 内核 WS 端口→起 cloudflared quick tunnel→输出地址/token 并写内核数据目录 remote-tunnel.txt；重启/换网后重跑即可，token 不变、URL 每次变）；`docs/使用指南.md` 增「方式三：隔离网络/远程回连」；同地点最稳用手机热点+重启 App 走局域网；手机 DNS 污染开「私人 DNS=dns.google」。版本 bump 2.0.15；root 252 / gui 50 / mobile 43 全绿。
 > 版本注记（2026-09-08 · v2.0.14 管家端到端任务闭环）：批准创建智能体后自动续步（confirmAgent 记 pending 来源=butler，批准注入 [审批通过] + wake 但丁续建群/派活）+ 新增管家工具 speak-to-group（向群组投任务 @all 唤醒 worker 开工，规格 v0.3 定义能力落地）+ persona【端到端任务闭环】协议 + gui/mobile「铃音思考中」三圆点提示（发送后基线 seq 至但丁新回复消失）；worker denyTools 收敛追加 speak-to-group；verify-butler-dispatch.mjs 真实 E2E 30.8s 全绿（批准→自动续步→自主建群→派活 taskSummary→worker 真实开工，全程无需进群手操）；root 252/gui 50/mobile 43 全绿。此前 v2.0.13：管家 create-agent 提交后下发「批准创建」确认卡（confirm 增 approval 字段），批准→confirmAgent、拒绝→内核/桥 rejectAgentApproval；butler persona 引导语改「批准卡已弹主对话」；AgentsView 补拒绝按钮（手机原拒绝误用 destroyAgent 已修）；另修 verify-agent-create.mjs 语法错误（此前从未能跑，修复后真实 E2E 证明内核能力完好）。
 > 定位：CoBeing 2.0.0 全新架构重写工程，与 v1（`D:\agent-codes\CoBeing\`）物理隔离。
 
